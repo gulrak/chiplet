@@ -716,18 +716,18 @@ std::string OctoCompiler::resolveFile(const fs::path& file)
     if(file.is_absolute()) {
         std::error_code ec;
         if(fs::exists(file, ec))
-            return file;
+            return file.string();
     }
     if(!_lexerStack.empty() && !lexer().filename().empty()) {
         std::error_code ec;
         auto newPath = fs::absolute(lexer().filename(), ec).parent_path() / file;
         if(!ec && fs::exists(newPath, ec))
-            return newPath;
+            return newPath.string();
     }
     else {
         std::error_code ec;
         if(fs::exists(file, ec))
-            return file;
+            return file.string();
     }
     for(const auto& path : _includePaths) {
         std::error_code ec;
