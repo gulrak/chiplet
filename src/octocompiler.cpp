@@ -79,55 +79,6 @@ inline std::string loadTextFile(const std::string& file)
     return {};
 }
 
-class TextFile {
-    std::ifstream file_stream;
-    std::vector<std::streampos> linebegins;
-    TextFile& operator=(TextFile& b) = delete;
-public:
-    TextFile(std::string filename)
-        :file_stream(filename)
-    {
-        //this chunk stolen from Armen's,
-        std::string s;
-        //for performance
-        s.reserve(128);
-        while(file_stream) {
-            linebegins.push_back(file_stream.tellg());
-            std::getline(file_stream, s);
-        }
-    }
-    TextFile(TextFile&& b)
-        : file_stream(std::move(b.file_stream))
-        , linebegins(std::move(b.linebegins))
-    {}
-    TextFile& operator=(TextFile&& b)
-    {
-        file_stream = std::move(b.file_stream);
-        linebegins = std::move(b.linebegins);
-        return *this;
-    }
-    std::string ReadNthLine(int N) {
-        if (N >= linebegins.size()-1)
-            throw std::runtime_error("File doesn't have that many lines!");
-        std::string s;
-        // clear EOF and error flags
-        file_stream.clear();
-        file_stream.seekg(linebegins[N]);
-        std::getline(file_stream, s);
-        return s;
-    }
-};
-
-static std::string getNthLine(std::string file, int line)
-{
-    static std::unordered_map<std::string, TextFile> fileMap;
-    auto iter = fileMap.find(file);
-    if(iter == fileMap.end()) {
-        iter = fileMap.emplace(file, file).first;
-    }
-    return iter->second.ReadNthLine(line);
-}
-
 }
 
 namespace emu {

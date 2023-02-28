@@ -1,8 +1,12 @@
 set(CHIPLET_LIBRARY_SOURCE
     ../include/chiplet/chip8compiler.hpp
+    ../include/chiplet/chip8decompiler.hpp
+    ../include/chiplet/chip8meta.hpp
+    ../include/chiplet/chip8variants.hpp
     ../include/chiplet/octocompiler.hpp
 
     chip8compiler.cpp
+    chip8decompiler.cpp
     octocompiler.cpp
 )
 

@@ -52,6 +52,7 @@ class CLI
         ValuePtr valPtr;
         std::function<void(std::string, ValuePtr)> converter;
         std::string help;
+        std::string category;
     };
 public:
     CLI(int argc, char* argv[])
@@ -60,8 +61,15 @@ public:
             argList.emplace_back(argv[i]);
         }
     }
+    void category(std::string cat)
+    {
+        currentCategory = cat;
+        if(std::find(categories.begin(), categories.end(), currentCategory) == categories.end()) {
+            categories.push_back(currentCategory);
+        }
+    }
     template<typename T>
-    void option(const std::vector<std::string>& names, T& destVal, std::string description = std::string())
+    void option(const std::vector<std::string>& names, T& destVal, std::string description = "")
     {
         static_assert(Contains<T*, ValuePtr>::value, "CLI: supported option types are only bool, std::int64_t, std::string or std::vector<std::string>");
         handler[names] = {&destVal,
@@ -71,7 +79,8 @@ public:
                                                  [arg](std::string* val) { *val = arg; },
                                                  [arg](std::vector<std::string>* val) { val->push_back(arg); }}, valp);
                           },
-                          description};
+                          description,
+                          currentCategory};
     }
     void positional(std::vector<std::string>& dest, std::string description = std::string())
     {
@@ -95,18 +104,24 @@ public:
     }
     void usage()
     {
-        std::cout << "USAGE: " << argList[0] << " [options]\n" << std::endl;
+        std::cout << "USAGE: " << argList[0] << " [options]" << (positionalArgs ? " ..." : "") << std::endl;
         std::cout << "OPTIONS:\n" << std::endl;
-        for(const auto& [names, info] : handler) {
-            std::string delimiter = "";
-            for(const auto& name : names) {
-                std::cout << delimiter << name;
-                if(info.valPtr.index()) {
-                    std::cout << " <arg>";
+        std::sort(categories.begin(), categories.end());
+        for(const auto& category : categories) {
+            if(categories.size() > 1) std::cout << category << ":" << std::endl;
+            for(const auto& [names, info] : handler) {
+                if(info.category == category) {
+                    std::string delimiter = "  ";
+                    for(const auto& name : names) {
+                        std::cout << delimiter << name;
+                        if(info.valPtr.index()) {
+                            std::cout << " <arg>";
+                        }
+                        delimiter = ", ";
+                    }
+                    std::cout << std::endl << "    " << info.help << "\n" << std::endl;
                 }
-                delimiter = ", ";
             }
-            std::cout << std::endl << "    " << info.help << "\n" << std::endl;
         }
         if(positionalArgs)
             std::cout << "...\n    " << positionalHelp << "\n" << std::endl;
@@ -140,6 +155,8 @@ private:
     std::vector<std::string> argList;
     std::map<std::vector<std::string>, Info> handler;
     std::vector<std::string>* positionalArgs{nullptr};
+    std::vector<std::string> categories;
+    std::string currentCategory;
     std::string positionalHelp;
 };
 
