@@ -89,6 +89,12 @@ int main(int argc, char* argv[])
         else
             logstream << "current directory: " << fs::current_path().string() << std::endl;
     }
+
+    if(inputList.empty()) {
+        std::cerr << "ERROR: No input files given" << std::endl;
+        exit(1);
+    }
+
     auto start = steady_clock::now();
     emu::CompileResult result;
     try {
@@ -113,20 +119,25 @@ int main(int argc, char* argv[])
             }
         }
         if(result.resultType != emu::CompileResult::eOK) {
-            for(auto iter = result.locations.rbegin(); iter != result.locations.rend(); ++iter) {
-                switch(iter->type) {
-                    case emu::CompileResult::Location::eINCLUDED:
-                        std::cerr << "In file included from " << iter->file << ":" << iter->line << ":" << std::endl;
-                        break;
-                    case emu::CompileResult::Location::eINSTANTIATED:
-                        std::cerr << "Instantiated at " << iter->file << ":" << iter->line << ":" << std::endl;
-                        break;
-                    default:
-                        std::cerr << iter->file << ":" << iter->line << ":";
-                        if(iter->column)
-                            std::cerr << iter->column << ": ";
-                        std::cerr << result.errorMessage << "\n" << std::endl;
-                        break;
+            if(result.locations.empty()) {
+                std::cerr << "error: " << result.errorMessage << std::endl;
+            }
+            else {
+                for (auto iter = result.locations.rbegin(); iter != result.locations.rend(); ++iter) {
+                    switch (iter->type) {
+                        case emu::CompileResult::Location::eINCLUDED:
+                            std::cerr << "In file included from " << iter->file << ":" << iter->line << ":" << std::endl;
+                            break;
+                        case emu::CompileResult::Location::eINSTANTIATED:
+                            std::cerr << "Instantiated at " << iter->file << ":" << iter->line << ":" << std::endl;
+                            break;
+                        default:
+                            std::cerr << iter->file << ":" << iter->line << ":";
+                            if (iter->column)
+                                std::cerr << iter->column << ": ";
+                            std::cerr << result.errorMessage << "\n" << std::endl;
+                            break;
+                    }
                 }
             }
         }

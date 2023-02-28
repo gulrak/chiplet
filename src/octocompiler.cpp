@@ -610,7 +610,7 @@ const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile, 
                         auto newFile = fs::absolute(inputFile).parent_path() / lex.token().text;
                         auto extension = toLower(newFile.extension().string());
                         if (isImage(extension)) {
-                            token = includeImage(newFile);
+                            token = includeImage(newFile.string());
                         }
                         else {
                             flushSegment();
@@ -749,6 +749,7 @@ const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile)
     }
     catch(std::runtime_error& ex)
     {
+        
     }
     return _compileResult;
 }
