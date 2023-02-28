@@ -81,4 +81,5 @@ To build in the Bash from W64devkit:
 ```
 export PATH="$PATH;C:/Program Files/CMake/bin"
 cmake -G"Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -S . -B build-w64dev
+cmake --build build-w64dev
 ```
