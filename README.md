@@ -47,3 +47,38 @@ OPTIONS:
 ...
     Files or directories to work on (currently only files)
 ```
+
+## Compiling from Source
+
+_Chiplet_ is written in C++17 and uses CMake as a build solution. To build it,
+checkout or download the source.
+
+### Linux / macOS
+
+Open a terminal, enter the directory where the code was extracted and run:
+
+```
+cmake -S . -B build
+```
+
+to configure the project, and
+
+```
+cmake --build build
+```
+
+to compile it.
+
+### Windows
+
+Currently, _Chiplet_ is not tested to compile with MSVC++ so the recommended
+toolchain is [W64devkit](https://github.com/skeeto/w64devkit). I might try to
+make it compile on MSVC++, but I am not working on that in the near future.
+That being said, I would not per-se reject PRs helping with this.
+
+To build in the Bash from W64devkit:
+
+```
+export PATH="$PATH;C:/Program Files/CMake/bin"
+cmake -G"Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -S . -B build-w64dev
+```
