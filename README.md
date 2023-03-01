@@ -12,9 +12,16 @@ _A commandline multitool for CHIP-8 variant development_
     * [Disassembling a Binary](#disassembling-a-binary)
     * [Analyzing a Binary or a Directory](#analyzing-a-binary-or-a-directory)
     * [Finding Opcode Use](#finding-opcode-use)
+  * [The Preprocessor Syntax](#the-preprocessor-syntax)
+    * [Conditional Assembly](#conditional-assembly)
+    * [Inclusion of Files](#inclusion-of-files)
+    * [Inclusion of Images](#inclusion-of-images)
   * [Compiling from Source](#compiling-from-source)
     * [Linux / macOS](#linux--macos)
     * [Windows](#windows)
+  * [Used Resources](#used-resources)
+    * [Information](#information)
+    * [Libraries](#libraries)
 <!-- TOC -->
 
 ## Overview
@@ -283,3 +290,34 @@ export PATH="$PATH;C:/Program Files/CMake/bin"
 cmake -G"Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -S . -B build-w64dev
 cmake --build build-w64dev
 ```
+
+---
+
+## Used Resources
+
+### Information
+
+* [Octopus](https://github.com/Timendus/chipcode/tree/main/octopus) - This is the
+  preprocessor that defined the syntax and feature set, we talked about this idea
+  during it's creation time and I followed his specification to implement the
+  preprocessor in _Chiplet_, and it should behave the same, with the only exception
+  that _Chiplet_ supports TGA but doesn't support TIFF.
+* [Octo assembler syntax](http://johnearnest.github.io/Octo/docs/Manual.html) - The
+  preprocessor needs to make sure it doesn't break Octo, so it's lexer is implemented
+  with respecto to the Octo specification by John Earnest.
+
+
+### Libraries
+
+* [c-octo assembler](https://github.com/JohnEarnest/c-octo) - the octo
+  assembler for support of generating binaries from [Octo assembler syntax](http://johnearnest.github.io/Octo/docs/Manual.html)
+  _(containied in `external/c-octo`)_
+* [fmtlib](https://github.com/fmtlib/fmt) - a modern formatting library in
+  the style of C++20 std::format _(contained in `external/fmt`)_
+* [ghc::filesystem](https://github.com/gulrak/filesystem) - An implementation
+  of std::filesystem for C++11/14/17/20 that also works on MingW variants
+  that don't have a working std::filesystem in C++17 and with better utf8
+  support _(automatically fetched during configuration)_
+* [stb_image](https://github.com/nothings/stb/blob/master/stb_image.h) - An image
+  format loader from Sean Barrets great `nothings` collection, used to support
+  image import
