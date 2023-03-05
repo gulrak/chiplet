@@ -354,6 +354,10 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
                 return Token::eSPRITESIZE;
             }
         }
+        else if(_mode == eRCA && *start == '#')
+            _token.number = (double)std::strtol(start+1, &end, 16);
+        else if(_mode == eMOTOROLA && *start == '$')
+            _token.number = (double)std::strtol(start+1, &end, 16);
         if (end == _srcPtr)
             return Token::eNUMBER;
         else if (std::isdigit(*start))
@@ -383,7 +387,9 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
         for(int i = 0; i < len; ++i) {
             if (!std::isalnum((uint8_t) * (start + i)) && *(start + i) != '-' && *(start + i) != '_') {
                 _token.text = _token.raw;
-                return Token::eSTRING;
+                if(_mode == eCHIP8)
+                    return Token::eSTRING;
+                error(fmt::format("Invalid token: {}", _token.raw));
             }
         }
         return Token::eIDENTIFIER;
