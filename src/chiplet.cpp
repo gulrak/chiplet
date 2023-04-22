@@ -67,7 +67,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                 emu::OctoCompiler comp;
                 dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &os, false, true);
                 auto source = os.str();
-                if(comp.compile(file, source.data(), source.data() + source.size(), false).resultType == emu::CompileResult::eOK) {
+                if(comp.compile(file, source.data(), source.data() + source.size() + 1, false).resultType == emu::CompileResult::eOK) {
                     if(comp.codeSize() != data.size()) {
                         std::cerr << "    " << fileOrPath(file) << ": Compiled size doesn't match! (" << data.size() << " bytes)" << std::endl;
                         workFile(eANALYSE, file, data);

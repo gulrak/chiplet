@@ -84,6 +84,7 @@ public:
     };
     class Lexer {
     public:
+        enum Mode { eCHIP8, eMOTOROLA, eRCA };
         struct Exception : public std::exception {
             Exception(const std::string& message) : errorMessage(message) {}
             ~Exception() noexcept override = default;
@@ -114,6 +115,7 @@ public:
         const char* _srcPtr{nullptr};
         const char* _srcEnd{nullptr};
         Token _token;
+        Mode _mode{eCHIP8};
     };
     OctoCompiler();
     ~OctoCompiler();
