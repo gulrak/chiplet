@@ -151,6 +151,7 @@ private:
     static bool isImage(const std::string& filename);
     Token::Type includeImage(std::string filename);
     void write(const std::string_view& text);
+    void writeGenerated(const std::string_view& text);
     void writePrefix();
     void doWrite(const std::string_view& text, int line);
     void writeLineMarker();
