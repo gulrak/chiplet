@@ -714,7 +714,7 @@ const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile)
 void OctoCompiler::doWrite(const std::string_view& text, int line)
 {
     auto& lex = lexer();
-    if(_generateLineInfos && (_collectLocationStack.empty() || _collectLocationStack.back().first != line || lex.filename() != _collectLocationStack.back().second)) {
+    if(_generateLineInfos && line >= 0 && (_collectLocationStack.empty() || _collectLocationStack.back().first != line || lex.filename() != _collectLocationStack.back().second)) {
         auto locationStack = lex.locationStack();
         locationStack.back().first = line;
         auto iterOld = _collectLocationStack.begin();
@@ -733,7 +733,8 @@ void OctoCompiler::doWrite(const std::string_view& text, int line)
         }
         std::swap(_collectLocationStack, locationStack);
     }
-    _collectLocationStack.back().first += std::count(text.begin(), text.end(), '\n');
+    if(!_collectLocationStack.empty())
+        _collectLocationStack.back().first += std::count(text.begin(), text.end(), '\n');
     if (_emitCode.empty() || _emitCode.top() == eACTIVE)
         _collect << text;
 }
@@ -749,6 +750,13 @@ void OctoCompiler::write(const std::string_view& text)
 {
     if(!text.empty()) {
         doWrite(text, lexer().token().line);
+    }
+}
+
+void OctoCompiler::writeGenerated(const std::string_view& text)
+{
+    if(!text.empty()) {
+        doWrite(text, -1); // do not generate line info for generated code as it has no source lines
     }
 }
 
@@ -833,10 +841,10 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
         for (int x = 0; x < width; x += spriteWidth) {
             int index = y * width + x;
             if(genLabels)
-                write(fmt::format("\n: {}-{}-{}\n", name, x/8, y/spriteHeight));
+                writeGenerated(fmt::format("\n: {}-{}-{}\n", name, x/8, y/spriteHeight));
             if(debug && _progress) _progress(1, fmt::format("{} {},{}:", name, x/8, y/spriteHeight));
             for (int rows = 0; rows < spriteHeight; rows++) {
-                write(" ");
+                writeGenerated(" ");
                 for (int cols = 0; cols < spriteWidth / 8; cols++) {
                     uint8_t val = 0;
                     for (uint8_t bit = 0x80, i = 0; bit > 0; bit >>= 1, ++i) {
@@ -846,13 +854,13 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
                         }
                         if(debug && _progress) debugStr += pixel > 128 ? "██" : "░░";                        
                     }
-                    write(fmt::format(" 0b{:08b}", val));
+                    writeGenerated(fmt::format(" 0b{:08b}", val));
                 }
                 if(debug && _progress) {
                     _progress(1, debugStr);
                     debugStr.clear();
                 }
-                write("\n");
+                writeGenerated("\n");
             }
         }
     }
