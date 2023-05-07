@@ -44,7 +44,7 @@ public:
     constexpr EnumSet(std::initializer_list<EnumT> init)
     {
         for (const auto i : init) {
-            _bits.set(static_cast<std::size_t>(i));
+            set(static_cast<std::size_t>(i));
         }
     }
     constexpr bool contains(const EnumT e) {
@@ -106,6 +106,9 @@ public:
         }
         return static_cast<EnumT>(offset);
     }
+    constexpr uint64_t value() const {
+        return _bits.front();
+    }
 private:
     constexpr void set(size_t idx, bool val = true) {
         if(val)
@@ -130,7 +133,7 @@ private:
         if (n & 0x5555555555555555) c -= 1;
         return c;
     }
-    std::array<uint64_t,(N+63)/64> _bits;
+    std::array<uint64_t,(N+63)/64> _bits{};
 };
 
 namespace chip8 {
