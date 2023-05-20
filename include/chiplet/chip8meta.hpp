@@ -35,7 +35,7 @@
 
 namespace emu {
 
-enum OpcodeType { OT_FFFF, OT_FFFn, OT_FFnn, OT_Fnnn, OT_FxyF, OT_FxFF, OT_Fxyn, OT_Fxnn, NUM_OPCODE_TYPES};
+enum OpcodeType { OT_FFFF, OT_FFFn, OT_FFnn, OT_Fnnn, OT_FxyF, OT_FxFF, OT_Fxyn, OT_Fxnn, OT_FFyF, NUM_OPCODE_TYPES};
 
 struct OpcodeInfo {
     OpcodeType type;
@@ -49,8 +49,9 @@ struct OpcodeInfo {
 
 namespace detail {
 // clang-format off
-inline static std::array<uint16_t, NUM_OPCODE_TYPES> opcodeMasks = { 0xFFFF, 0xFFF0, 0xFF00, 0xF000, 0xF00F, 0xF0FF, 0xF000 };
+inline static std::array<uint16_t, NUM_OPCODE_TYPES> opcodeMasks = { 0xFFFF, 0xFFF0, 0xFF00, 0xF000, 0xF00F, 0xF0FF, 0xF000, 0xF000, 0xFF0F };
 inline static std::vector<OpcodeInfo> opcodes{
+    { OT_Fnnn, 0x0000, 2, "dw #0NNN", "0x0N 0xNN", static_cast<Chip8Variant>((int64_t)C8V::MULTIPLE_NIM-1)|C8V::CHIP_8_D6800, "jump to native assembler subroutine at 0xNNN"},
     { OT_FFFF, 0x0010, 2, "megaoff", "megaoff", C8V::MEGA_CHIP, "disable megachip mode" },
     { OT_FFFF, 0x0011, 2, "megaon", "megaon", C8V::MEGA_CHIP, "enable megachip mode" },
     { OT_FFFn, 0x00B0, 2, "dw #00bN", "scroll_up N", C8V::SCHIP_1_1_SCRUP, "scroll screen content up N hires pixel (half lores pixel)" },
@@ -61,7 +62,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x00EE, 2, "ret", "return", C8VG_BASE, "return from subroutine to address pulled from stack" },
     { OT_FFFF, 0x00FB, 2, "scr", "scroll-right", C8V::SCHIP_1_1|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content right four hires pixel (half lores pixel)" },
     { OT_FFFF, 0x00FC, 2, "scl", "scroll-left", C8V::SCHIP_1_1|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content left four hires pixel (half lores pixel)" },
-    { OT_FFFF, 0x00FD, 2, "exit", "exit", C8V::SCHIP_1_1|C8V::XO_CHIP|C8V::MEGA_CHIP|C8V::OCTO, "exit interpreter" },
+    { OT_FFFF, 0x00FD, 2, "exit", "exit", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::XO_CHIP|C8V::MEGA_CHIP|C8V::OCTO, "exit interpreter" },
     { OT_FFFF, 0x00FE, 2, "low", "lores", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to lores mode (64x32)" },
     { OT_FFFF, 0x00FF, 2, "dw #00ff", "nop", C8V::CHIP_8_ETI660|Chip8Variant::CHIP_8_ETI660_COL|Chip8Variant::CHIP_8_ETI660_HR, "nop (does nothing)" },
     { OT_FFFF, 0x00FF, 2, "high", "hires", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to hires mode (128x64)" },
@@ -95,7 +96,12 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FxyF, 0x800e, 2, "shl vX{,vY}", "vX <<= vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to vY and shift vX one bit to the left, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP dont set vX to vY, so only shift vX]" },
     { OT_FxyF, 0x9000, 2, "sne vX,vY", "if vX == vY then", C8VG_BASE, "skip next opcode if vX != vY" },
     { OT_Fnnn, 0xA000, 2, "ld i,NNN", "i := NNN", C8VG_BASE, "set I to NNN" },
-    { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE & ~(C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP), "jump to address NNN + v0" },
+    { OT_FFnn, 0xB000, 2, "dw #b0NN", "0xb0 0xNN", C8V::CHIP_8_I, "output NN to port"},
+    { OT_FFyF, 0xB100, 2, "dw #b1Y0", "0xb1 0xY0", C8V::CHIP_8_I, "output Vy to port"},
+    { OT_FFyF, 0xB101, 2, "dw #b1Y1", "0xb1 0xY1", C8V::CHIP_8_I, "wait for input (EF line is low) and set Vy to data from port"},
+    { OT_FxyF, 0xB000, 2, "dw #bXY0", "0xbX 0xY0", C8V::CHIP_8X, "set the foreground color of the pixel area defined by VX and VX+1 to the color defined in VY (VY <= 7, where values correspond to black, red, blue, violet, green, yellow, aqua and white, respectively); the display is split into 8 x 8 zones (8 x 4 pixels each); the least significant nibble of VX specifies the horizontal position of the left-most zone, and the most significant nibble of VX specifies the extra number of horizontal zones to color (ie. a value of 0 will color one zone); ditto for VX+1, but with vertical zones"},
+    { OT_FxyF, 0xB001, 2, "dw #bXY1", "0xbX 0xY1", C8V::CHIP_8X, "set the foreground color of the pixel area where VX is the horizontal coordinate and VX+1 is the vertical, for 8 horizontal pixels (similar to DXYN), to the color defined in VY (N > 0)"},
+    { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE & ~(C8V::CHIP_8_I|C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP), "jump to address NNN + v0" },
     { OT_Fxnn, 0xB000, 2, "jp vX,NNN", "jump0 NNN + vX", C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP, "jump to address XNN + vX" },
     { OT_Fxyn, 0xB000, 2, "dw #bXYN", "0xbXYN", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set foreground color for area" },
     { OT_Fxnn, 0xC000, 2, "rnd vX,NN", "vX := random NN", C8VG_BASE, "set vx to a random value masked (bitwise AND) with NN" },
