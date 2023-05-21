@@ -78,7 +78,7 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant
         case C8V::SCHIP_1_0: return {"schip-1.0", "SUPER-CHIP 1.0"};
         case C8V::SCHIP_1_1: return {"schip-1.1", "SUPER-CHIP 1.1"};
         case C8V::GCHIP: return {"gchip", "GCHIP"};
-        case C8V::SCHIPC_GCHIPC: return {"schpc-gchpc", "SCHIP Compatibility (SCHPC) and GCHIP Compatibility (GCHPC)"};
+        case C8V::SCHIPC_GCHIPC: return {"schipc", "SCHIP Compatibility (SCHPC) and GCHIP Compatibility (GCHPC)"};
         case C8V::VIP2K_CHIP_8: return {"vip2k-chip-8", "VIP2K CHIP-8"};
         case C8V::SCHIP_1_1_SCRUP: return {"schip-1.1-scrup", "SUPER-CHIP with scroll up"};
         case C8V::CHIP8RUN: return {"chip8run", "chip8run"};
