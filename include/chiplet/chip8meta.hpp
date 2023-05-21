@@ -123,8 +123,8 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FxFF, 0xF03A, 2, "", "pitch := vX", C8V::XO_CHIP, "set audio pitch for a audio pattern playback rate of 4000*2^((vX-64)/48)Hz" },
     { OT_FxFF, 0xF055, 2, "", "save vX", C8VG_BASE, "write the content of v0 to vX at the memory pointed to by I, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1 not at all]" },
     { OT_FxFF, 0xF065, 2, "", "load vX", C8VG_BASE, "read the bytes from memory pointed to by I into the registers v0 to vX, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1 not at all]" },
-    { OT_FxFF, 0xF075, 2, "", "saveflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "store the content of the registers v0 to vX into flags storage (outside of the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7]" },
-    { OT_FxFF, 0xF085, 2, "", "loadflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "load the registers v0 to vX from flags storage (outside the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7]" },
+    { OT_FxFF, 0xF075, 2, "", "saveflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "store the content of the registers v0 to vX into flags storage (outside of the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
+    { OT_FxFF, 0xF085, 2, "", "loadflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "load the registers v0 to vX from flags storage (outside the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
     { OT_FxFF, 0xF0F8, 2, "", "0xfX 0xf8", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "output vX to io port" },
     { OT_FxFF, 0xF0FB, 2, "", "0xfX 0xfb", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "wait for input from io and load into vX" }
 };
