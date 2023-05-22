@@ -29,6 +29,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 #include <bitset>
@@ -109,7 +110,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_Fxyn, 0xD000, 2, "drw vX,vY,N", "sprite vX vY N", C8VG_BASE, "draw 8xN pixel sprite at position vX, vY [Q: XO-CHIP wraps pixels instead of clipping them] [Q: Original COSMAC VIP based systems (like original CHIP-8) wait for vertical blank, sometimes even need two screens to finish] [Q: CHIP-10 only has a hires mode] [Q: The original SCHIP-1.1 in hires mode set VF to the number of sprite rows with collisions plus the number of rows clipped at the bottom border]" },
     { OT_FxFF, 0xE09E, 2, "skp vX", "if vX -key then", C8VG_BASE, "skip next opcode if key in vX is pressed (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxFF, 0xE0A1, 2, "sknp vX", "if vX key then", C8VG_BASE, "skip next opcode if key in vX is not pressed (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
-    { OT_FFFF, 0xF000, 4, "", "i := long NNNN", C8V::XO_CHIP, "assign next 16 bit word to i, and set PC behind it" },
+    { OT_FFFF, 0xF000, 4, "", "i := long NNNN", C8V::XO_CHIP, "assign next 16 bit word to i, and set PC behind it, this is a four byte instruction (see note on skip instructions)" },
     { OT_FxFF, 0xF001, 2, "", "planes X", C8V::XO_CHIP, "select bit planes to draw on when drawing with Dxy0/Dxyn" },
     { OT_FFFF, 0xF002, 2, "", "audio", C8V::XO_CHIP, "load 16 bytes audio pattern pointed to by I into audio pattern buffer" },
     { OT_FxFF, 0xF007, 2, "", "vX := delay", C8VG_BASE, "set vX to the value of the delay timer" },
@@ -129,6 +130,23 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FxFF, 0xF0FB, 2, "", "0xfX 0xfb", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "wait for input from io and load into vX" }
 };
 // clang-format on
+
+inline static std::map<std::string,std::string> octoMacros = {
+    {"megaoff", ":macro megaoff { :byte 0x00  :byte 0x10 }"},
+    {"megaon", ":macro megaon { :byte 0x00 :byte 0x11 }"},
+    {"scroll_up", ":macro scroll_up n { :calc BN { 0xB0 + ( n & 0xF ) } :byte 0x00 :byte BN }"},
+    {"ldhi", ":macro ldhi nnnn { :byte 0x01 :byte 0x00 :pointer nnnn }"},
+    {"ldpal", ":macro ldpal nn { :byte 0x02 :byte nn }"},
+    {"sprw", ":macro sprw nn { :byte 0x03 :byte nn }"},
+    {"sprh", ":macro sprh nn { :byte 0x04 :byte nn }"},
+    {"alpha", ":macro alpha nn { :byte 0x05 :byte nn }"},
+    {"digisnd", ":macro digisnd n { :calc ZN { n & 0xF } :byte 0x06 :byte ZN }"},
+    {"stopsnd", ":macro stopsnd { :byte 0x07 :byte 0x00 }"},
+    {"bmode", ":macro bmode n { :calc ZN { n & 0xF } :byte 0x08 :byte ZN }"},
+    {"ccol", ":macro ccol nn { :byte 0x09 :byte nn }"},
+    {"cycle-background", ":macro cycle-background { 0x02 0xa0 }"}
+};
+
 } // namespace detail
 
 } // namespace emu
