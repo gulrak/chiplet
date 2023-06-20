@@ -57,7 +57,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x0011, 2, "megaon", "megaon", C8V::MEGA_CHIP, "enable megachip mode" },
     { OT_FFFn, 0x00B0, 2, "dw #00bN", "scroll_up N", C8V::SCHIP_1_1_SCRUP, "scroll screen content up N pixel [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels]" },
     { OT_FFFn, 0x00B0, 2, "scru N", "0x00 0xbN", C8V::MEGA_CHIP, "scroll screen content up N pixel" },
-    { OT_FFFn, 0x00C0, 2, "scd N", "scroll-down N", C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content down N pixel, in XO-CHIP only selected bit planes are scrolled [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels]" },
+    { OT_FFFn, 0x00C0, 2, "scd N", "scroll-down N", C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content down N pixel, in XO-CHIP only selected bit planes are scrolled [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels][Q: On the HP48 (SCHIP/SCHPC) opcode 00C0, so scrolling zero pixels, is not a valid opcode]" },
     { OT_FFFn, 0x00D0, 2, "scu N", "scroll-up N", C8V::XO_CHIP|C8V::OCTO, "scroll screen content up N hires pixel, in XO-CHIP only selected planes are scrolled" },
     { OT_FFFF, 0x00E0, 2, "cls", "clear", C8VG_BASE, "clear the screen, in XO-CHIP only selected bit planes are cleared, in MegaChip mode it updates the visible screen before clearing the draw buffer" },
     { OT_FFFF, 0x00EE, 2, "ret", "return", C8VG_BASE, "return from subroutine to address pulled from stack" },
@@ -82,6 +82,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_Fxnn, 0x3000, 2, "se vX,NN", "if vX != NN then", C8VG_BASE, "skip next opcode if vX == NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_Fxnn, 0x4000, 2, "sne vX,NN", "if vX == NN then", C8VG_BASE, "skip next opcode if vX != NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxyF, 0x5000, 2, "se vX,vY", "if vX != vY then", C8VG_BASE, "skip next opcode it vX == vY (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
+    { OT_FxyF, 0x5001, 2, "dw #5XY1", "0x5X 0xY1", C8V::CHIP_8X|C8V::CHIP_8X_TPD, "A BCD like add opcode that works in octal, add the nibbles of Vx and Vy separately, and mask the results to keep it on the range of 0x00 to 0x77, and store result in vX"},
     { OT_FxyF, 0x5002, 2, "ld [i],vX-vY", "save vX - vY", C8V::XO_CHIP|C8V::OCTO, "write registers vX to vY to memory pointed to by I" },
     { OT_FxyF, 0x5003, 2, "ld vX-vY,[i]", "load vX - vY", C8V::XO_CHIP|C8V::OCTO, "load registers vX to vY from memory pointed to by I" },
     { OT_Fxnn, 0x6000, 2, "ld vX,NN", "vX := NN", C8VG_BASE, "set vX to NN" },
@@ -100,8 +101,8 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFnn, 0xB000, 2, "dw #b0NN", "0xb0 0xNN", C8V::CHIP_8_I, "output NN to port"},
     { OT_FFyF, 0xB100, 2, "dw #b1Y0", "0xb1 0xY0", C8V::CHIP_8_I, "output Vy to port"},
     { OT_FFyF, 0xB101, 2, "dw #b1Y1", "0xb1 0xY1", C8V::CHIP_8_I, "wait for input (EF line is low) and set Vy to data from port"},
-    { OT_FxyF, 0xB000, 2, "dw #bXY0", "0xbX 0xY0", C8V::CHIP_8X, "set the foreground color of the pixel area defined by VX and VX+1 to the color defined in VY (VY <= 7, where values correspond to black, red, blue, violet, green, yellow, aqua and white, respectively); the display is split into 8 x 8 zones (8 x 4 pixels each); the least significant nibble of VX specifies the horizontal position of the left-most zone, and the most significant nibble of VX specifies the extra number of horizontal zones to color (ie. a value of 0 will color one zone); ditto for VX+1, but with vertical zones"},
-    { OT_FxyF, 0xB001, 2, "dw #bXY1", "0xbX 0xY1", C8V::CHIP_8X, "set the foreground color of the pixel area where VX is the horizontal coordinate and VX+1 is the vertical, for 8 horizontal pixels (similar to DXYN), to the color defined in VY (N > 0)"},
+    { OT_FxyF, 0xB000, 2, "dw #bXY0", "col-low ", C8V::CHIP_8X, "set the foreground color of the pixel area defined by VX and VX+1 to the color defined in VY (VY <= 7, where values correspond to black, red, blue, violet, green, yellow, aqua and white, respectively); the display is split into 8 x 8 zones (8 x 4 pixels each); the least significant nibble of VX specifies the horizontal position of the left-most zone, and the most significant nibble of VX specifies the extra number of horizontal zones to color (ie. a value of 0 will color one zone); ditto for VX+1, but with vertical zones"},
+    { OT_Fxyn, 0xB000, 2, "dw #bXYN", "col-high X Y N", C8V::CHIP_8X, "set the foreground color of the pixel area where VX is the horizontal coordinate and VX+1 is the vertical, for 8 horizontal pixels (similar to DXYN), to the color defined in VY (N > 0), horizontal coordinates are actually seen as VX&0x38"},
     { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE & ~(C8V::CHIP_8_I|C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP), "jump to address NNN + v0" },
     { OT_Fxnn, 0xB000, 2, "jp vX,NNN", "jump0 NNN + vX", C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP, "jump to address XNN + vX" },
     { OT_Fxyn, 0xB000, 2, "dw #bXYN", "0xbXYN", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set foreground color for area" },
@@ -110,6 +111,8 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_Fxyn, 0xD000, 2, "drw vX,vY,N", "sprite vX vY N", C8VG_BASE, "draw 8xN pixel sprite at position vX, vY with data starting at the address in I, I is not changed [Q: XO-CHIP wraps pixels instead of clipping them] [Q: Original COSMAC VIP based systems (like original CHIP-8), and the HP48 based interpreters in 64x32 mode wait for the start of the next frame, the VIP sometimes even needs two screens to finish] [Q: CHIP-10 only has a hires mode] [Q: The original SCHIP-1.1 in hires mode set VF to the number of sprite rows with collisions plus the number of rows clipped at the bottom border]" },
     { OT_FxFF, 0xE09E, 2, "skp vX", "if vX -key then", C8VG_BASE, "skip next opcode if key in vX is pressed (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxFF, 0xE0A1, 2, "sknp vX", "if vX key then", C8VG_BASE, "skip next opcode if key in vX is not pressed (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
+    { OT_FxFF, 0xE0F2, 2, "dw #eXf2", "0xeX 0xf2", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "skip next opcode if key in vX is pressed on keypad 2" },
+    { OT_FxFF, 0xE0F5, 2, "dw #eXf5", "0xeX 0xf6", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "skip next opcode if key in vX is not pressed keypad 2" },
     { OT_FFFF, 0xF000, 4, "", "i := long NNNN", C8V::XO_CHIP, "assign next 16 bit word to i, and set PC behind it, this is a four byte instruction (see note on skip instructions)" },
     { OT_FxFF, 0xF001, 2, "", "planes X", C8V::XO_CHIP, "select bit planes to draw on when drawing with Dxy0/Dxyn" },
     { OT_FFFF, 0xF002, 2, "", "audio", C8V::XO_CHIP, "load 16 bytes audio pattern pointed to by I into audio pattern buffer" },
@@ -126,12 +129,12 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FxFF, 0xF065, 2, "", "load vX", C8VG_BASE, "read the bytes from memory pointed to by I into the registers v0 to vX, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1 not at all]" },
     { OT_FxFF, 0xF075, 2, "", "saveflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "store the content of the registers v0 to vX into flags storage (outside of the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
     { OT_FxFF, 0xF085, 2, "", "loadflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "load the registers v0 to vX from flags storage (outside the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
-    { OT_FxFF, 0xF0F8, 2, "", "0xfX 0xf8", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "output vX to io port" },
-    { OT_FxFF, 0xF0FB, 2, "", "0xfX 0xfb", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "wait for input from io and load into vX" }
+    { OT_FxFF, 0xF0F8, 2, "dw #fXf8", "0xfX 0xf8", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "output vX to io port" },
+    { OT_FxFF, 0xF0FB, 2, "dw #fXfb", "0xfX 0xfb", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "wait for input from io and load into vX" }
 };
 // clang-format on
 
-inline static std::map<std::string,std::string> octoMacros = {
+inline static std::map<std::string, std::string> octoMacros = {
     {"megaoff", ":macro megaoff { :byte 0x00  :byte 0x10 }"},
     {"megaon", ":macro megaon { :byte 0x00 :byte 0x11 }"},
     {"scroll_up", ":macro scroll_up n { :calc BN { 0xB0 + ( n & 0xF ) } :byte 0x00 :byte BN }"},
@@ -144,7 +147,10 @@ inline static std::map<std::string,std::string> octoMacros = {
     {"stopsnd", ":macro stopsnd { :byte 0x07 :byte 0x00 }"},
     {"bmode", ":macro bmode n { :calc ZN { n & 0xF } :byte 0x08 :byte ZN }"},
     {"ccol", ":macro ccol nn { :byte 0x09 :byte nn }"},
-    {"cycle-background", ":macro cycle-background { 0x02 0xa0 }"}
+    {"cycle-background", ":macro cycle-background { 0x02 0xa0 }"},
+    {"col-low", ":macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }"},
+    {"col-high", ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 + ( n & 0xF ) } :byte MSB :byte LSB }"},
+
 };
 
 } // namespace detail
