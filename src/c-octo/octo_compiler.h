@@ -1131,6 +1131,7 @@ octo_program* octo_program_init(char* text, int startAddress){
   octo_list_init(&p->tokens);
   p->has_main=1;
   p->here=startAddress;
+  p->startAddress = startAddress;
   p->length=OCTO_RAM_MAX;
   memset(p->rom, 0,OCTO_RAM_MAX);
   memset(p->used,0,OCTO_RAM_MAX);
