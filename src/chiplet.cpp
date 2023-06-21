@@ -242,6 +242,7 @@ int main(int argc, char* argv[])
     bool dumpDoubles = false;
     int verbosity = 1;
     int rc = 0;
+    int startAddress = 0x200;
     std::vector<std::string> includePaths;
     std::vector<std::string> inputList;
     std::vector<std::string> defineList;
@@ -250,6 +251,7 @@ int main(int argc, char* argv[])
     cli.option({"-I", "--include-path"}, includePaths, "add directory to include search path");
     cli.option({"-D", "--define"}, defineList, "add a defined option to the preprocessor");
     cli.option({"-o", "--output"}, outputFile, "name of output file, default stdout for preprocessor, a.out.ch8 for binary");
+    cli.option({"--start-address"}, startAddress, "the address the program will be loaded to, the ': main' label address, default is 512");
     cli.option({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
 
     cli.category("Disassembler/Analyzer");
@@ -314,6 +316,7 @@ int main(int argc, char* argv[])
         rc = disassembleOrAnalyze(scan, dumpDoubles, inputList, mode);
     else {
         emu::OctoCompiler compiler;
+        compiler.setStartAddress(startAddress);
         compiler.generateLineInfos(!noLineInfo);
         compiler.setIncludePaths(includePaths);
         if(!quiet) {

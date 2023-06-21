@@ -148,7 +148,7 @@ const CompileResult& OctoCompiler::compile(const std::string& filename, const ch
     std::string_view sourceCode = {source, size_t(end - source)};
     _compiler.reset(new Chip8Compiler);
     if(_progress) _progress(1, "compiling ...");
-    _compiler->compile(source, end);
+    _compiler->compile(source, end, _startAddress);
     if(_compiler->isError()) {
         if(_generateLineInfos) {
             std::stack<FilePos> filePosStack;

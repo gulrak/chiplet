@@ -120,6 +120,7 @@ public:
     OctoCompiler();
     ~OctoCompiler();
     void reset();
+    void setStartAddress(int startAddress) { _startAddress = startAddress; }
     const CompileResult& compile(const std::string& filename, const char* source, const char* end, bool needsPreprocess = true);
     const CompileResult& compile(const std::string& filename);
     const CompileResult& compile(const std::vector<std::string>& files);
@@ -175,6 +176,7 @@ private:
     std::unique_ptr<Chip8Compiler> _compiler;
     ProgressHandler _progress;
     bool _generateLineInfos{true};
+    int _startAddress{0x200};
     CompileResult _compileResult;
 };
 

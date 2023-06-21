@@ -53,12 +53,12 @@ Chip8Compiler::~Chip8Compiler()
     }
 }
 
-bool Chip8Compiler::compile(std::string str)
+bool Chip8Compiler::compile(std::string str, int startAddress)
 {
-    return compile(str.data(), str.data() + str.size() + 1);
+    return compile(str.data(), str.data() + str.size() + 1, startAddress);
 }
 
-bool Chip8Compiler::compile(const char* start, const char* end)
+bool Chip8Compiler::compile(const char* start, const char* end, int startAddress)
 {
     if (_impl->_program) {
         octo_free_program(_impl->_program);
@@ -67,7 +67,7 @@ bool Chip8Compiler::compile(const char* start, const char* end)
     // make a malloc based copy that c-octo will own and free on oct_free_program
     char* source = (char*)malloc(end - start);
     memcpy(source, start, end - start);
-    _impl->_program = octo_compile_str(source);
+    _impl->_program = octo_compile_str(source, startAddress);
     if (!_impl->_program) {
         _impl->_errorMessage = "ERROR: unknown error, no binary generated";
     }
@@ -114,12 +114,12 @@ const std::string& Chip8Compiler::errorMessage() const
 
 uint16_t Chip8Compiler::codeSize() const
 {
-    return _impl->_program && !_impl->_program->is_error ? _impl->_program->length - 0x200 : 0;
+    return _impl->_program && !_impl->_program->is_error ? _impl->_program->length - _impl->_program->startAddress : 0;
 }
 
 const uint8_t* Chip8Compiler::code() const
 {
-    return reinterpret_cast<const uint8_t*>(_impl->_program->rom + 0x200);
+    return reinterpret_cast<const uint8_t*>(_impl->_program->rom + _impl->_program->startAddress);
 }
 
 const std::string& Chip8Compiler::sha1Hex() const

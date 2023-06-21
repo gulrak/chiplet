@@ -204,6 +204,7 @@ typedef struct {
 
   // compiler
   char       has_main;    // do we need a trampoline for 'main'?
+  int        startAddress;
   int        here;
   int        length;
   char       rom [OCTO_RAM_MAX];
@@ -696,7 +697,7 @@ void octo_append(octo_program*p, char byte){
     p->is_error=1;snprintf(p->error,OCTO_ERR_MAX,"ROM space is full.");
     return;
   }
-  if (p->here>0x200 && p->used[p->here]) {
+  if (p->here>p->startAddress && p->used[p->here]) {
     p->is_error=1;snprintf(p->error,OCTO_ERR_MAX,"Data overlap. Address 0x%0X has already been defined.",p->here);
     return;
   }
@@ -764,10 +765,10 @@ void octo_resolve_label(octo_program*p,int offset){
   if(octo_map_get(&p->aliases,n)!=NULL){
     p->is_error=1, snprintf(p->error,OCTO_ERR_MAX,"The name '%s' is already used by an alias.",n); return;
   }
-  if((target==0x202||target==0x200)&&(strcmp(n,"main")==0)){
-    p->has_main=0, p->here=target=0x200;
-    p->rom[0x200]=0, p->used[0x200]=0;
-    p->rom[0x201]=0, p->used[0x201]=0;
+  if((target==p->startAddress+2||target==p->startAddress)&&(strcmp(n,"main")==0)){
+    p->has_main=0, p->here=target=p->startAddress;
+    p->rom[p->startAddress]=0, p->used[p->startAddress]=0;
+    p->rom[p->startAddress+1]=0, p->used[p->startAddress+1]=0;
   }
   octo_map_set(&p->constants,n,octo_make_const(target,0));
   if(octo_map_get(&p->protos,n)==NULL)return;
@@ -1119,7 +1120,7 @@ void octo_compile_statement(octo_program*p){
   }
 }
 
-octo_program* octo_program_init(char* text){
+octo_program* octo_program_init(char* text, int startAddress){
   octo_program* p=(octo_program*)malloc(sizeof(octo_program));
   p->strings_used=0;
   memset(p->strings,'\0',OCTO_INTERN_MAX);
@@ -1129,7 +1130,7 @@ octo_program* octo_program_init(char* text){
   p->source_pos=0;
   octo_list_init(&p->tokens);
   p->has_main=1;
-  p->here=0x200;
+  p->here=startAddress;
   p->length=OCTO_RAM_MAX;
   memset(p->rom, 0,OCTO_RAM_MAX);
   memset(p->used,0,OCTO_RAM_MAX);
@@ -1162,8 +1163,8 @@ octo_program* octo_program_init(char* text){
   return p;
 }
 
-octo_program* octo_compile_str(char* text) {
-  octo_program* p=octo_program_init(text);
+octo_program* octo_compile_str(char* text, int startAddress) {
+  octo_program* p=octo_program_init(text, startAddress);
   octo_instruction(p, 0x00, 0x00); // reserve a jump slot for main
   while(!octo_is_end(p) && !p->is_error){
     p->error_line=p->source_line;
@@ -1171,13 +1172,13 @@ octo_program* octo_compile_str(char* text) {
     octo_compile_statement(p);
   }
   if(p->is_error)return p;
-  while(p->length>0x200&&!p->used[p->length-1])p->length--;
+  while(p->length>p->startAddress&&!p->used[p->length-1])p->length--;
   p->error_line=p->source_line, p->error_pos=p->source_pos;
 
   if(p->has_main){
     octo_const*c=(octo_const*)octo_map_get(&p->constants,octo_intern(p,"main"));
     if(c==NULL)return p->is_error=1, snprintf(p->error,OCTO_ERR_MAX,"This program is missing a 'main' label."), p;
-    octo_jump(p, 0x200, c->value);
+    octo_jump(p, p->startAddress, c->value);
   }
   if(p->protos.keys.count>0){
     octo_proto*pr=(octo_proto*)octo_list_get(&p->protos.values,0);

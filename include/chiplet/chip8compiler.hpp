@@ -39,8 +39,8 @@ public:
     Chip8Compiler();
     ~Chip8Compiler();
 
-    bool compile(std::string text);
-    bool compile(const char* start, const char* end);
+    bool compile(std::string text, int startAddress = 0x200);
+    bool compile(const char* start, const char* end, int startAddress = 0x200);
     bool isError() const;
     const std::string& errorMessage() const;
     std::string rawErrorMessage() const;
