@@ -26,11 +26,14 @@
 #pragma once
 
 #include <chiplet/chip8variants.hpp>
+#include <fmt/format.h>
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 #include <bitset>
 
@@ -67,7 +70,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x00FE, 2, "low", "lores", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to lores mode (64x32) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
     { OT_FFFF, 0x00FF, 2, "dw #00ff", "nop", C8V::CHIP_8_ETI660|Chip8Variant::CHIP_8_ETI660_COL|Chip8Variant::CHIP_8_ETI660_HR, "nop (does nothing)" },
     { OT_FFFF, 0x00FF, 2, "high", "hires", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to hires mode (128x64) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
-    { OT_FFnn, 0x0100, 4, "ldhi i,NNNNNN", "0x01 0xNN 0xNN 0xNN", C8V::MEGA_CHIP, "set I to NNNNNN (24 bit)" },
+    { OT_FFnn, 0x0100, 4, "ldhi i,NNNNNN", "ldhi NNNNNN", C8V::MEGA_CHIP, "set I to NNNNNN (24 bit)" },
     { OT_FFnn, 0x0200, 2, "ldpal NN", "ldpal NN", C8V::MEGA_CHIP, "load NN colors from I into the palette, colors are in ARGB" },
     { OT_FFFF, 0x02A0, 2, "dw #02A0", "cycle-background", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "cycle background color one step between blue, black, green and red"},
     { OT_FFnn, 0x0300, 2, "sprw NN", "sprw NN", C8V::MEGA_CHIP, "set sprite width to NN (not used for font sprites)" },
@@ -101,13 +104,13 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFnn, 0xB000, 2, "dw #b0NN", "0xb0 0xNN", C8V::CHIP_8_I, "output NN to port"},
     { OT_FFyF, 0xB100, 2, "dw #b1Y0", "0xb1 0xY0", C8V::CHIP_8_I, "output Vy to port"},
     { OT_FFyF, 0xB101, 2, "dw #b1Y1", "0xb1 0xY1", C8V::CHIP_8_I, "wait for input (EF line is low) and set Vy to data from port"},
-    { OT_FxyF, 0xB000, 2, "dw #bXY0", "col-low X Y", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set the foreground color of the pixel area defined by VX and VX+1 to the color defined in VY (VY <= 7, where values correspond to black, red, blue, violet, green, yellow, aqua and white, respectively); the display is split into 8 x 8 zones (8 x 4 pixels each); the least significant nibble of VX specifies the horizontal position of the left-most zone, and the most significant nibble of VX specifies the extra number of horizontal zones to color (ie. a value of 0 will color one zone); ditto for VX+1, but with vertical zones"},
     { OT_Fxyn, 0xB000, 2, "dw #bXYN", "col-high X Y N", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set the foreground color of the pixel area where VX is the horizontal coordinate and VX+1 is the vertical, for 8 horizontal pixels (similar to DXYN), to the color defined in VY (N > 0), horizontal coordinates are actually seen as VX&0x38"},
+    { OT_FxyF, 0xB000, 2, "dw #bXY0", "col-low X Y", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set the foreground color of the pixel area defined by VX and VX+1 to the color defined in VY (VY <= 7, where values correspond to black, red, blue, violet, green, yellow, aqua and white, respectively); the display is split into 8 x 8 zones (8 x 4 pixels each); the least significant nibble of VX specifies the horizontal position of the left-most zone, and the most significant nibble of VX specifies the extra number of horizontal zones to color (ie. a value of 0 will color one zone); ditto for VX+1, but with vertical zones"},
     { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE & ~(C8V::CHIP_8_I|C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP), "jump to address NNN + v0" },
     { OT_Fxnn, 0xB000, 2, "jp vX,NNN", "jump0 NNN + vX", C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP, "jump to address XNN + vX" },
     { OT_Fxnn, 0xC000, 2, "rnd vX,NN", "vX := random NN", C8VG_BASE, "set vx to a random value masked (bitwise AND) with NN" },
-    { OT_FxyF, 0xD000, 2, "drw vX,vY,0", "sprite vX vY 0", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP, "draw 16x16 pixel sprite at position vX, vY with data starting at the address in I, I is not changed [Q: XO-CHIP wraps pixels instead of clipping them][Q: SCHIP-1.x only draws 8x16 on lores] [Q: Original COSMAC VIP based systems (like original CHIP-8), and the HP48 based interpreters in 64x32 mode wait for the start of the next frame, the VIP sometimes even needs two screens to finish] [Q: The original SCHIP-1.1 in hires mode set VF to the number of sprite rows with collisions plus the number of rows clipped at the bottom border]" },
     { OT_Fxyn, 0xD000, 2, "drw vX,vY,N", "sprite vX vY N", C8VG_BASE, "draw 8xN pixel sprite at position vX, vY with data starting at the address in I, I is not changed [Q: XO-CHIP wraps pixels instead of clipping them] [Q: Original COSMAC VIP based systems (like original CHIP-8), and the HP48 based interpreters in 64x32 mode wait for the start of the next frame, the VIP sometimes even needs two screens to finish] [Q: CHIP-10 only has a hires mode] [Q: The original SCHIP-1.1 in hires mode set VF to the number of sprite rows with collisions plus the number of rows clipped at the bottom border]" },
+    { OT_FxyF, 0xD000, 2, "drw vX,vY,0", "sprite vX vY 0", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP, "draw 16x16 pixel sprite at position vX, vY with data starting at the address in I, I is not changed [Q: XO-CHIP wraps pixels instead of clipping them][Q: SCHIP-1.x only draws 8x16 on lores] [Q: Original COSMAC VIP based systems (like original CHIP-8), and the HP48 based interpreters in 64x32 mode wait for the start of the next frame, the VIP sometimes even needs two screens to finish] [Q: The original SCHIP-1.1 in hires mode set VF to the number of sprite rows with collisions plus the number of rows clipped at the bottom border]" },
     { OT_FxFF, 0xE09E, 2, "skp vX", "if vX -key then", C8VG_BASE, "skip next opcode if key in vX is pressed (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxFF, 0xE0A1, 2, "sknp vX", "if vX key then", C8VG_BASE, "skip next opcode if key in vX is not pressed (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxFF, 0xE0F2, 2, "dw #eXf2", "0xeX 0xf2", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "skip next opcode if key in vX is pressed on keypad 2" },
@@ -148,9 +151,124 @@ inline static std::map<std::string, std::string> octoMacros = {
     {"ccol", ":macro ccol nn { :byte 0x09 :byte nn }"},
     {"cycle-background", ":macro cycle-background { 0x02 0xa0 }"},
     {"col-low", ":macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }"},
-    {"col-high", ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 + ( n & 0xF ) } :byte MSB :byte LSB }"},
-
+    {"col-high", ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }"}
 };
+
+class OpcodeSet
+{
+public:
+    using SymbolResolver = std::function<std::string(uint16_t)>;
+    explicit OpcodeSet(Chip8Variant variant, SymbolResolver resolver = {})
+    : _variant(variant)
+    , _labelOrAddress(std::move(resolver))
+    {
+        _mappedInfo.fill(0xff);
+        for(const auto& info : opcodes) {
+            if(uint64_t(info.variants & variant) != 0) {
+                mapOpcode(opcodeMasks[info.type], info.opcode, &info - opcodes.data());
+            }
+        }
+    }
+    Chip8Variant getVariant() const { return _variant; }
+    [[nodiscard]] const OpcodeInfo* getOpcodeInfo(uint16_t opcode) const
+    {
+        auto index = _mappedInfo[opcode];
+        return index == 0xff ? nullptr : &opcodes[index];
+    }
+    std::tuple<uint16_t, uint16_t, std::string> formatOpcode(uint16_t opcode, uint16_t nnnn = 0) const
+    {
+        static const char* hex = "0123456789abcdef";
+        const auto* info = getOpcodeInfo(opcode);
+        if(!info) {
+            return {2, opcode, "invalid"};
+        }
+        unsigned x = (opcode >> 8) & 0xF;
+        unsigned y = (opcode >> 4) & 0xF;
+        char NNNNNN[8]{};
+        size_t ncnt = 0;
+        uint32_t addr = ~0;
+        switch(info->type) {
+            case OT_Fnnn:
+                addr = opcode & 0xFFF;
+                NNNNNN[ncnt++] = hex[(opcode >> 8) & 0xF];
+                [[fallthrough]];
+            case OT_FFnn:
+            case OT_Fxnn:
+                NNNNNN[ncnt++] = hex[(opcode >> 4) & 0xF];
+                [[fallthrough]];
+            case OT_FFFn:
+            case OT_Fxyn:
+                NNNNNN[ncnt++] = hex[opcode & 0xF];
+                break;
+            default:
+                break;
+        }
+        if(info->size == 4) {
+            addr = nnnn;
+            fmt::format_to(NNNNNN + ncnt, "{:04x}", nnnn);
+        }
+        std::string result;
+        result.reserve(15);
+        char prev = 0;
+        size_t nidx = 0;
+        std::string label;
+        for(const auto& c : info->octo) {
+            switch(c) {
+                case 'X':
+                    if(!std::isalnum((unsigned)prev)) result += "0x";
+                    result += hex[x];
+                    break;
+                case 'Y':
+                    if(!std::isalnum((unsigned)prev)) result += "0x";
+                    result += hex[y];
+                    break;
+                case 'N':
+                    if(!nidx && addr != ~0 && _labelOrAddress) {
+                        label = _labelOrAddress(addr);
+                        if(!label.empty()) {
+                            nidx++;
+                            result += label;
+                        }
+                    }
+                    if(label.empty()) {
+                        if (!std::isalnum((unsigned)prev))
+                            result += "0x";
+                        result += NNNNNN[nidx++];
+                    }
+                    break;
+                default:
+                    result += c;
+                    break;
+            }
+            prev = c;
+        }
+        return {info->size, info->opcode, result};
+    }
+private:
+    void mapOpcode(uint16_t mask, uint16_t opcode, uint8_t infoIndex)
+    {
+        uint16_t argMask = ~mask;
+        int shift = 0;
+        if(argMask) {
+            while((argMask & 1) == 0) {
+                argMask >>= 1;
+                ++shift;
+            }
+            uint16_t val = 0;
+            do {
+                _mappedInfo[opcode | ((val & argMask) << shift)] = infoIndex;
+            }
+            while(++val & argMask);
+        }
+        else {
+            _mappedInfo[opcode] = infoIndex;
+        }
+    }
+    Chip8Variant _variant;
+    SymbolResolver _labelOrAddress;
+    std::array<uint8_t,65536> _mappedInfo{};
+};
+
 
 } // namespace detail
 

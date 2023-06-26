@@ -70,7 +70,9 @@ public:
         bool inSkip{};
     };
 
-    Chip8Decompiler()
+    explicit Chip8Decompiler(Chip8Variant variants = static_cast<Chip8Variant>(~uint64_t{0}))
+    : possibleVariants(variants)
+    , _opcodeSet(variants, [this](uint16_t addr){ return labelOrAddress(addr); })
     {
         if(mappedOpcodeInfo.empty()) {
             mappedOpcodeInfo.resize(65536);
@@ -84,12 +86,15 @@ public:
                     mappedOpcodeInfo[opcode].push_back(nullptr);
             }
         }
-        possibleVariants = static_cast<Chip8Variant>(~uint64_t{0});
+        //possibleVariants = static_cast<Chip8Variant>(~uint64_t{0});
     }
 
     void setVariant(Chip8Variant variant)
     {
-        possibleVariants = variant;
+        if(possibleVariants != variant) {
+            possibleVariants = variant;
+            _opcodeSet = detail::OpcodeSet(possibleVariants, [this](uint16_t addr){ return labelOrAddress(addr); });
+        }
     }
 
     static std::pair<std::string,std::string> chipVariantName(Chip8Variant cv);
@@ -160,9 +165,10 @@ public:
             }
             return fmt::format("data_{}", number);
         }
-        return fmt::format("0x{:x}", addr);
+        return "";//fmt::format("0x{:x}", addr);
     }
 
+#if 0
     std::tuple<uint16_t, uint16_t, std::string> opcode2Str(uint16_t opcode, int next) const
     {
         switch (opcode >> 12) {
@@ -266,12 +272,13 @@ public:
                 return {2, opcode, fmt::format("0x{:02X} 0x{:02X}", opcode >> 8, opcode & 0xFF)};
         }
     }
+#endif
 
     std::tuple<uint16_t, uint16_t, std::string> opcode2Str(const uint8_t* code, const uint8_t* end) const
     {
         auto opcode = readOpcode(code);
         auto next = code + 3 < end ? readOpcode(code + 2) : 0;
-        return opcode2Str(opcode, next);
+        return _opcodeSet.formatOpcode(opcode, next); //opcode2Str(opcode, next);
     }
 
     bool supportsVariant(emu::Chip8Variant variant) const
@@ -519,11 +526,13 @@ public:
                 refLabel(nnn, eREAD);
                 break;
             case 0xB:  // Bnnn - JP V0, addr
-                if(ec.rV[0] >= 0)
-                    refLabel(nnn + ec.rV[0], eJUMP);
-                else
-                    refLabel(nnn, eJUMP); // TODO: Check for possible detailed target address for new code scan
-                endsChunk = !ec.inSkip;
+                if(possibleVariants != Chip8Variant::CHIP_8X) {
+                    if (ec.rV[0] >= 0)
+                        refLabel(nnn + ec.rV[0], eJUMP);
+                    else
+                        refLabel(nnn, eJUMP);  // TODO: Check for possible detailed target address for new code scan
+                    endsChunk = !ec.inSkip;
+                }
                 break;
             case 0xC: {  // Cxkk - RND Vx, byte
                 ec.rV[x] = -1;
@@ -776,8 +785,19 @@ public:
         else if(os) {
             renumerateLabels();
             *os << "# This is an automatically generated source, created by the Cadmium-Decompiler\n# ROM file used: " << filename << "\n\n";
-            *os << ":macro i_long_labeled LABEL { 0xF0 0x00 : LABEL 0x00 0x00 } # i := long NNNN \n";
-            if(possibleVariants == C8V::MEGA_CHIP) {
+            if(contained(possibleVariants, C8V::XO_CHIP))
+                *os << ":macro i_long_labeled LABEL { 0xF0 0x00 : LABEL 0x00 0x00 } # i := long NNNN\n";
+
+            if(contained(possibleVariants, C8V::CHIP_8X)) {
+                *os << R"(#--------------------------------------------------------------
+# CHIP-8X support macros
+:macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }
+:macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }
+#--------------------------------------------------------------
+
+)";
+            }
+            if(contained(possibleVariants, C8V::MEGA_CHIP)) {
                 *os << R"(#--------------------------------------------------------------
 # MegaChip support macros
 :macro megaoff { :byte 0x00  :byte 0x10 }
@@ -828,7 +848,7 @@ public:
             if(chunk.usageType & (eJUMP | eCALL)) {
                 analyseCodeChunk(chunk, chunk.offset, [&](const EmulationContext& ec, uint16_t opcode, int next){
                     if((opcode & mask) == forOpcode) {
-                        auto [size, op, instruction] = opcode2Str(opcode, next);
+                        auto [size, op, instruction] = _opcodeSet.formatOpcode(opcode, next);
                         os << "    " << instruction;
                         bool first = true;
                         for(auto i = std::sregex_iterator(instruction.begin(), instruction.end(), rxReg);
@@ -855,6 +875,7 @@ public:
     bool _oddPcAccess{false};
     bool _megaChipEnabled{false};
     Chip8Variant possibleVariants{};
+    detail::OpcodeSet _opcodeSet;
     std::map<uint16_t, Chunk> chunks;
     std::map<uint16_t, LabelInfo> label;
     std::unordered_map<uint16_t, int> stats;
