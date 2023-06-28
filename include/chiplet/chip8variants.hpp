@@ -342,4 +342,9 @@ inline bool contained(Chip8Variant variants, Chip8Variant subset)
     return (variants & subset) == subset;
 }
 
+inline bool containedAny(Chip8Variant variants, Chip8Variant subset)
+{
+    return uint64_t(variants & subset) != 0;
+}
+
 } // namespace emu
