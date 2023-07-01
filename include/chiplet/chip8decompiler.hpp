@@ -526,7 +526,7 @@ public:
                 refLabel(nnn, eREAD);
                 break;
             case 0xB:  // Bnnn - JP V0, addr
-                if(uint64_t(possibleVariants & (Chip8Variant::CHIP_8X | Chip8Variant::CHIP_8X_TPD | Chip8Variant::CHIP_8X)) == 0) {
+                if(uint64_t(possibleVariants & (Chip8Variant::CHIP_8X | Chip8Variant::CHIP_8X_TPD | Chip8Variant::HI_RES_CHIP_8X)) == 0) {
                     if (ec.rV[0] >= 0)
                         refLabel(nnn + ec.rV[0], eJUMP);
                     else
