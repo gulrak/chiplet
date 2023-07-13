@@ -242,7 +242,7 @@ int main(int argc, char* argv[])
     bool dumpDoubles = false;
     int verbosity = 1;
     int rc = 0;
-    int startAddress = 0x200;
+    int64_t startAddress = 0x200;
     std::vector<std::string> includePaths;
     std::vector<std::string> inputList;
     std::vector<std::string> defineList;
@@ -255,7 +255,7 @@ int main(int argc, char* argv[])
     cli.option({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
 
     cli.category("Disassembler/Analyzer");
-    cli.option({"-d", "--disassemble"}, disassemble, "dissassemble a given file");
+    cli.option({"-d", "--disassemble"}, disassemble, "disassemble a given file");
     cli.option({"-s", "--scan"}, scan, "scan files or directories for chip roms and analyze them, giving some information");
     cli.option({"-f", "--find"}, opcodesToFind, "search for use of opcodes");
     cli.option({"-u", "--opcode-use"}, withUsage, "show usage of found opcodes when using -f");
