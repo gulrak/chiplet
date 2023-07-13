@@ -83,6 +83,13 @@ inline std::string toLower(std::string s)
     return result;
 }
 
+inline std::string toUpper(std::string s)
+{
+    auto result = s;
+    std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c){ return std::toupper(c); });
+    return result;
+}
+
 template <typename OutIter>
 inline void split(const std::string &s, char delimiter, OutIter result) {
     std::istringstream is(s);

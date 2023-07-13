@@ -526,7 +526,7 @@ public:
                 refLabel(nnn, eREAD);
                 break;
             case 0xB:  // Bnnn - JP V0, addr
-                if(possibleVariants != Chip8Variant::CHIP_8X) {
+                if(uint64_t(possibleVariants & (Chip8Variant::CHIP_8X | Chip8Variant::CHIP_8X_TPD | Chip8Variant::HI_RES_CHIP_8X)) == 0) {
                     if (ec.rV[0] >= 0)
                         refLabel(nnn + ec.rV[0], eJUMP);
                     else
@@ -791,6 +791,29 @@ public:
             if(contained(possibleVariants, C8V::CHIP_8X)) {
                 *os << R"(#--------------------------------------------------------------
 # CHIP-8X support macros
+:macro cycle-bgcol { 0x02 0xa0 }
+:macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }
+:macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }
+#--------------------------------------------------------------
+
+)";
+            }
+            if(contained(possibleVariants, C8V::CHIP_8X_TPD)) {
+                *os << R"(#--------------------------------------------------------------
+# CHIP-8X support macros
+:macro clear-tpd { 0x02 0x30 }
+:macro cycle-bgcol-mp { 0x02 0xf0 }
+:macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }
+:macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }
+#--------------------------------------------------------------
+
+)";
+            }
+            if(contained(possibleVariants, C8V::HI_RES_CHIP_8X)) {
+                *os << R"(#--------------------------------------------------------------
+# CHIP-8X support macros
+:macro clear-tpd { 0x02 0x00 }
+:macro cycle-bgcol-mp { 0x02 0xf0 }
 :macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }
 :macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }
 #--------------------------------------------------------------

@@ -84,7 +84,7 @@ public:
     };
     class Lexer {
     public:
-        enum Mode { eCHIP8, eMOTOROLA, eRCA };
+        enum Mode { eCHIP8, eCHIP8STRICT, eMOTOROLA, eRCA };
         struct Exception : public std::exception {
             Exception(const std::string& message) : errorMessage(message) {}
             ~Exception() noexcept override = default;

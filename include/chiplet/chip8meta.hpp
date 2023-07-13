@@ -72,7 +72,8 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x00FF, 2, "high", "hires", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to hires mode (128x64) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
     { OT_FFnn, 0x0100, 4, "ldhi i,NNNNNN", "ldhi NNNNNN", C8V::MEGA_CHIP, "set I to NNNNNN (24 bit)" },
     { OT_FFnn, 0x0200, 2, "ldpal NN", "ldpal NN", C8V::MEGA_CHIP, "load NN colors from I into the palette, colors are in ARGB" },
-    { OT_FFFF, 0x02A0, 2, "dw #02A0", "cycle-background", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "cycle background color one step between blue, black, green and red"},
+    { OT_FFFF, 0x02A0, 2, "dw #02A0", "cycle-bgcol", C8V::CHIP_8X, "cycle background color one step between blue, black, green and red"},
+    { OT_FFFF, 0x02F0, 2, "dw #02F0", "cycle-bgcol-mp", C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "cycle background color one step between blue, black, green and red"},
     { OT_FFnn, 0x0300, 2, "sprw NN", "sprw NN", C8V::MEGA_CHIP, "set sprite width to NN (not used for font sprites)" },
     { OT_FFnn, 0x0400, 2, "sprh NN", "sprh NN", C8V::MEGA_CHIP, "set sprite height to NN (not used for font sprites)" },
     { OT_FFnn, 0x0500, 2, "alpha NN", "alpha NN", C8V::MEGA_CHIP, "set screen alpha to NN" },
@@ -85,7 +86,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_Fxnn, 0x3000, 2, "se vX,NN", "if vX != NN then", C8VG_BASE, "skip next opcode if vX == NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_Fxnn, 0x4000, 2, "sne vX,NN", "if vX == NN then", C8VG_BASE, "skip next opcode if vX != NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxyF, 0x5000, 2, "se vX,vY", "if vX != vY then", C8VG_BASE, "skip next opcode it vX == vY (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
-    { OT_FxyF, 0x5001, 2, "dw #5XY1", "0x5X 0xY1", C8V::CHIP_8X|C8V::CHIP_8X_TPD, "A BCD like add opcode that works in octal, add the nibbles of Vx and Vy separately, and mask the results to keep it on the range of 0x00 to 0x77, and store result in vX"},
+    { OT_FxyF, 0x5001, 2, "dw #5XY1", "0x5X 0xY1", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "A BCD like add opcode that works in octal for normal CHIP-8X and hex on multi-page CHIP-8X, add the nibbles of Vx and Vy separately, and mask the results to keep the nibbles addition from overflowing, and store result in vX"},
     { OT_FxyF, 0x5002, 2, "ld [i],vX-vY", "save vX - vY", C8V::XO_CHIP|C8V::OCTO, "write registers vX to vY to memory pointed to by I" },
     { OT_FxyF, 0x5003, 2, "ld vX-vY,[i]", "load vX - vY", C8V::XO_CHIP|C8V::OCTO, "load registers vX to vY from memory pointed to by I" },
     { OT_Fxnn, 0x6000, 2, "ld vX,NN", "vX := NN", C8VG_BASE, "set vX to NN" },
@@ -149,7 +150,8 @@ inline static std::map<std::string, std::string> octoMacros = {
     {"stopsnd", ":macro stopsnd { :byte 0x07 :byte 0x00 }"},
     {"bmode", ":macro bmode n { :calc ZN { n & 0xF } :byte 0x08 :byte ZN }"},
     {"ccol", ":macro ccol nn { :byte 0x09 :byte nn }"},
-    {"cycle-background", ":macro cycle-background { 0x02 0xa0 }"},
+    {"cycle-bgcol", ":macro cycle-background { 0x02 0xa0 }"},
+    {"cycle-bgcol-mp", ":macro cycle-background { 0x02 0xf0 }"},
     {"col-low", ":macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }"},
     {"col-high", ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }"}
 };
