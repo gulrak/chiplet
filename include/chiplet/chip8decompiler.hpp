@@ -94,6 +94,7 @@ public:
         if(possibleVariants != variant) {
             possibleVariants = variant;
             _opcodeSet = detail::OpcodeSet(possibleVariants, [this](uint16_t addr){ return labelOrAddress(addr); });
+            _opcodeSet.formatInvalidAsHex(true);
         }
     }
 

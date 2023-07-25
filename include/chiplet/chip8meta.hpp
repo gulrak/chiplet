@@ -85,7 +85,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_Fnnn, 0x2000, 2, "call NNN", ":call NNN", C8VG_BASE, "push return address onto stack and call subroutine at address NNN" },
     { OT_Fxnn, 0x3000, 2, "se vX,NN", "if vX != NN then", C8VG_BASE, "skip next opcode if vX == NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_Fxnn, 0x4000, 2, "sne vX,NN", "if vX == NN then", C8VG_BASE, "skip next opcode if vX != NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
-    { OT_FxyF, 0x5000, 2, "se vX,vY", "if vX != vY then", C8VG_BASE, "skip next opcode it vX == vY (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
+    { OT_FxyF, 0x5000, 2, "se vX,vY", "if vX != vY then", C8VG_BASE, "skip next opcode if vX == vY (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxyF, 0x5001, 2, "dw #5XY1", "0x5X 0xY1", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "A BCD like add opcode that works in octal for normal CHIP-8X and hex on multi-page CHIP-8X, add the nibbles of Vx and Vy separately, and mask the results to keep the nibbles addition from overflowing, and store result in vX"},
     { OT_FxyF, 0x5002, 2, "ld [i],vX-vY", "save vX - vY", C8V::XO_CHIP|C8V::OCTO, "write registers vX to vY to memory pointed to by I" },
     { OT_FxyF, 0x5003, 2, "ld vX-vY,[i]", "load vX - vY", C8V::XO_CHIP|C8V::OCTO, "load registers vX to vY from memory pointed to by I" },
@@ -171,6 +171,7 @@ public:
             }
         }
     }
+    void formatInvalidAsHex(bool asHex) { _invalidAsHex = asHex; }
     Chip8Variant getVariant() const { return _variant; }
     [[nodiscard]] const OpcodeInfo* getOpcodeInfo(uint16_t opcode) const
     {
@@ -182,7 +183,10 @@ public:
         static const char* hex = "0123456789abcdef";
         const auto* info = getOpcodeInfo(opcode);
         if(!info) {
-            return {2, opcode, "invalid"};
+            if(_invalidAsHex)
+                return {2, opcode, fmt::format("0x{:02X} 0x{:02X}", opcode >> 8, opcode & 0xFF)};
+            else
+                return {2, opcode, "invalid"};
         }
         unsigned x = (opcode >> 8) & 0xF;
         unsigned y = (opcode >> 4) & 0xF;
@@ -269,6 +273,7 @@ private:
     Chip8Variant _variant;
     SymbolResolver _labelOrAddress;
     std::array<uint8_t,65536> _mappedInfo{};
+    bool _invalidAsHex = false;
 };
 
 
