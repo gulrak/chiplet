@@ -251,6 +251,11 @@ public:
         return {info->size, info->opcode, result};
     }
 private:
+    void setIfEmpty(uint16_t index, uint8_t value)
+    {
+        if(_mappedInfo[index] == 0xff)
+            _mappedInfo[index] = value;
+    }
     void mapOpcode(uint16_t mask, uint16_t opcode, uint8_t infoIndex)
     {
         uint16_t argMask = ~mask;
@@ -262,12 +267,12 @@ private:
             }
             uint16_t val = 0;
             do {
-                _mappedInfo[opcode | ((val & argMask) << shift)] = infoIndex;
+                setIfEmpty(opcode | ((val & argMask) << shift), infoIndex);
             }
             while(++val & argMask);
         }
         else {
-            _mappedInfo[opcode] = infoIndex;
+            setIfEmpty(opcode, infoIndex);
         }
     }
     Chip8Variant _variant;
