@@ -43,6 +43,7 @@ static std::vector<std::string> opcodesToFind;
 static std::string outputFile;
 static bool fullPath = false;
 static bool withUsage = false;
+static bool genListing = false;
 static int foundFiles = 0;
 static bool roundTrip = false;
 static int errors = 0;
@@ -66,7 +67,14 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                 std::stringstream os;
                 emu::OctoCompiler comp;
                 dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &os, false, true);
+                if(dec.possibleVariants() == emu::C8V::CHIP_8X || dec.possibleVariants() == emu::C8V::HI_RES_CHIP_8X)
+                    startAddress = 0x300;
+                else if(dec.possibleVariants() == emu::C8V::CHIP_8X_TPD)
+                    startAddress = 0x260;
+                else if(dec.possibleVariants() == emu::C8V::HI_RES_CHIP_8)
+                    startAddress = 0x244;
                 auto source = os.str();
+                comp.setStartAddress(startAddress);
                 if(comp.compile(file, source.data(), source.data() + source.size() + 1, false).resultType == emu::CompileResult::eOK) {
                     if(comp.codeSize() != data.size()) {
                         std::cerr << "    " << fileOrPath(file) << ": Compiled size doesn't match! (" << data.size() << " bytes)" << std::endl;
@@ -97,30 +105,30 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
             }
             break;
         case eANALYSE:
-            std::cout << fileOrPath(file);
+            std::cout << "    " << fileOrPath(file);
             dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout, true);
-            if((uint64_t)dec.possibleVariants) {
-                auto mask = static_cast<uint64_t>(dec.possibleVariants & (emu::C8V::CHIP_8|emu::C8V::CHIP_10|emu::C8V::CHIP_48|emu::C8V::SCHIP_1_0|emu::C8V::SCHIP_1_1|emu::C8V::MEGA_CHIP|emu::C8V::XO_CHIP));
+            if((uint64_t)dec.possibleVariants()) {
+                auto mask = static_cast<uint64_t>(dec.possibleVariants() & (emu::C8V::CHIP_8|emu::C8V::CHIP_8X|emu::C8V::CHIP_8X_TPD|emu::C8V::HI_RES_CHIP_8X|emu::C8V::CHIP_10|emu::C8V::CHIP_48|emu::C8V::SCHIP_1_0|emu::C8V::SCHIP_1_1|emu::C8V::MEGA_CHIP|emu::C8V::XO_CHIP));
                 bool first = true;
                 while(mask) {
                     auto cv = static_cast<emu::Chip8Variant>(mask & -mask);
                     mask &= mask - 1;
-                    std::cout << (first ? "    possible variants: " : ", ") << dec.chipVariantName(cv).first;
+                    std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(cv).first;
                     first = false;
                 }
                 std::cout << std::endl;
             }
             else {
-                std::clog << "    Doesn't seem to be supported by any know variant." << std::endl;
+                std::cout << ", doesn't seem to be supported by any know variant." << std::endl;
             }
-            if(dec._oddPcAccess)
-                std::clog << "    Uses odd PC access." << std::endl;
+            if(dec.usesOddPcAddress())
+                std::cout << "    Uses odd PC access." << std::endl;
             break;
         case eSEARCH: {
             dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout, true, true);
             bool found = false;
             for (const auto& pattern : opcodesToFind) {
-                for (const auto& [opcode, count] : dec.fullStats) {
+                for (const auto& [opcode, count] : dec.fullStats()) {
                     std::string hex = fmt::format("{:04X}", opcode);
                     if (comparePattern(pattern, hex)) {
                         if(withUsage) {
@@ -146,6 +154,10 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
             }
             break;
         }
+        case ePREPROCESS:
+        case eCOMPILE:
+            // not handled here
+            break;
     }
 }
 
@@ -211,11 +223,13 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
     }
     if(scan) {
         std::clog << "Used opcodes:" << std::endl;
-        for(const auto& [opcode, num] : emu::Chip8Decompiler::totalStats) {
+        for(const auto& [opcode, num] : emu::Chip8Decompiler::totalStats()) {
             std::clog << fmt::format("{:04X}: {}", opcode, num) << std::endl;
         }
     }
     auto duration= std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    std::cerr << std::flush;
+    std::cout << std::flush;
     std::clog << "Done scanning/decompiling " << files << " files";
     if(doubles)
         std::clog << ", not counting " << doubles << " redundant copies";
@@ -262,6 +276,7 @@ int main(int argc, char* argv[])
     cli.option({"-p", "--full-path"}, fullPath, "print file names with path");
     cli.option({"--list-duplicates"}, dumpDoubles, "show found duplicates while scanning directories");
     cli.option({"--round-trip"}, roundTrip, "decompile and assemble and compare the result");
+    cli.option({"-l", "--listing"}, genListing, "generate additional listing with addresses");
 
     cli.category("General");
     cli.option({"-q", "--quiet"}, quiet, "suppress all output during operation");
