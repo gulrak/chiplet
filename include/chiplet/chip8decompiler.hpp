@@ -641,8 +641,8 @@ public:
             //const OpcodeInfo* info = mappedOpcodeInfo[opcode].front();
             if((uint64_t)mask) {
                 _possibleVariants &= mask;
-                if (!(uint64_t)_possibleVariants)
-                    std::cerr << "huuuu" << std::endl;
+                //if (!(uint64_t)_possibleVariants)
+                //    std::cerr << "huuuu" << std::endl;
             }
             //auto category = opcode >> 12;
             code += 2;

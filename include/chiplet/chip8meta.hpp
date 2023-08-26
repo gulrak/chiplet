@@ -171,13 +171,13 @@ public:
         }
     }
     void formatInvalidAsHex(bool asHex) { _invalidAsHex = asHex; }
-    Chip8Variant getVariant() const { return _variant; }
+    [[nodiscard]] Chip8Variant getVariant() const { return _variant; }
     [[nodiscard]] const OpcodeInfo* getOpcodeInfo(uint16_t opcode) const
     {
         auto index = _mappedInfo[opcode];
         return index == 0xff ? nullptr : &opcodes[index];
     }
-    std::tuple<uint16_t, uint16_t, std::string> formatOpcode(uint16_t opcode, uint16_t nnnn = 0) const
+    [[nodiscard]] std::tuple<uint16_t, uint16_t, std::string> formatOpcode(uint16_t opcode, uint16_t nnnn = 0) const
     {
         static const char* hex = "0123456789abcdef";
         const auto* info = getOpcodeInfo(opcode);

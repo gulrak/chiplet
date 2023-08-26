@@ -28,7 +28,7 @@
 
 #include <chiplet/octocompiler.hpp>
 #include <chiplet/chip8compiler.hpp>
-//#include <emulation/utility.hpp>
+#include <chiplet/chip8meta.hpp>
 
 #include <fmt/format.h>
 
@@ -38,9 +38,15 @@
 #include <algorithm>
 #include <charconv>
 #include <fstream>
+#include <memory>
 #include <unordered_set>
 
 namespace {
+
+inline bool startsWith(const std::string& text, const std::string& prefix)
+{
+    return text.size() >= prefix.size() && 0 == text.compare(0, prefix.size(), prefix);
+}
 
 inline std::string toLower(std::string s)
 {
@@ -48,7 +54,6 @@ inline std::string toLower(std::string s)
     std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c){ return std::tolower(c); });
     return result;
 }
-
 
 template <typename OutIter>
 inline void split(const std::string &s, char delimiter, OutIter result) {
@@ -101,7 +106,30 @@ static std::unordered_set<std::string> _reserved = {
     "save", "saveflags", "scroll-down", "scroll-left", "scroll-right", "scroll-up", "sprite", "then", "while"
 };
 
-OctoCompiler::OctoCompiler() = default;
+static std::multimap<std::string_view, const OpcodeInfo*> _assemblerLookupTable;
+
+void OctoCompiler::initializeTables()
+{
+    if(_assemblerLookupTable.empty()) {
+        for (const auto& info : detail::opcodes) {
+            if (!startsWith(info.octo, "vX") && !startsWith(info.octo, "0x")) {
+                auto keywordSize = info.octo.find(' ');
+                if(keywordSize == std::string::npos)
+                    keywordSize = info.octo.size();
+                auto keyword = info.octo.substr(0, keywordSize);
+                _reserved.insert(keyword);
+                _assemblerLookupTable.emplace(std::string_view{info.octo.data(), keywordSize}, &info);
+            }
+        }
+    }
+}
+
+OctoCompiler::OctoCompiler(Mode mode)
+    : _mode(mode)
+{
+    initializeTables();
+}
+
 OctoCompiler::~OctoCompiler() = default;
 
 const CompileResult& OctoCompiler::compile(const std::string& filename)
@@ -145,70 +173,10 @@ const CompileResult& OctoCompiler::compile(const std::string& filename, const ch
         source = preprocessed.data();
         end = preprocessed.data() + preprocessed.size() + 1;
     }
-    std::string_view sourceCode = {source, size_t(end - source)};
-    _compiler.reset(new Chip8Compiler);
-    if(_progress) _progress(1, "compiling ...");
-    _compiler->compile(source, end, _startAddress);
-    if(_compiler->isError()) {
-        if(_generateLineInfos) {
-            std::stack<FilePos> filePosStack;
-            FilePos ep;
-            int line = 1;
-            int fileLine = 1;
-            for(auto iter = sourceCode.begin(); iter != sourceCode.end() && line != _compiler->errorLine(); ++iter) {
-                if(*iter == '\n') {
-                    line++;
-                    fileLine++;
-                }
-                if(sourceCode.end() - iter > 10 && *(iter + 1) == '#' && *(iter + 2) == '@') {
-                    auto iter2 = iter + 1;
-                    while(iter2 != sourceCode.end() && *iter2 != '\n' && *iter2 != ']')
-                        ++iter2;
-                    if(*iter2 == ']') {
-                        ep = extractFilePos({iter+1, size_t(iter2 - iter - 1)});
-                        if(!filePosStack.empty())
-                            filePosStack.top().line = fileLine;
-                        if(ep.line) {
-                            while(!filePosStack.empty() && filePosStack.top().depth > ep.depth)
-                                filePosStack.pop();
-                            if(filePosStack.empty() || filePosStack.top().depth < ep.depth) {
-                                filePosStack.push(ep);
-                            }
-                            else {
-                                filePosStack.top() = ep;
-                            }
-                            fileLine = ep.line - 1;
-                        }
-                    }
-                }
-            }
-            if(!ep.file.empty()) {
-                int i = 0;
-                while(!filePosStack.empty()) {
-                    _compileResult.locations.push_back({
-                        filePosStack.top().file,
-                        i ? filePosStack.top().line : fileLine,
-                        i ? 0 : _compiler->errorCol(),
-                        i ? CompileResult::Location::eINCLUDED : CompileResult::Location::eROOT
-                    });
-                    filePosStack.pop();
-                    ++i;
-                }
-                _compileResult.errorMessage = _compiler->rawErrorMessage();
-                _compileResult.resultType = CompileResult::eERROR;
-                return _compileResult;
-            }
-        }
-        _compileResult.resultType = CompileResult::eERROR;
-        _compileResult.errorMessage = _compiler->rawErrorMessage();
-        _compileResult.locations = {{filename, _compiler->errorLine(), _compiler->errorCol(), CompileResult::Location::eROOT}};
-        return _compileResult;
-    }
-    else {
-        if(_progress) _progress(1, fmt::format("generated {} bytes of output", codeSize()));
-    }
-    _compileResult.reset();
-    return _compileResult;
+    if(_mode == eCHIPLET)
+        return doCompileChiplet(filename, source, end);
+    else
+        return doCompileCOcto(filename, source, end);
 }
 
 const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files)
@@ -225,6 +193,137 @@ const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files
         preprocessed = preprocessedStream.str();
     }
     return compile(fs::absolute(files.front()).string(), preprocessed.data(), preprocessed.data() + preprocessed.size() + 1, false);
+}
+
+const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename, const char* source, const char* end)
+{
+    try {
+        _symbols.clear();
+        auto lex = Lexer{};
+        lex.setRange(filename, source, end);
+        try {
+            auto token = lex.nextToken();
+            while (true) {
+                if (token == Token::eEOF) {
+                    break;
+                }
+                if (token == Token::ePREPROCESSOR) {
+                    error("Preprocessor directive found in compilation stage!");
+                }
+                else if (token == Token::eDIRECTIVE) {
+                    if (lex.expect(":const")) {
+                        auto nameToken = lex.nextToken();
+                        if (nameToken != Token::eIDENTIFIER)
+                            error("Identifier expected after ':const'.");
+                        auto constName = lex.token().raw;
+                        auto value = lex.nextToken();
+                        if (value != Token::eIDENTIFIER && value != Token::eNUMBER)
+                            error("Number or identifier expected after ':const <name>'.");
+                        if (value == Token::eNUMBER) {
+                            define(std::string(constName), lex.token().number);
+                        }
+                        else {
+                            define(std::string(constName), std::string(lex.token().raw));
+                        }
+                        token = lex.nextToken();
+                    }
+                }
+                else if(isRegister(lex.token())) {
+                        // register operation
+                }
+                else if(auto range = _assemblerLookupTable.equal_range(lex.token().raw); range.first != _assemblerLookupTable.end()) {
+                    for(auto iter = range.first; iter != range.second; ++iter) {
+                        const auto& info = *iter->second;
+
+                    }
+                }
+                else {
+                    error("Unxepected token: " + std::string(lex.token().raw));
+                }
+            }
+        }
+        catch(Lexer::Exception& le) {
+            synthesizeError({filename, (int)lex.token().line, (int)lex.token().column}, source, end, le.errorMessage);
+        }
+    }
+    catch(std::exception& ex)
+    {
+        return _compileResult;
+    }
+    return _compileResult;
+}
+
+const CompileResult& OctoCompiler::doCompileCOcto(const std::string& filename, const char* source, const char* end)
+{
+    std::string_view sourceCode = {source, size_t(end - source)};
+    _compiler = std::make_unique<Chip8Compiler>();
+    if(_progress) _progress(1, "compiling ...");
+    _compiler->compile(source, end, _startAddress);
+    if(_compiler->isError()) {
+        return synthesizeError({filename, _compiler->errorLine(), _compiler->errorCol()}, source, end, _compiler->rawErrorMessage());
+    }
+    else {
+        if(_progress) _progress(1, fmt::format("generated {} bytes of output", codeSize()));
+    }
+    _compileResult.reset();
+    return _compileResult;
+}
+
+const CompileResult& OctoCompiler::synthesizeError(const SourceLocation& location, const char* source, const char* end, const std::string& errorMessage)
+{
+    if(_generateLineInfos) {
+        std::stack<FilePos> filePosStack;
+        FilePos ep;
+        int line = 1;
+        int fileLine = 1;
+        for(auto iter = source; iter != end && line != location.line; ++iter) {
+            if(*iter == '\n') {
+                line++;
+                fileLine++;
+            }
+            if(end - iter > 10 && *(iter + 1) == '#' && *(iter + 2) == '@') {
+                auto iter2 = iter + 1;
+                while(iter2 != end && *iter2 != '\n' && *iter2 != ']')
+                    ++iter2;
+                if(*iter2 == ']') {
+                    ep = extractFilePos({iter+1, size_t(iter2 - iter - 1)});
+                    if(!filePosStack.empty())
+                        filePosStack.top().line = fileLine;
+                    if(ep.line) {
+                        while(!filePosStack.empty() && filePosStack.top().depth > ep.depth)
+                            filePosStack.pop();
+                        if(filePosStack.empty() || filePosStack.top().depth < ep.depth) {
+                            filePosStack.push(ep);
+                        }
+                        else {
+                            filePosStack.top() = ep;
+                        }
+                        fileLine = ep.line - 1;
+                    }
+                }
+            }
+        }
+        if(!ep.file.empty()) {
+            int i = 0;
+            while(!filePosStack.empty()) {
+                _compileResult.locations.push_back({
+                    filePosStack.top().file,
+                    i ? filePosStack.top().line : fileLine,
+                    i ? 0 : location.column,
+                    i ? CompileResult::Location::eINCLUDED : CompileResult::Location::eROOT
+                });
+                filePosStack.pop();
+                ++i;
+            }
+            _compileResult.errorMessage = errorMessage;
+            _compileResult.resultType = CompileResult::eERROR;
+            return _compileResult;
+        }
+    }
+    _compileResult.resultType = CompileResult::eERROR;
+    _compileResult.errorMessage = errorMessage;
+    _compileResult.locations = {{location.file, location.line, location.column, CompileResult::Location::eROOT}};
+    return _compileResult;
 }
 
 const CompileResult& OctoCompiler::preprocessFiles(const std::vector<std::string>& files)
@@ -330,7 +429,7 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
         const char* start = _srcPtr;
         while (peek() && !std::isspace(peek())) get();
         if (!peek())
-            return Token::eEOF;
+            return _token.type = Token::eEOF;
 
         char* end{};
         uint32_t len = _srcPtr - start;
@@ -351,7 +450,7 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
                     _token.number = -(double)std::strtol(start+3, &end, 2);
             }
             else if((_token.number == 8 || _token.number == 16) && *end == 'x') {
-                return Token::eSPRITESIZE;
+                return _token.type = Token::eSPRITESIZE;
             }
         }
         else if(_mode == eRCA && *start == '#')
@@ -359,40 +458,40 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
         else if(_mode == eMOTOROLA && *start == '$')
             _token.number = (double)std::strtol(start+1, &end, 16);
         if (end == _srcPtr)
-            return Token::eNUMBER;
+            return _token.type = Token::eNUMBER;
         else if (std::isdigit(*start))
             error(fmt::format("The number could not be parsed: {}", _token.raw));
         if(*start == ':') {
             if (_directives.count(_token.text))
-                return Token::eDIRECTIVE;
+                return _token.type = Token::eDIRECTIVE;
             else if (_preprocessor.count(_token.text)) {
                 // remove whitespace before preproc from prefix
                 while(!_token.prefix.empty() && (_token.prefix.back() == ' ' || _token.prefix.back() == '\t'))
                        _token.prefix.remove_suffix(1);
-                return Token::ePREPROCESSOR;
+                return _token.type = Token::ePREPROCESSOR;
             }
             else if (len > 1 && *(start + 1) != '=')
                 error(fmt::format("Unknown directive: {}", _token.raw));
         }
         if(*start == '{')
-            return Token::eLCURLY;
+            return _token.type = Token::eLCURLY;
         if(*start == '}')
-            return Token::eRCURLY;
+            return _token.type = Token::eRCURLY;
         if(std::strchr("+-*/%@|<>^!.=", *start))
-            return Token::eOPERATOR;
+            return _token.type = Token::eOPERATOR;
         if(_reserved.count(_token.text)) {
-            Token::Type type = len > 1 && std::isalpha(*(start + 1)) ? Token::eKEYWORD : Token::eOPERATOR;
-            return type;
+            _token.type = len > 1 && std::isalpha(*(start + 1)) ? Token::eKEYWORD : Token::eOPERATOR;
+            return _token.type;
         }
         for(int i = 0; i < len; ++i) {
             if (!std::isalnum((uint8_t) * (start + i)) && *(start + i) != '-' && *(start + i) != '_') {
                 _token.text = _token.raw;
                 if(_mode == eCHIP8)
-                    return Token::eSTRING;
+                    return _token.type = Token::eSTRING;
                 error(fmt::format("Invalid token: {}", _token.raw));
             }
         }
-        return Token::eIDENTIFIER;
+        return _token.type = Token::eIDENTIFIER;
     }
 }
 
@@ -940,6 +1039,17 @@ bool OctoCompiler::isTrue(const std::string_view& name) const
             [](const std::string& val) { return !val.empty(); }
         }, iter->second);
     }
+    return false;
+}
+
+bool OctoCompiler::isRegister(const Token& token) const
+{
+    if(token.type != Token::eSTRING && token.type != Token::eIDENTIFIER)
+        return false;
+    if(token.raw.size() == 2 && (token.raw[0] == 'v' || token.raw[0] == 'V') && std::isxdigit((uint8_t)token.raw[1]))
+        return true;
+    if(token.raw == "i" || token.raw == "I")
+        return true;
     return false;
 }
 

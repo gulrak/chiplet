@@ -25,9 +25,6 @@
 //---------------------------------------------------------------------------------------
 #pragma once
 
-//#include <emulation/config.hpp>
-//#include <emulation/utility.hpp>
-
 #include <cstring>
 #include <functional>
 #include <sstream>
@@ -45,6 +42,12 @@ namespace fs = ghc::filesystem;
 namespace emu {
 
 class Chip8Compiler;
+
+struct SourceLocation {
+    std::string file;
+    int line{};
+    int column{};
+};
 
 struct CompileResult {
     enum ResultType { eOK, eINFO, eWARNING, eERROR };
@@ -70,9 +73,15 @@ class OctoCompiler
 {
 public:
     using ProgressHandler = std::function<void(int verbosity, std::string msg)>;
-    using Value = std::variant<int,double,std::string>;
+    using Value = std::variant<std::monostate, int, double, std::string>;
+    enum SymbolType { eLABEL, eCONST, eMACRO, eALIAS };
+    struct SymbolEntry {
+        SymbolType type;
+        Value value;
+    };
     struct Token {
         enum Type { eNONE, eNUMBER, eSTRING, eDIRECTIVE, eIDENTIFIER, eOPERATOR, eKEYWORD, ePREPROCESSOR, eSPRITESIZE, eLCURLY, eRCURLY, eEOF };
+        Type type;
         double number;
         std::string text;
         std::string_view raw;
@@ -117,8 +126,10 @@ public:
         Token _token;
         Mode _mode{eCHIP8};
     };
-    OctoCompiler();
+    enum Mode { eCHIPLET, eC_OCTO };
+    OctoCompiler(Mode mode = eC_OCTO);
     ~OctoCompiler();
+    static void initializeTables();
     void reset();
     void setStartAddress(int startAddress) { _startAddress = startAddress; }
     const CompileResult& compile(const std::string& filename, const char* source, const char* end, bool needsPreprocess = true);
@@ -150,6 +161,9 @@ private:
     }
     enum SegmentType { eCODE, eDATA };
     enum OutputControl { eACTIVE, eINACTIVE, eSKIP_ALL };
+    const CompileResult& doCompileChiplet(const std::string& filename, const char* source, const char* end);
+    const CompileResult& doCompileCOcto(const std::string& filename, const char* source, const char* end);
+    const CompileResult& synthesizeError(const SourceLocation& location, const char* source, const char* end, const std::string& errorMessage);
     bool isTrue(const std::string_view& name) const;
     static bool isImage(const std::string& filename);
     Token::Type includeImage(std::string filename);
@@ -162,7 +176,9 @@ private:
     void warning(std::string msg);
     void info(std::string msg);
     void flushSegment();
+    bool isRegister(const Token& token) const;
     std::string resolveFile(const fs::path& file);
+    Mode _mode{eC_OCTO};
     std::ostringstream _collect;
     std::vector<std::pair<int,std::string>> _collectLocationStack;
     SegmentType _currentSegment{eCODE};
