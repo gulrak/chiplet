@@ -176,7 +176,7 @@ private:
     void warning(std::string msg);
     void info(std::string msg);
     void flushSegment();
-    bool isRegister(const Token& token) const;
+    static bool isRegister(const Token& token) ;
     std::string resolveFile(const fs::path& file);
     Mode _mode{eC_OCTO};
     std::ostringstream _collect;
@@ -187,7 +187,7 @@ private:
     std::vector<std::string> _codeSegments;
     std::vector<std::string> _dataSegments;
     std::stack<OutputControl> _emitCode;
-    std::map<std::string, Value, std::less<>> _symbols;
+    std::map<std::string, SymbolEntry, std::less<>> _symbols;
     std::vector<fs::path> _includePaths;
     std::unique_ptr<Chip8Compiler> _compiler;
     ProgressHandler _progress;

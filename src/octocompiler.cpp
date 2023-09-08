@@ -238,7 +238,7 @@ const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename,
                     }
                 }
                 else {
-                    error("Unxepected token: " + std::string(lex.token().raw));
+                    error("Unexpected token: " + std::string(lex.token().raw));
                 }
             }
         }
@@ -616,7 +616,7 @@ void OctoCompiler::error(std::string msg)
         lexer().errorLocation(_compileResult);
     else
         _compileResult.reset();
-    _compileResult.errorMessage = msg;
+    _compileResult.errorMessage = std::move(msg);
     _compileResult.resultType = CompileResult::eERROR;
     throw std::runtime_error("");
 }
@@ -627,7 +627,7 @@ void OctoCompiler::warning(std::string msg)
         lexer().errorLocation(_compileResult);
     else
         _compileResult.reset();
-    _compileResult.errorMessage = msg;
+    _compileResult.errorMessage = std::move(msg);
     _compileResult.resultType = CompileResult::eWARNING;
 }
 
@@ -637,7 +637,7 @@ void OctoCompiler::info(std::string msg)
         lexer().errorLocation(_compileResult);
     else
         _compileResult.reset();
-    _compileResult.errorMessage = msg;
+    _compileResult.errorMessage = std::move(msg);
     _compileResult.resultType = CompileResult::eINFO;
 }
 
@@ -1026,7 +1026,7 @@ void OctoCompiler::dumpSegments(std::ostream& output)
 
 void OctoCompiler::define(std::string name, Value val)
 {
-    _symbols[name] = val;
+    _symbols[name] = {eCONST, std::move(val)};
 }
 
 bool OctoCompiler::isTrue(const std::string_view& name) const
@@ -1034,15 +1034,16 @@ bool OctoCompiler::isTrue(const std::string_view& name) const
     auto iter = _symbols.find(name);
     if(iter != _symbols.end()) {
         return std::visit(visitor{
+            [](const std::monostate&) { return false; },
             [](int val) { return val != 0; },
             [](double val) { return std::fabs(val) > 0.0000001; },
             [](const std::string& val) { return !val.empty(); }
-        }, iter->second);
+        }, iter->second.value);
     }
     return false;
 }
 
-bool OctoCompiler::isRegister(const Token& token) const
+bool OctoCompiler::isRegister(const Token& token)
 {
     if(token.type != Token::eSTRING && token.type != Token::eIDENTIFIER)
         return false;
