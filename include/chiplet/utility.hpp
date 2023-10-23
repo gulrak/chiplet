@@ -210,6 +210,8 @@ private:
 inline std::string formatUnit(double val, const std::string& suffix, int minScale = -1)
 {
     static const char* prefix[] = {"n", "u", "m", "", "k", "M", "G", "T"};
+    if(std::isnan(val))
+        return "";
     bool isNeg = val < 0;
     val = std::abs(val);
     if(val < 0.000000001) return "0" + suffix;
