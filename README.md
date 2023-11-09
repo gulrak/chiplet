@@ -29,7 +29,7 @@ _A commandline multitool for CHIP-8 variant development_
 Chiplet is the result of my Work on [Cadmium](https://github.com/gulrak/cadmium),
 my CHIP-8 emulator environment. It contains a preprocessor that is compatible
 with [Octopus](https://github.com/Timendus/chipcode/tree/main/octopus) from
-Tim Franssen, combined with an [Octo Assenbly Language](https://github.com/Timendus/chipcode/tree/main/octopus)
+Tim Franssen, combined with an [Octo Assembly Language](https://github.com/Timendus/chipcode/tree/main/octopus)
 compatible assembler based on the Code from [C-Octo](https://github.com/JohnEarnest/c-octo)
 from John Earnest.
 
