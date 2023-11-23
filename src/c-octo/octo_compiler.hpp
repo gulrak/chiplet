@@ -57,7 +57,8 @@
  **/
 
 #define OCTO_LIST_BLOCK_SIZE 16
-#define OCTO_RAM_MAX (64 * 1024)
+#define OCTO_RAM_MAX (1024 * 1024)
+#define OCTO_RAM_MASK (1024 * 1024 - 1)
 #define OCTO_INTERN_MAX (64 * 1024)
 #define OCTO_ERR_MAX 4096
 #define OCTO_DESTRUCTOR(x) ((void (*)(void*))x)
@@ -431,6 +432,7 @@ private:
     int value_8bit();
     int value_12bit();
     int value_16bit(int can_forward_ref, int offset);
+    int value_24bit(int can_forward_ref, int offset);
     octo_const* value_constant();
     void macro_body(char* desc, char* name, OctoMacro& m);
     double calc_expr(char* name);
@@ -830,6 +832,8 @@ int OctoProgram::value_range(int n, int mask)
         is_error = 1, snprintf(error, OCTO_ERR_MAX, "Argument %d does not fit in 12 bits.", n);
     if (mask == 0xFFFF && (n < 0 || n > mask))
         is_error = 1, snprintf(error, OCTO_ERR_MAX, "Argument %d does not fit in 16 bits.", n);
+    if (mask == 0xFFFFFF && (n < 0 || n > mask))
+        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Argument %d does not fit in 24 bits.", n);
     return n & mask;
 }
 
@@ -918,6 +922,36 @@ int OctoProgram::value_16bit(int can_forward_ref, int offset)
     if (c != nullptr)
         return value_range(c->value, 0xFFFF);
     value_fail("a 16-bit", n, 0);
+    if (is_error)
+        return 0;
+    if (!check_name(n, "label"))
+        return 0;
+    if (!can_forward_ref) {
+        is_error = 1, snprintf(error, OCTO_ERR_MAX, "The reference to '%s' may not be forward-declared.", n);
+        return 0;
+    }
+    auto* pr = (octo_proto*)octo_map_get(&protos, n);
+    if (pr == nullptr)
+        octo_map_set(&protos, n, pr = octo_make_proto(proto_line, proto_pos));
+    octo_list_append(&pr->addrs, octo_make_pref(here + offset, 1));
+    return 0;
+}
+
+int OctoProgram::value_24bit(int can_forward_ref, int offset)
+{
+    if (is_error)
+        return 0;
+    auto t = next();
+    if (t.type == OCTO_TOK_NUM) {
+        int n = t.num_value;
+        return value_range(n, 0xFFFFFF);
+    }
+    char* n = t.str_value;
+    int proto_line = t.line, proto_pos = t.pos;
+    auto* c = (octo_const*)octo_map_get(&constants, n);
+    if (c != nullptr)
+        return value_range(c->value, 0xFFFFFF);
+    value_fail("a 24-bit", n, 0);
     if (is_error)
         return 0;
     if (!check_name(n, "label"))
@@ -1047,7 +1081,7 @@ double OctoProgram::calc_expr(char* name)
     if (match("floor"))
         return floor(calc_expr(name));
     if (match("@"))
-        return 0xFF & (rom[0xFFFF & ((int)calc_expr(name))]);
+        return 0xFF & (rom[OCTO_RAM_MASK & ((int)calc_expr(name))]);
 
     // expression BINARY expression
     double r = calc_terminal(name);
@@ -1110,7 +1144,7 @@ void OctoProgram::append(char byte)
 {
     if (is_error)
         return;
-    if (here > 0xFFFF) {
+    if (here > OCTO_RAM_MASK) {
         is_error = 1;
         snprintf(error, OCTO_ERR_MAX, "ROM space is full.");
         return;
@@ -1380,7 +1414,7 @@ void OctoProgram::compile_statement()
         instruction(a >> 8, a);
     }
     else if (match(":org")) {
-        here = (peek_match("{", 0) ? 0xFFFF & (int)calculated("ANONYMOUS") : value_16bit(0, 0));
+        here = (peek_match("{", 0) ? OCTO_RAM_MASK & (int)calculated("ANONYMOUS") : value_16bit(0, 0));
     }
     else if (match(":call")) {
         immediate(0x20, peek_match("{", 0) ? 0xFFF & (int)calculated("ANONYMOUS") : value_12bit());

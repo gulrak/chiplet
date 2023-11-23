@@ -899,8 +899,8 @@ private:
     bool _megaChipEnabled{false};
     Chip8Variant _possibleVariants{};
     detail::OpcodeSet _opcodeSet;
-    std::map<uint16_t, Chunk> _chunks;
-    std::map<uint16_t, LabelInfo> _label;
+    std::map<uint32_t, Chunk> _chunks;
+    std::map<uint32_t, LabelInfo> _label;
     std::unordered_map<uint16_t, int> _stats;
     std::unordered_map<uint16_t, int> _fullStats;
     inline static std::map<uint16_t, int> _totalStats;

@@ -108,7 +108,7 @@ const std::string& Chip8Compiler::errorMessage() const
     return _impl->_errorMessage;
 }
 
-uint16_t Chip8Compiler::codeSize() const
+uint32_t Chip8Compiler::codeSize() const
 {
     return _impl->_program && !_impl->_program->isError() ? _impl->_program->romLength() - _impl->_program->romStartAddress() : 0;
 }
