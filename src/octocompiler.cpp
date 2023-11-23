@@ -592,6 +592,7 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::parseString()
     }
     if(_srcPtr == _srcEnd) {
         _token.length = _srcPtr - start;
+        _token.column += size_t(_srcPtr - start);
         error("Missing a closing \" in a string literal.");
     }
     ++_srcPtr;
