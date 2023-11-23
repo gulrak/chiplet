@@ -403,6 +403,7 @@ int main(int argc, char* argv[])
                         }
                     }
                 }
+                rc = -1;
             }
         }
         catch (std::exception& ex) {

@@ -32,10 +32,12 @@
 #include <string_view>
 #include <map>
 #include <memory>
+#include <utility>
 #include <variant>
 #include <vector>
 
 #include <ghc/fs_fwd.hpp>
+#include "chip8meta.hpp"
 
 namespace fs = ghc::filesystem;
 
@@ -74,15 +76,15 @@ class OctoCompiler
 public:
     using ProgressHandler = std::function<void(int verbosity, std::string msg)>;
     using Value = std::variant<std::monostate, int, double, std::string>;
-    enum SymbolType { eLABEL, eCONST, eMACRO, eALIAS };
+    enum SymbolType { eLABEL, eCONST, eCALC, eMACRO, eALIAS };
     struct SymbolEntry {
         SymbolType type;
         Value value;
     };
     struct Token {
         enum Type { eNONE, eNUMBER, eSTRING, eDIRECTIVE, eIDENTIFIER, eOPERATOR, eKEYWORD, ePREPROCESSOR, eSPRITESIZE, eLCURLY, eRCURLY, eEOF };
-        Type type;
-        double number;
+        Type type{eNONE};
+        double number{};
         std::string text;
         std::string_view raw;
         std::string_view prefix;
@@ -95,16 +97,17 @@ public:
     public:
         enum Mode { eCHIP8, eCHIP8STRICT, eMOTOROLA, eRCA };
         struct Exception : public std::exception {
-            Exception(const std::string& message) : errorMessage(message) {}
+            explicit Exception(std::string  message) : errorMessage(std::move(message)) {}
             ~Exception() noexcept override = default;
             const char* what() const noexcept override { return errorMessage.c_str(); }
             std::string errorMessage;
         };
         Lexer() = default;
-        Lexer(Lexer* parent) : _parent(parent) {}
+        explicit Lexer(Lexer* parent) : _parent(parent) {}
         void setRange(const std::string& filename, const char* source, const char* end);
         Token::Type nextToken(bool preproc = false);
         const Token& token() const { return _token; }
+        Mode mode() const { return _mode; }
         std::string cutPrefixLines();
         void consumeRestOfLine();
         bool expect(const std::string_view& literal) const;
@@ -112,9 +115,9 @@ public:
         std::vector<std::pair<int,std::string>> locationStack() const;
         const std::string& filename() const { return _filename; }
     private:
-        char peek() const { return _srcPtr < _srcEnd ? *_srcPtr : 0; }
+        char peek() const { return _srcPtr < _srcEnd ? *_srcPtr : '\0'; }
         bool checkFor(const std::string& key) const { return _srcPtr + key.size() <= _srcEnd && std::strncmp(_srcPtr, key.data(), key.size()) == 0; }
-        char get() { return _srcPtr < _srcEnd ? *_srcPtr++ : 0; }
+        char get() { return _srcPtr < _srcEnd ? *_srcPtr++ : '\0'; }
         bool isPreprocessor() const;
         Token::Type parseString();
         void skipWhitespace(bool preproc = false);
@@ -125,9 +128,10 @@ public:
         const char* _srcEnd{nullptr};
         Token _token;
         Mode _mode{eCHIP8};
+        unsigned _tabSize{1};
     };
     enum Mode { eCHIPLET, eC_OCTO };
-    OctoCompiler(Mode mode = eC_OCTO);
+    explicit OctoCompiler(Mode mode = eC_OCTO);
     ~OctoCompiler();
     static void initializeTables();
     void reset();
@@ -139,7 +143,9 @@ public:
     const CompileResult& preprocessFile(const std::string& inputFile);
     const CompileResult& preprocessFiles(const std::vector<std::string>& files);
     void dumpSegments(std::ostream& output);
-    void define(std::string name, Value val = 1);
+    void define(std::string name, Value val = 1, SymbolType type = eCONST);
+    std::optional<double> definedValue(std::string_view name) const;
+    std::optional<int32_t> definedInteger(std::string_view name) const;
     const CompileResult& compileResult() const { return _compileResult; }
     bool isError() const { return _compileResult.resultType != CompileResult::eOK; }
     void generateLineInfos(bool value) { _generateLineInfos = value; }
@@ -190,6 +196,10 @@ private:
     std::map<std::string, SymbolEntry, std::less<>> _symbols;
     std::vector<fs::path> _includePaths;
     std::unique_ptr<Chip8Compiler> _compiler;
+    using OpcodePattern = std::pair<std::vector<std::string>, const OpcodeInfo*>;
+    using OpcodeList = std::vector<OpcodePattern>;
+    static std::unordered_map<std::string_view, OpcodeList> _operators;
+    static std::unordered_map<std::string_view, OpcodeList> _mnemonics;
     ProgressHandler _progress;
     bool _generateLineInfos{true};
     int _startAddress{0x200};

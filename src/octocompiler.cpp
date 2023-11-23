@@ -107,18 +107,25 @@ static std::unordered_set<std::string> _reserved = {
 };
 
 static std::multimap<std::string_view, const OpcodeInfo*> _assemblerLookupTable;
+std::unordered_map<std::string_view, OctoCompiler::OpcodeList> OctoCompiler::_operators;
+std::unordered_map<std::string_view, OctoCompiler::OpcodeList> OctoCompiler::_mnemonics;
 
 void OctoCompiler::initializeTables()
 {
     if(_assemblerLookupTable.empty()) {
         for (const auto& info : detail::opcodes) {
-            if (!startsWith(info.octo, "vX") && !startsWith(info.octo, "0x")) {
+            auto tokens = split(info.octo, ' ');
+            if (!startsWith(info.octo, "vX") && !startsWith(info.octo, "i ") && !startsWith(info.octo, "0x")) {
                 auto keywordSize = info.octo.find(' ');
                 if(keywordSize == std::string::npos)
                     keywordSize = info.octo.size();
                 auto keyword = info.octo.substr(0, keywordSize);
                 _reserved.insert(keyword);
                 _assemblerLookupTable.emplace(std::string_view{info.octo.data(), keywordSize}, &info);
+                _mnemonics[std::string_view{info.octo.data(), keywordSize}].emplace_back(tokens, &info);
+            }
+            else if(startsWith(info.octo, "vX") && !startsWith(info.octo, "i ")) {
+                _operators[std::string_view{info.octo.data() + tokens[0].size() + 1, tokens[1].size()}].emplace_back(tokens, &info);
             }
         }
     }
@@ -202,8 +209,8 @@ const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename,
         auto lex = Lexer{};
         lex.setRange(filename, source, end);
         try {
-            auto token = lex.nextToken();
             while (true) {
+                auto token = lex.nextToken();
                 if (token == Token::eEOF) {
                     break;
                 }
@@ -211,9 +218,12 @@ const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename,
                     error("Preprocessor directive found in compilation stage!");
                 }
                 else if (token == Token::eDIRECTIVE) {
-                    if (lex.expect(":const")) {
+                    if (lex.expect(":alias")) {
+
+                    }
+                    else if (lex.expect(":const")) {
                         auto nameToken = lex.nextToken();
-                        if (nameToken != Token::eIDENTIFIER)
+                        if (nameToken != Token::eIDENTIFIER || (lex.mode() == Lexer::eCHIP8 && nameToken != Token::eSTRING))
                             error("Identifier expected after ':const'.");
                         auto constName = lex.token().raw;
                         auto value = lex.nextToken();
@@ -223,13 +233,43 @@ const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename,
                             define(std::string(constName), lex.token().number);
                         }
                         else {
-                            define(std::string(constName), std::string(lex.token().raw));
+                            auto val = definedValue(lex.token().raw);
+                            if(val) {
+                                define(std::string(constName), *val);
+                            }
+                            else {
+                                error("Expected a constant");
+                            }
                         }
-                        token = lex.nextToken();
                     }
                 }
                 else if(isRegister(lex.token())) {
-                        // register operation
+                    // register operation
+                    const OpcodeInfo* opInfo = nullptr;
+                    auto oper = lex.nextToken();
+                    if(oper == Token::eOPERATOR) {
+                        auto iter = _operators.find(lex.token().raw);
+                        if(iter != _operators.end()) {
+                            auto rhs = lex.nextToken();
+                            if(!isRegister(lex.token())) {
+                                // reg op reg
+                                for(const auto& h : iter->second) {
+                                    if(h.first.size() > 2 && h.first[2] == lex.token().raw) {
+                                        opInfo = h.second;
+                                        rhs = lex.nextToken();
+                                        break;
+                                    }
+                                }
+                                error("Expected right operand in opcode expression!");
+                            }
+                            if(isRegister(lex.token())) {
+                                // generate code
+                            }
+                            else {
+                                error("");
+                            }
+                        }
+                    }
                 }
                 else if(auto range = _assemblerLookupTable.equal_range(lex.token().raw); range.first != _assemblerLookupTable.end()) {
                     for(auto iter = range.first; iter != range.second; ++iter) {
@@ -401,6 +441,7 @@ void OctoCompiler::Lexer::skipWhitespace(bool preproc)
     _token.prefixLine = _token.line;
     while (_srcPtr < _srcEnd && std::isspace(peek()) || peek() == '#')  {
         char c = get();
+        _token.column += c == 9 ? _tabSize : 1;
         if(c == '#') {
             while (c && c != '\n')
                 c = get();
@@ -420,6 +461,7 @@ void OctoCompiler::Lexer::skipWhitespace(bool preproc)
 
 OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
 {
+    _token.column += _token.raw.size();
     skipWhitespace(preproc);
 
     if (peek() == '"') {
@@ -428,11 +470,11 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
     else {
         const char* start = _srcPtr;
         while (peek() && !std::isspace(peek())) get();
-        if (!peek())
+        uint32_t len = _srcPtr - start;
+        if (!peek() && !len)
             return _token.type = Token::eEOF;
 
         char* end{};
-        uint32_t len = _srcPtr - start;
         _token.text = std::string(start, _srcPtr);
         _token.raw = {start, size_t(_srcPtr - start)};
         _token.number = std::strtod(start, &end);
@@ -477,7 +519,7 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
             return _token.type = Token::eLCURLY;
         if(*start == '}')
             return _token.type = Token::eRCURLY;
-        if(std::strchr("+-*/%@|<>^!.=", *start))
+        if(std::strchr("+-*/%@|<>^!.=:", *start))
             return _token.type = Token::eOPERATOR;
         if(_reserved.count(_token.text)) {
             _token.type = len > 1 && std::isalpha(*(start + 1)) ? Token::eKEYWORD : Token::eOPERATOR;
@@ -519,6 +561,10 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::parseString()
         if(*_srcPtr == '\\') {
             if(++_srcPtr != _srcEnd) {
                 auto c = *_srcPtr;
+                if(c == 10 || c == 13) {
+                    _token.column += size_t(_srcPtr - start);
+                    error("Unexpected end of line after escaping backslash.");
+                }
                 if(c == 'n') {
                     c = 10;
                 }
@@ -531,11 +577,13 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::parseString()
                 result.push_back(c);
             }
             else {
-                error("Unexpected end after escaping backslash");
+                _token.column += size_t(_srcPtr - start);
+                error("Unexpected end after escaping backslash.");
             }
         }
         else if(*_srcPtr == 10 || *_srcPtr == 13) {
-            error("Expecting ending quote at end of string");
+            _token.column += size_t(_srcPtr - start);
+            error("Missing a closing \" in a string literal.");
         }
         else {
             result.push_back(*_srcPtr);
@@ -544,7 +592,7 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::parseString()
     }
     if(_srcPtr == _srcEnd) {
         _token.length = _srcPtr - start;
-        error("Expecting ending quote at end of string");
+        error("Missing a closing \" in a string literal.");
     }
     ++_srcPtr;
     _token.text = result;
@@ -643,6 +691,9 @@ void OctoCompiler::info(std::string msg)
 
 const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile, const char* source, const char* end)
 {
+    if(end - source >= 3 && *source == (char)0xef && *(source+1) == (char)0xbb && *(source+2) == (char)0xbf)
+        source += 3; // skip BOM
+
     try {
         _lexerStack.emplace(_lexerStack.empty() ? nullptr : &_lexerStack.top());
         std::shared_ptr<int> guard(NULL, [&](int *) { _lexerStack.pop(); });
@@ -730,7 +781,7 @@ const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile, 
                     writePrefix();
                     write(lex.token().raw);
                     auto nameToken = lex.nextToken();
-                    if (nameToken != Token::eIDENTIFIER)
+                    if (nameToken != Token::eIDENTIFIER && !(lex.mode() == Lexer::eCHIP8 || nameToken != Token::eSTRING))
                         error("Identifier expected after ':const'.");
                     auto constName = lex.token().raw;
                     writePrefix();
@@ -1024,7 +1075,7 @@ void OctoCompiler::dumpSegments(std::ostream& output)
     }
 }
 
-void OctoCompiler::define(std::string name, Value val)
+void OctoCompiler::define(std::string name, Value val, SymbolType type)
 {
     _symbols[name] = {eCONST, std::move(val)};
 }
@@ -1041,6 +1092,34 @@ bool OctoCompiler::isTrue(const std::string_view& name) const
         }, iter->second.value);
     }
     return false;
+}
+
+std::optional<double> OctoCompiler::definedValue(std::string_view name) const
+{
+    auto iter = _symbols.find(name);
+    if(iter != _symbols.end() && (iter->second.type == eCONST || iter->second.type == eCALC || iter->second.type == eLABEL)) {
+        return std::visit(visitor{
+                              [](const std::monostate&) -> std::optional<double> { return {}; },
+                              [](int val) -> std::optional<double> { return (double)val; },
+                              [](double val) -> std::optional<double> { return val; },
+                              [](const std::string& val) -> std::optional<double> { return {}; }
+                          }, iter->second.value);
+    }
+    return {};
+}
+
+std::optional<int32_t> OctoCompiler::definedInteger(std::string_view name) const
+{
+    auto iter = _symbols.find(name);
+    if(iter != _symbols.end() && (iter->second.type == eCONST || iter->second.type == eCALC || iter->second.type == eLABEL)) {
+        return std::visit(visitor{
+                              [](const std::monostate&) -> std::optional<int32_t> { return {}; },
+                              [](int val) -> std::optional<int32_t> { return val; },
+                              [](double val) -> std::optional<int32_t> { return (int32_t)val; },
+                              [](const std::string& val) -> std::optional<int32_t> { return {}; }
+                          }, iter->second.value);
+    }
+    return {};
 }
 
 bool OctoCompiler::isRegister(const Token& token)

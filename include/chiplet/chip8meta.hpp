@@ -152,7 +152,8 @@ inline static std::map<std::string, std::string> octoMacros = {
     {"cycle-bgcol", ":macro cycle-background { 0x02 0xa0 }"},
     {"cycle-bgcol-mp", ":macro cycle-background { 0x02 0xf0 }"},
     {"col-low", ":macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }"},
-    {"col-high", ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }"}
+    {"col-high", ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }"},
+    {"nop", ":macro nop { :byte 0x00 :byte 0xff"}
 };
 
 class OpcodeSet
