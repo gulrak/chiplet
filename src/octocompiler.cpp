@@ -96,7 +96,7 @@ static std::unordered_set<std::string> _preprocessor = {
 };
 
 static std::unordered_set<std::string> _directives = {
-    ":", ":alias", ":assert", ":breakpoint", ":byte", ":calc", ":call", ":const", ":macro", ":monitor", ":next", ":org", ":pointer", ":proto", ":stringmode", ":unpack"
+    ":", ":alias", ":assert", ":breakpoint", ":byte", ":calc", ":call", ":const", ":macro", ":monitor", ":next", ":org", ":pointer", ":pointer16", ":pointer24", ":proto", ":stringmode", ":unpack"
 };
 
 static std::unordered_set<std::string> _reserved = {

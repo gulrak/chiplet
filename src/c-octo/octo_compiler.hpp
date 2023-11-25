@@ -57,23 +57,9 @@
  **/
 
 #define OCTO_LIST_BLOCK_SIZE 16
-#define OCTO_RAM_MAX (1024 * 1024)
-#define OCTO_RAM_MASK (1024 * 1024 - 1)
 #define OCTO_INTERN_MAX (64 * 1024)
 #define OCTO_ERR_MAX 4096
 #define OCTO_DESTRUCTOR(x) ((void (*)(void*))x)
-double octo_sign(double x)
-{
-    return x < 0 ? -1 : x > 0 ? 1 : 0;
-}
-double octo_max(double x, double y)
-{
-    return x < y ? y : x;
-}
-double octo_min(double x, double y)
-{
-    return x < y ? x : y;
-}
 
 typedef struct
 {
@@ -293,7 +279,7 @@ typedef struct
 typedef struct
 {
     int value;
-    char is_long;
+    char size;
 } octo_pref;
 typedef struct
 {
@@ -342,7 +328,7 @@ octo_pref* octo_make_pref(int a, char l)
 {
     octo_pref* r = (octo_pref*)calloc(1, sizeof(octo_pref));
     r->value = a;
-    r->is_long = l;
+    r->size = l;
     return r;
 }
 octo_proto* octo_make_proto(int l, int p)
@@ -392,6 +378,9 @@ void octo_free_mon(octo_mon* x)
 class OctoProgram
 {
 public:
+    static constexpr int RAM_MAX  = 16 * 1024 * 1024;
+    static constexpr int RAM_MASK = 16 * 1024 * 1024 - 1;
+
     OctoProgram() = delete;
     OctoProgram(char* text, int startAddress);
     ~OctoProgram();
@@ -402,12 +391,31 @@ public:
     [[nodiscard]] std::string errorMessage() const { return error; }
     int romLength() const { return length; }
     int romStartAddress() const { return startAddress; }
-    const char* data() const { return rom; }
+    const char* data() const { return rom.data(); }
     int numSourceLines() const { return source_line; }
-    const char* breakpointInfo(uint32_t addr) const { return !is_error && addr < OCTO_RAM_MAX ? breakpoints[addr] : nullptr; }
-    int lineForAddress(uint32_t addr) const { return !is_error && addr < OCTO_RAM_MAX ? romLineMap[addr] : 0xFFFFFFFF; }
+    const char* breakpointInfo(uint32_t addr) const
+    {
+        if (is_error || addr > rom.size())
+            return nullptr;
+        auto iter = breakpoints.find(addr);
+        return iter == breakpoints.end() ? nullptr : iter->second;
+    }
+    int lineForAddress(uint32_t addr) const { return !is_error && addr < romLineMap.size() ? romLineMap[addr] : 0xFFFFFFFF; }
 
 private:
+    double sign(double x)
+    {
+        return (0.0 < x) - (x < 0.0);
+    }
+
+    double max(double x, double y)
+    {
+        return x < y ? y : x;
+    }
+    double min(double x, double y)
+    {
+        return x < y ? x : y;
+    }
     char* counted(char* name, int length);
     char* counted(char* name);
     int is_end() const;
@@ -465,9 +473,9 @@ private:
     int startAddress{};
     int here{};
     int length{};
-    char rom[OCTO_RAM_MAX]{};
-    char used[OCTO_RAM_MAX]{};
-    uint32_t romLineMap[OCTO_RAM_MAX]{};
+    std::vector<char> rom{};
+    std::vector<char> used{};
+    std::vector<uint32_t> romLineMap{};
     octo_map constants{};    // name -> octo_const
     octo_map aliases{};      // name -> octo_reg
     octo_map protos{};       // name -> octo_proto
@@ -478,7 +486,7 @@ private:
     octo_stack whiles{};     // [octo_flow], value=-1 indicates a marker
 
     // debugging
-    char* breakpoints[OCTO_RAM_MAX]{};
+    std::unordered_map<uint32_t,char*> breakpoints{};
     octo_map monitors{};  // name -> octo_mon
 
     // error reporting
@@ -728,7 +736,8 @@ char* octo_reserved_words[] = {
     ":=",          "|=",     "&=",     "^=",        "-=",        "=-",    "+=",      ">>=",         "<<=",    "==",     "!=",     "<",     ">",           "<=",      ">=",          "key",       "-key",
     "hex",         "bighex", "random", "delay",     ":",         ":next", ":unpack", ":breakpoint", ":proto", ":alias", ":const", ":org",  ";",           "return",  "clear",       "bcd",       "save",
     "load",        "buzzer", "if",     "then",      "begin",     "else",  "end",     "jump",        "jump0",  "native", "sprite", "loop",  "while",       "again",   "scroll-down", "scroll-up", "scroll-right",
-    "scroll-left", "lores",  "hires",  "loadflags", "saveflags", "i",     "audio",   "plane",       ":macro", ":calc",  ":byte",  ":call", ":stringmode", ":assert", ":monitor",    ":pointer",  "pitch",
+    "scroll-left", "lores",  "hires",  "loadflags", "saveflags", "i",     "audio",   "plane",       ":macro", ":calc",  ":byte",  ":call", ":stringmode", ":assert", ":monitor",    ":pointer",
+    ":pointer16", ":pointer24", "pitch",
 };
 int OctoProgram::is_reserved(char* name)
 {
@@ -901,9 +910,10 @@ int OctoProgram::value_12bit()
     if (!check_name(n, "label"))
         return 0;
     auto* pr = (octo_proto*)octo_map_get(&protos, n);
-    if (pr == nullptr)
+    if (pr == nullptr) {
         octo_map_set(&protos, n, pr = octo_make_proto(proto_line, proto_pos));
-    octo_list_append(&pr->addrs, octo_make_pref(here, 0));
+    }
+    octo_list_append(&pr->addrs, octo_make_pref(here, 12));
     return 0;
 }
 
@@ -931,9 +941,10 @@ int OctoProgram::value_16bit(int can_forward_ref, int offset)
         return 0;
     }
     auto* pr = (octo_proto*)octo_map_get(&protos, n);
-    if (pr == nullptr)
+    if (pr == nullptr) {
         octo_map_set(&protos, n, pr = octo_make_proto(proto_line, proto_pos));
-    octo_list_append(&pr->addrs, octo_make_pref(here + offset, 1));
+    }
+    octo_list_append(&pr->addrs, octo_make_pref(here + offset, 16));
     return 0;
 }
 
@@ -961,9 +972,10 @@ int OctoProgram::value_24bit(int can_forward_ref, int offset)
         return 0;
     }
     auto* pr = (octo_proto*)octo_map_get(&protos, n);
-    if (pr == nullptr)
+    if (pr == nullptr) {
         octo_map_set(&protos, n, pr = octo_make_proto(proto_line, proto_pos));
-    octo_list_append(&pr->addrs, octo_make_pref(here + offset, 1));
+    }
+    octo_list_append(&pr->addrs, octo_make_pref(here + offset, 24));
     return 0;
 }
 
@@ -1075,13 +1087,15 @@ double OctoProgram::calc_expr(char* name)
     if (match("sqrt"))
         return sqrt(calc_expr(name));
     if (match("sign"))
-        return octo_sign(calc_expr(name));
+        return sign(calc_expr(name));
     if (match("ceil"))
         return ceil(calc_expr(name));
     if (match("floor"))
         return floor(calc_expr(name));
-    if (match("@"))
-        return 0xFF & (rom[OCTO_RAM_MASK & ((int)calc_expr(name))]);
+    if (match("@")) {
+        auto addr = (int)calc_expr(name);
+        return addr >= 0 && addr < rom.size() ? 0xFF & rom[addr] : 0;
+    }
 
     // expression BINARY expression
     double r = calc_terminal(name);
@@ -1108,9 +1122,9 @@ double OctoProgram::calc_expr(char* name)
     if (match("pow"))
         return pow(r, calc_expr(name));
     if (match("min"))
-        return octo_min(r, calc_expr(name));
+        return min(r, calc_expr(name));
     if (match("max"))
-        return octo_max(r, calc_expr(name));
+        return max(r, calc_expr(name));
     if (match("<"))
         return r < calc_expr(name);
     if (match(">"))
@@ -1144,10 +1158,27 @@ void OctoProgram::append(char byte)
 {
     if (is_error)
         return;
-    if (here > OCTO_RAM_MASK) {
+    if (here >= RAM_MAX) {
         is_error = 1;
-        snprintf(error, OCTO_ERR_MAX, "ROM space is full.");
+        snprintf(error, OCTO_ERR_MAX, "Supported ROM space is full (16MB).");
         return;
+    }
+    if(here >= rom.size()) {
+        if(rom.size() < 1024*1024) {
+            rom.resize(1024*1024, 0);
+            used.resize(1024 * 1024, 0);
+            romLineMap.resize(1024 * 1024, 0xFFFFFFFF);
+        }
+        else if(rom.size() < RAM_MAX/2) {
+            rom.resize(RAM_MAX/2, 0);
+            used.resize(RAM_MAX/2, 0);
+            romLineMap.resize(RAM_MAX/2, 0xFFFFFFFF);
+        }
+        else if(rom.size() < RAM_MAX) {
+            rom.resize(RAM_MAX, 0);
+            used.resize(RAM_MAX, 0);
+            romLineMap.resize(RAM_MAX, 0xFFFFFFFF);
+        }
     }
     if (here > startAddress && used[here]) {
         is_error = 1;
@@ -1156,6 +1187,8 @@ void OctoProgram::append(char byte)
     }
     romLineMap[here] = source_line;
     rom[here] = byte, used[here] = 1, here++;
+    if(here > length)
+        length = here;
 }
 
 void OctoProgram::instruction(char a, char b)
@@ -1258,17 +1291,30 @@ void OctoProgram::resolve_label(int offset)
     auto* pr = (octo_proto*)octo_map_remove(&protos, n);
     for (int z = 0; z < pr->addrs.count; z++) {
         auto* pa = (octo_pref*)octo_list_get(&pr->addrs, z);
-        if (pa->is_long && (rom[pa->value] & 0xF0) == 0x60) {  // :unpack long target
+        if (pa->size == 16 && (rom[pa->value] & 0xF0) == 0x60) {  // :unpack long target
             rom[pa->value + 1] = target >> 8;
             rom[pa->value + 3] = target;
         }
-        else if (pa->is_long) {  // i := long target
+        else if (pa->size == 16) {  // i := long target
             rom[pa->value] = target >> 8;
             rom[pa->value + 1] = target;
         }
-        else if ((target & 0xFFF) != target) {
+        else if (pa->size <= 12 && (target & 0xFFF) != target) {
             is_error = 1, snprintf(error, OCTO_ERR_MAX, "Value 0x%0X for label '%s' does not fit in 12 bits.", target, n);
             break;
+        }
+        else if (pa->size <= 16 && (target & 0xFFFF) != target) {
+            is_error = 1, snprintf(error, OCTO_ERR_MAX, "Value 0x%0X for label '%s' does not fit in 16 bits.", target, n);
+            break;
+        }
+        else if (pa->size <= 24 && (target & 0xFFFFFF) != target) {
+            is_error = 1, snprintf(error, OCTO_ERR_MAX, "Value 0x%0X for label '%s' does not fit in 24 bits.", target, n);
+            break;
+        }
+        else if(pa->size == 24) {
+            rom[pa->value] = target>>16;
+            rom[pa->value + 1] = target >> 8;
+            rom[pa->value + 2] = target;
         }
         else if ((rom[pa->value] & 0xF0) == 0x60) {  // :unpack target
             rom[pa->value + 1] = ((rom[pa->value + 1]) & 0xF0) | ((target >> 8) & 0xF);
@@ -1409,12 +1455,17 @@ void OctoProgram::compile_statement()
     else if (match(":byte")) {
         append(peek_match("{", 0) ? (int)calculated("ANONYMOUS") : value_8bit());
     }
-    else if (match(":pointer")) {
+    else if (match(":pointer") || match(":pointer16")) {
         int a = peek_match("{", 0) ? calculated("ANONYMOUS") : value_16bit(1, 0);
         instruction(a >> 8, a);
     }
+    else if (match(":pointer24")) {
+        int a = peek_match("{", 0) ? calculated("ANONYMOUS") : value_24bit(1, 0);
+        append(a >> 16);
+        instruction(a >> 8, a);
+    }
     else if (match(":org")) {
-        here = (peek_match("{", 0) ? OCTO_RAM_MASK & (int)calculated("ANONYMOUS") : value_16bit(0, 0));
+        here = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value_16bit(0, 0));
     }
     else if (match(":call")) {
         immediate(0x20, peek_match("{", 0) ? 0xFFF & (int)calculated("ANONYMOUS") : value_12bit());
@@ -1702,17 +1753,16 @@ OctoProgram::OctoProgram(char* text, int startAddress)
     has_main = 1;
     here = startAddress;
     this->startAddress = startAddress;
-    length = OCTO_RAM_MAX;
-    memset(rom, 0, OCTO_RAM_MAX);
-    memset(used, 0, OCTO_RAM_MAX);
-    memset(romLineMap, 255, OCTO_RAM_MAX * sizeof(uint32_t));
+    length = 0;
+    rom.resize(65536, 0);
+    used.resize(65536, 0);
+    romLineMap.resize(65536, 0xFFFFFFFF);
     octo_map_init(&constants);
     octo_map_init(&aliases);
     octo_map_init(&protos);
     octo_stack_init(&loops);
     octo_stack_init(&branches);
     octo_stack_init(&whiles);
-    memset(breakpoints, 0, sizeof(char*) * OCTO_RAM_MAX);
     octo_map_init(&monitors);
     is_error = 0;
     error[0] = '\0';

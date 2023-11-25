@@ -159,7 +159,7 @@ inline static std::map<std::string, std::string> octoMacros = {
 class OpcodeSet
 {
 public:
-    using SymbolResolver = std::function<std::string(uint16_t)>;
+    using SymbolResolver = std::function<std::string(uint32_t)>;
     explicit OpcodeSet(Chip8Variant variant, SymbolResolver resolver = {})
     : _variant(variant)
     , _labelOrAddress(std::move(resolver))
@@ -211,6 +211,9 @@ public:
         }
         if(info->size == 4) {
             addr = nnnn;
+            if((opcode & 0xFF00) == 0x0100) {
+                addr |= (opcode & 0xFF) << 16;
+            }
             fmt::format_to(NNNNNN + ncnt, "{:04x}", nnnn);
         }
         std::string result;

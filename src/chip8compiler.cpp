@@ -135,7 +135,7 @@ uint32_t Chip8Compiler::lineForAddr(uint32_t addr) const
 
 const char* Chip8Compiler::breakpointForAddr(uint32_t addr) const
 {
-    if(addr < OCTO_RAM_MAX && _impl->_program->breakpointInfo(addr)) {
+    if(addr < _impl->_program->romLength() && _impl->_program->breakpointInfo(addr)) {
         return _impl->_program->breakpointInfo(addr);
     }
     return nullptr;
@@ -147,7 +147,7 @@ void Chip8Compiler::updateHash()
     char bpName[1024];
     sha1 sum;
     sum.add(code(), codeSize());
-    for(uint32_t addr = 0; addr < OCTO_RAM_MAX; ++addr) {
+    for(uint32_t addr = 0; addr < _impl->_program->romLength(); ++addr) {
         if(_impl->_program->breakpointInfo(addr)) {
             auto l = std::snprintf(bpName, 1023, "%04x:%s", addr, _impl->_program->breakpointInfo(addr));
             sum.add(bpName, l);
@@ -164,7 +164,7 @@ void Chip8Compiler::updateLineCoverage()
     _impl->_lineCoverage.resize(_impl->_program->numSourceLines());
     if (!_impl->_program)
         return;
-    for (size_t addr = 0; addr < OCTO_RAM_MAX; ++addr) {
+    for (size_t addr = 0; addr < _impl->_program->romLength(); ++addr) {
         auto line = _impl->_program->lineForAddress(addr);
         if (line < _impl->_lineCoverage.size()) {
             auto& range = _impl->_lineCoverage.at(line);

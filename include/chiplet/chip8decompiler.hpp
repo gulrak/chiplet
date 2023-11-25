@@ -72,7 +72,7 @@ public:
 
     explicit Chip8Decompiler(Chip8Variant variants = static_cast<Chip8Variant>(~uint64_t{0}))
     : _possibleVariants(variants)
-    , _opcodeSet(variants, [this](uint16_t addr){ return labelOrAddress(addr); })
+    , _opcodeSet(variants, [this](uint32_t addr){ return labelOrAddress(addr); })
     {
         if(_mappedOpcodeInfo.empty()) {
             _mappedOpcodeInfo.resize(65536);
@@ -93,7 +93,7 @@ public:
     {
         if(force || _possibleVariants != variant) {
             _possibleVariants = variant;
-            _opcodeSet = detail::OpcodeSet(_possibleVariants, [this](uint16_t addr){ return labelOrAddress(addr); });
+            _opcodeSet = detail::OpcodeSet(_possibleVariants, [this](uint32_t addr){ return labelOrAddress(addr); });
             _opcodeSet.formatInvalidAsHex(formatInvalidAsHex);
         }
     }
@@ -346,17 +346,22 @@ public:
         uint8_t n = opcode & 0xF;
         uint8_t nn = opcode & 0xFF;
         uint16_t nnn = opcode & 0xFFF;
-        ec.rPC = (ec.rPC + 2);
+        //ec.rPC = (ec.rPC + 2);
         bool inSkip = false;
         bool endsChunk = false;
         switch (opcode >> 12) {
             case 0:
                 if ((opcode & 0xFF00) == 0x0100) {
                     if (next >= 0)
-                        ec.rI = ((opcode & 0xFF)<<8) | next;
+                        ec.rI = ((opcode & 0xFF)<<16) | next;
                     else
                         ec.rI = -1;
-                    refLabel(nnn, eREAD);
+                }
+                else if ((opcode & 0xFF00) == 0x0200) {
+                    refLabel(ec.rI, eREAD);
+                }
+                else if ((opcode & 0xFF00) == 0x0600) {
+                    refLabel(ec.rI, eAUDIO);
                 }
                 else if (opcode == 0x00E0) {  // 00E0 - CLS
                 }
@@ -822,8 +827,8 @@ public:
     :calc BN { 0xB0 + ( n & 0xF ) }
     :byte 0x00 :byte BN
 }
-:macro ldhi nnnn {
-    :byte 0x01 :byte 0x00 :pointer nnnn
+:macro ldhi nnnnnn {
+    :byte 0x01 :pointer24 nnnnnn
 }
 :macro ldpal nn { :byte 0x02 :byte nn }
 :macro sprw nn { :byte 0x03 :byte nn }
