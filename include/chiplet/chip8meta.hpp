@@ -163,8 +163,8 @@ public:
     explicit OpcodeSet(Chip8Variant variant, SymbolResolver resolver = {})
     : _variant(variant)
     , _labelOrAddress(std::move(resolver))
+    , _mappedInfo(0x10000, 0xff)
     {
-        _mappedInfo.fill(0xff);
         for(const auto& info : opcodes) {
             if(uint64_t(info.variants & variant) != 0) {
                 mapOpcode(opcodeMasks[info.type], info.opcode, &info - opcodes.data());
@@ -280,7 +280,7 @@ private:
     }
     Chip8Variant _variant;
     SymbolResolver _labelOrAddress;
-    std::array<uint8_t,65536> _mappedInfo{};
+    std::vector<uint8_t> _mappedInfo{};
     bool _invalidAsHex = false;
 };
 
