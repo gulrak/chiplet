@@ -1096,8 +1096,6 @@ double OctoProgram::calc_expr(char* name)
         auto addr = (int)calc_expr(name);
         return addr >= 0 && addr < rom.size() ? 0xFF & rom[addr] : 0;
     }
-    if (match("regidx"))
-        return register_or_alias();
 
     // expression BINARY expression
     double r = calc_terminal(name);
