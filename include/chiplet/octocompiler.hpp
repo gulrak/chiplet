@@ -31,7 +31,9 @@
 #include <stack>
 #include <string_view>
 #include <map>
+#include <unordered_map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <variant>
 #include <vector>
