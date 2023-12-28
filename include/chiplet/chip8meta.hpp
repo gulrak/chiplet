@@ -130,19 +130,19 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FxFF, 0xF00A, 2, "", "vX := key", C8VG_BASE, "wait for a key pressed and released and set vX to it, in megachip mode it also updates the screen like clear" },
     { OT_FxFF, 0xF015, 2, "", "delay := vX", C8VG_BASE, "set delay timer to vX" },
     { OT_FxFF, 0xF018, 2, "", "buzzer := vX", C8VG_BASE, "set sound timer to vX, sound is played when sound timer is set greater 1 until it is zero" },
-    { OT_FxFF, 0xF01B, 2, "dw #fX1b", "0xfX 0x1b", C8V::CHIP_8E, "jump forward vX bytes, if Vx is 0 simply the next opcode is the target, making it a nop" },
+    { OT_FxFF, 0xF01B, 2, "dw #fX1b", "skip-bytes vX", C8V::CHIP_8E, "jump forward vX bytes, if vX is 0 simply the next opcode is the target, making it a nop" },
     { OT_FxFF, 0xF01E, 2, "", "i += vX", C8VG_BASE, "add vX to I" },
     { OT_FxFF, 0xF029, 2, "", "i := hex vX", C8VG_BASE, "set I to the hex sprite for the lowest nibble in vX" },
     { OT_FxFF, 0xF030, 2, "", "i := bighex vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "set I to the 10 lines height hex sprite for the lowest nibble in vX" },
     { OT_FxFF, 0xF033, 2, "", "bcd vX", C8VG_BASE, "write the value of vX as BCD value at the addresses I, I+1 and I+2" },
     { OT_FxFF, 0xF03A, 2, "", "pitch := vX", C8V::XO_CHIP, "set audio pitch for a audio pattern playback rate of 4000*2^((vX-64)/48)Hz" },
-    { OT_FxFF, 0xF04F, 2, "dw #fX4f", "0xfX 0x4f", C8V::CHIP_8E, "set delay timer to vX and wait for it to run down to 0" },
+    { OT_FxFF, 0xF04F, 2, "dw #fX4f", "wait-for vX", C8V::CHIP_8E, "set delay timer to vX and wait for it to run down to 0" },
     { OT_FxFF, 0xF055, 2, "", "save vX", C8VG_BASE, "write the content of v0 to vX at the memory pointed to by I, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1 not at all]" },
     { OT_FxFF, 0xF065, 2, "", "load vX", C8VG_BASE, "read the bytes from memory pointed to by I into the registers v0 to vX, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1 not at all]" },
     { OT_FxFF, 0xF075, 2, "", "saveflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "store the content of the registers v0 to vX into flags storage (outside of the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
     { OT_FxFF, 0xF085, 2, "", "loadflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "load the registers v0 to vX from flags storage (outside the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
-    { OT_FxFF, 0xF0E3, 2, "dw #fXe3", "0xfX 0xe3", C8V::CHIP_8E, "wait for strobe on !EF4 and read input from port 3 into vX" },
-    { OT_FxFF, 0xF0E7, 2, "dw #fXe7", "0xfX 0xe7", C8V::CHIP_8E, "read input from port 3 into vX" },
+    { OT_FxFF, 0xF0E3, 2, "dw #fXe3", "input3-wait vX", C8V::CHIP_8E, "wait for strobe on !EF4 and read input from port 3 into vX" },
+    { OT_FxFF, 0xF0E7, 2, "dw #fXe7", "input3 vX", C8V::CHIP_8E, "read input from port 3 into vX" },
     { OT_FxFF, 0xF0F8, 2, "dw #fXf8", "0xfX 0xf8", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "output vX to io port" },
     { OT_FxFF, 0xF0FB, 2, "dw #fXfb", "0xfX 0xfb", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "wait for input from io and load into vX" }
 };
@@ -168,7 +168,11 @@ inline static std::map<std::string, std::string> octoMacros = {
     {"stop", ":macro stop { :byte 0x00 :byte 0xed }"},
     {"wait-dt", ":macro wait-dt { :byte 0x01 :byte 0x51 }"},
     {"nop-8e", ":macro wait-dt { :byte 0x00 :byte 0xf2 }"},
-    {"skip-next", ":macro skip-next { :byte 0x01 : byte 0x88 }"}
+    {"skip-next", ":macro skip-next { :byte 0x01 : byte 0x88 }"},
+    {"skip-bytes", ":macro skip-bytes reg { :calc FX { 0xF0 + ( reg & 0xF ) } :byte FX :byte 0x1b }"},
+    {"wait-for", ":macro wait-for reg { :calc FX { 0xF0 + ( reg & 0xF ) } :byte FX :byte 0x4f }"},
+    {"input3-wait", ":macro input3-wait reg { :calc FX { 0xF0 + ( reg & 0xF ) } :byte FX :byte 0xe3 }"},
+    {"input3", ":macro input3 reg { :calc FX { 0xF0 + ( reg & 0xF ) } :byte FX :byte 0xe7 }"}
 };
 
 class OpcodeSet
