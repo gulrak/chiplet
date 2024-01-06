@@ -1648,17 +1648,21 @@ void OctoProgram::compile_statement()
     }
     else if (match(":macro")) {
         char* n = identifier("macro");
+        if(is_error)
+            return;
         if (macros.count(n)) {
             is_error = 1, snprintf(error, OCTO_ERR_MAX, "The name '%s' has already been defined.", n);
             return;
         }
         auto& m = macros.emplace(n, OctoMacro()).first->second;
-        while (!is_end() && !peek_match("{", 0))
+        while (!is_error && !is_end() && !peek_match("{", 0))
             m.args.push_back(identifier("macro argument"));
         macro_body("macro", n, m);
     }
     else if (match(":stringmode")) {
         char* n = identifier("stringmode");
+        if (is_error)
+            return;
         auto& s = stringmodes.try_emplace(n, OctoSMode()).first->second;
         int alpha_base = source_pos, alpha_quote = peek_char() == '"';
         char* alphabet = string();
