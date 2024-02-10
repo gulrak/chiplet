@@ -105,12 +105,27 @@ inline std::vector<std::string> split(const std::string &s, char delimiter) {
     return result;
 }
 
-inline std::vector<uint8_t> loadFile(const std::string& file)
+template<typename Iter>
+std::string join(Iter first, Iter last, const std::string& delimiter)
+{
+    std::ostringstream result;
+    for (Iter i = first; i != last; ++i) {
+        if (i != first) {
+            result << delimiter;
+        }
+        result << *i;
+    }
+    return result.str();
+}
+
+inline std::vector<uint8_t> loadFile(const std::string& file, size_t maxSize)
 {
     std::ifstream is(file, std::ios::binary | std::ios::ate);
     auto size = is.tellg();
     is.seekg(0, std::ios::beg);
-
+    if(size > maxSize) {
+        return {};
+    }
     std::vector<uint8_t> buffer(size);
     if (is.read((char*)buffer.data(), size)) {
         return buffer;

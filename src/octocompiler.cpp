@@ -92,7 +92,7 @@ template<class... Ts> struct visitor : Ts... { using Ts::operator()...;  };
 template<class... Ts> visitor(Ts...) -> visitor<Ts...>;
 
 static std::unordered_set<std::string> _preprocessor = {
-    ":include", ":segment", ":if", ":else", ":end", ":unless", ":dump-options"
+    ":include", ":segment", ":if", ":else", ":end", ":unless", ":dump-options", ":asm"
 };
 
 static std::unordered_set<std::string> _directives = {
