@@ -118,7 +118,7 @@ std::string join(Iter first, Iter last, const std::string& delimiter)
     return result.str();
 }
 
-inline std::vector<uint8_t> loadFile(const std::string& file, size_t maxSize)
+inline std::vector<uint8_t> loadFile(const std::string& file, size_t maxSize = 16 * 1024 * 1024)
 {
     std::ifstream is(file, std::ios::binary | std::ios::ate);
     auto size = is.tellg();
