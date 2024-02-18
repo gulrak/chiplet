@@ -8,7 +8,7 @@ include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
 enable_testing()
 
 add_subdirectory(src)
-#add_subdirectory(test)
+add_subdirectory(test)
 
 get_directory_property(hasParent PARENT_DIRECTORY)
 if(NOT hasParent)

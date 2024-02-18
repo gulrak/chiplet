@@ -33,7 +33,7 @@ namespace emu {
 class Chip8Compiler::Private
 {
 public:
-    std::unique_ptr<OctoProgram> _program{};
+    std::unique_ptr<octo::Program> _program{};
     std::string _sha1hex;
     std::string _errorMessage;
     std::vector<std::pair<uint32_t, uint32_t>> _lineCoverage;
@@ -66,7 +66,7 @@ bool Chip8Compiler::compile(const char* start, const char* end, int startAddress
     // make a malloc based copy that c-octo will own and free on oct_free_program
     char* source = (char*)malloc(end - start);
     memcpy(source, start, end - start);
-    _impl->_program = std::make_unique<OctoProgram>(source, startAddress);
+    _impl->_program = std::make_unique<octo::Program>(source, startAddress);
     if (!_impl->_program->compile()) {
         _impl->_errorMessage = "ERROR (" + std::to_string(_impl->_program->errorLine()) + ":" + std::to_string(_impl->_program->errorPos() + 1) + "): " + _impl->_program->errorMessage();
         //std::cerr << _impl->_errorMessage << std::endl;
@@ -106,6 +106,11 @@ bool Chip8Compiler::isError() const
 const std::string& Chip8Compiler::errorMessage() const
 {
     return _impl->_errorMessage;
+}
+
+size_t Chip8Compiler::numSourceLines() const
+{
+    return _impl->_program->numSourceLines();
 }
 
 uint32_t Chip8Compiler::codeSize() const

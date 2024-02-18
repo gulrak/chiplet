@@ -39,6 +39,7 @@
  *
  **/
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -47,200 +48,141 @@
 #include <array>
 #include <deque>
 #include <unordered_map>
+#include <unordered_set>
+#include <stack>
 #include <string_view>
 #include <vector>
+#include <fmt/format.h>
 
-/**
- *
- *  Fundamental Data Structures
- *
- **/
 
-#define OCTO_LIST_BLOCK_SIZE 16
-#define OCTO_INTERN_MAX (64 * 1024)
-#define OCTO_ERR_MAX 4096
-#define OCTO_DESTRUCTOR(x) ((void (*)(void*))x)
+namespace octo {
 
-typedef struct
-{
-    int count, space;
-    void** data;
-} octo_list;
-void octo_list_init(octo_list* list)
-{
-    list->count = 0;
-    list->space = OCTO_LIST_BLOCK_SIZE;
-    list->data = (void**)malloc(sizeof(void*) * OCTO_LIST_BLOCK_SIZE);
-}
-void octo_list_destroy(octo_list* list, void items(void*))
-{
-    if (items)
-        for (int z = 0; z < list->count; z++)
-            items(list->data[z]);
-    free(list->data);
-}
-void octo_list_grow(octo_list* list)
-{
-    if (list->count < list->space)
-        return;
-    list->data = (void**)realloc(list->data, (sizeof(void*)) * (list->space += OCTO_LIST_BLOCK_SIZE));
-}
-void octo_list_append(octo_list* list, void* item)
-{
-    octo_list_grow(list);
-    list->data[list->count++] = item;
-}
-void octo_list_insert(octo_list* list, void* item, int index)
-{
-    octo_list_grow(list);
-    for (int z = list->count; z > index; z--)
-        list->data[z] = list->data[z - 1];
-    list->data[index] = item;
-    list->count++;
-}
-void* octo_list_remove(octo_list* list, int index)
-{
-    void* ret = list->data[index];
-    for (int z = index; z < list->count - 1; z++)
-        list->data[z] = list->data[z + 1];
-    list->count--, list->data[list->count] = NULL;  // paranoia
-    return ret;
-}
-void* octo_list_get(octo_list* list, int index)
-{
-    return list->data[index];
-}
-void octo_list_set(octo_list* list, int index, void* value)
-{
-    list->data[index] = value;
-}
+#define TOKEN_LIST(decl) \
+    decl(ASSIGN, ":=") \
+    decl(ASSIGN_OR, "|=") \
+    decl(ASSIGN_END, "&=") \
+    decl(ASSIGN_XOR, "^=") \
+    decl(ASSIGN_SUB, "-=") \
+    decl(ASSIGN_RSUB, "=-") \
+    decl(ASSIGN_ADD, "+=") \
+    decl(ASSIGN_SHR, ">>=") \
+    decl(ASSIGN_SHL, "<<=") \
+    decl(EQUAL, "==") \
+    decl(UNEQUAL, "!=") \
+    decl(LESS, "<") \
+    decl(GREATER, ">") \
+    decl(LESS_EQUAL, "<=") \
+    decl(GREATER_EQUAL, ">=") \
+    decl(KEY, "key") \
+    decl(NOT_KEY, "-key") \
+    decl(HEX, "hex") \
+    decl(BIGHEX, "bighex") \
+    decl(RANDOM, "random") \
+    decl(DELAY, "delay") \
+    decl(COLON, ":") \
+    decl(NEXT, ":next") \
+    decl(UNPACK, ":unpack") \
+    decl(BREAKPOINT, ":breakpoint") \
+    decl(PROTO, ":proto") \
+    decl(ALIAS, ":alias") \
+    decl(CONST, ":const") \
+    decl(ORG, ":org") \
+    decl(SEMICOLON, ";") \
+    decl(RETURN, "return") \
+    decl(CLEAR, "clear") \
+    decl(BCD, "bcd") \
+    decl(SAVE, "save") \
+    decl(LOAD, "load") \
+    decl(BUZZER, "buzzer") \
+    decl(IF, "if") \
+    decl(THEN, "then") \
+    decl(BEGIN, "begin") \
+    decl(ELSE, "else") \
+    decl(END, "end") \
+    decl(EXIT, "exit") \
+    decl(JUMP, "jump") \
+    decl(JUMP0, "jump0") \
+    decl(NATIVE, "native") \
+    decl(SPRITE, "sprite") \
+    decl(LOOP, "loop") \
+    decl(WHILE, "while") \
+    decl(AGAIN, "again") \
+    decl(SCROLL_DOWN, "scroll-down") \
+    decl(SCROLL_UP, "scroll-up") \
+    decl(SCROLL_RIGHT, "scroll-right") \
+    decl(SCROLL_LEFT, "scroll-left") \
+    decl(LORES, "lores") \
+    decl(HIRES, "hires") \
+    decl(LOADFLAGS, "loadflags") \
+    decl(SAVEFLAGS, "saveflags") \
+    decl(I_REG, "i") \
+    decl(AUDIO, "audio") \
+    decl(PLANE, "plane") \
+    decl(MACRO, ":macro") \
+    decl(CALC, ":calc") \
+    decl(BYTE, ":byte") \
+    decl(CALL, ":call") \
+    decl(STRINGMODE, ":stringmode") \
+    decl(ASSERT, ":assert") \
+    decl(MONITOR, ":monitor") \
+    decl(POINTER, ":pointer") \
+    decl(POINTER16, ":pointer16") \
+    decl(POINTER24, ":pointer24") \
+    decl(PITCH, "pitch")
 
-// I could just use lists directly, but this abstraction clarifies intent:
-typedef struct
-{
-    octo_list values;
-} octo_stack;
-void octo_stack_init(octo_stack* stack)
-{
-    octo_list_init(&stack->values);
-}
-void octo_stack_destroy(octo_stack* stack, void items(void*))
-{
-    octo_list_destroy(&stack->values, items);
-}
-void octo_stack_push(octo_stack* stack, void* item)
-{
-    octo_list_append(&stack->values, item);
-}
-void* octo_stack_pop(octo_stack* stack)
-{
-    return octo_list_remove(&stack->values, stack->values.count - 1);
-}
-int octo_stack_is_empty(octo_stack* stack)
-{
-    return stack->values.count < 1;
-}
-
-// linear access should be good enough for a start;
-// octo programs rarely have more than a few thousand constants:
-typedef struct
-{
-    octo_list keys, values;
-} octo_map;
-void octo_map_init(octo_map* map)
-{
-    octo_list_init(&map->keys);
-    octo_list_init(&map->values);
-}
-void octo_map_destroy(octo_map* map, void items(void*))
-{
-    octo_list_destroy(&map->keys, NULL);
-    octo_list_destroy(&map->values, items);
-}
-void* octo_map_get(octo_map* map, char* key)
-{
-    for (int z = 0; z < map->keys.count; z++) {
-        if (octo_list_get(&map->keys, z) == key)
-            return octo_list_get(&map->values, z);
-    }
-    return NULL;
-}
-void* octo_map_remove(octo_map* map, char* key)
-{
-    for (int z = 0; z < map->keys.count; z++) {
-        if (octo_list_get(&map->keys, z) == key) {
-            void* prev = octo_list_get(&map->values, z);
-            octo_list_remove(&map->keys, z);
-            octo_list_remove(&map->values, z);
-            return prev;
-        }
-    }
-    return NULL;
-}
-void* octo_map_set(octo_map* map, char* key, void* value)
-{
-    for (int z = 0; z < map->keys.count; z++) {
-        if (octo_list_get(&map->keys, z) == key) {
-            void* prev = octo_list_get(&map->values, z);
-            octo_list_set(&map->values, z, value);
-            return prev;
-        }
-    }
-    octo_list_append(&map->keys, key);
-    octo_list_append(&map->values, value);
-    return NULL;
-}
-
-/**
- *
- *  Compiler State
- *
- **/
-
-#define OCTO_TOK_STR 0
-#define OCTO_TOK_NUM 1
-#define OCTO_TOK_EOF 2
-class OctoToken
-{
-public:
-    OctoToken() = delete;
-    OctoToken(int line, int pos);
-    OctoToken(int n);
-    OctoToken(const OctoToken& other);
-    char* format_value(char* d);
-
-    int type;
-    int line;
-    int pos;
-    union
-    {
-        char* str_value;
-        double num_value;
-    };
+enum class TokenId {
+    TOK_UNKNOWN,
+#define ENUM_ENTRY(NAME, TEXT) NAME,
+    TOKEN_LIST(ENUM_ENTRY)
+#undef ENUM_ENTRY
 };
 
-OctoToken::OctoToken(int line, int pos)
-: type{OCTO_TOK_EOF}
-, line{line}
-, pos{pos}
+std::unordered_map<std::string_view, TokenId> lexerTokenMap = {
+#define TEXT_TOKEN_MAP(NAME, TEXT) {TEXT, TokenId::NAME},
+    TOKEN_LIST(TEXT_TOKEN_MAP)
+#undef TEXT_TOKEN_MAP
+};
+
+class Token
 {
-    str_value = "";
+public:
+    enum class Type { STRING, NUMBER, END_OF_FILE};
+    Token() = delete;
+    Token(int line, int pos);
+    explicit Token(int n);
+    Token(const Token& other);
+    char* formatValue(char* d) const;
+
+    Type type;
+    TokenId tid{TokenId::TOK_UNKNOWN};
+    int line;
+    int pos;
+    std::string_view str_value{};
+    double num_value{};
+};
+
+Token::Token(int line, int pos)
+    : type{Type::END_OF_FILE}
+    , line{line}
+    , pos{pos}
+{
 }
 
-OctoToken::OctoToken(int n)
-: type{OCTO_TOK_NUM}
-, line{0}
-, pos{0}
+Token::Token(int n)
+    : type{Type::NUMBER}
+    , line{0}
+    , pos{0}
 {
     num_value = n;
 }
 
-OctoToken::OctoToken(const OctoToken& other)
-: type{other.type}
-, line{other.line}
-, pos{other.pos}
+Token::Token(const Token& other)
+    : type{other.type}
+    , tid(other.tid)
+    , line{other.line}
+    , pos{other.pos}
 {
-    if(type == OCTO_TOK_NUM) {
+    if (type == Type::NUMBER) {
         num_value = other.num_value;
     }
     else {
@@ -248,16 +190,16 @@ OctoToken::OctoToken(const OctoToken& other)
     }
 }
 
-char* OctoToken::format_value(char* d)
+char* Token::formatValue(char* d) const
 {
-    switch(type) {
-        case OCTO_TOK_EOF:
+    switch (type) {
+        case Type::END_OF_FILE:
             snprintf(d, 255, "<end of file>");
             break;
-        case OCTO_TOK_STR:
-            snprintf(d, 255, "'%s'", str_value);
+        case Type::STRING:
+            snprintf(d, 255, "'%s'", std::string(str_value).c_str());
             break;
-        case OCTO_TOK_NUM:
+        case Type::NUMBER:
             snprintf(d, 255, "%d", (int)num_value);
             break;
         default:
@@ -267,123 +209,59 @@ char* OctoToken::format_value(char* d)
     return d;
 }
 
-typedef struct
+struct Constant
 {
     double value;
-    char is_mutable;
-} octo_const;
-typedef struct
-{
-    int value;
-} octo_reg;
-typedef struct
+    bool isMutable;
+};
+
+struct ProtoRef
 {
     int value;
     char size;
-} octo_pref;
-typedef struct
+};
+
+struct Prototype
 {
     int line, pos;
-    octo_list addrs;
-} octo_proto;
+    std::vector<ProtoRef> addrs;
+};
 
-struct OctoMacro
+struct Macro
 {
     int calls{};
     std::vector<std::string_view> args;
-    std::vector<OctoToken> body;
+    std::vector<Token> body;
 };
 
-struct OctoSMode
+struct StringMode
 {
-    int calls;
-    char values[256];
-    std::array<std::unique_ptr<OctoMacro>,256> modes;
+    int calls{};
+    char values[256]{};
+    std::array<std::unique_ptr<Macro>, 256> modes{};
 };
 
-typedef struct
+struct FlowControl
 {
     int addr, line, pos;
-    char* type;
-} octo_flow;
-typedef struct
+    const char* type;
+};
+
+struct Monitor
 {
     int type, base, len;
-    char* format;
-} octo_mon;
+    std::string format;
+};
 
-octo_const* octo_make_const(double v, char m)
-{
-    octo_const* r = (octo_const*)calloc(1, sizeof(octo_const));
-    r->value = v, r->is_mutable = m;
-    return r;
-}
-octo_reg* octo_make_reg(int v)
-{
-    octo_reg* r = (octo_reg*)calloc(1, sizeof(octo_reg));
-    r->value = v;
-    return r;
-}
-octo_pref* octo_make_pref(int a, char l)
-{
-    octo_pref* r = (octo_pref*)calloc(1, sizeof(octo_pref));
-    r->value = a;
-    r->size = l;
-    return r;
-}
-octo_proto* octo_make_proto(int l, int p)
-{
-    octo_proto* r = (octo_proto*)calloc(1, sizeof(octo_proto));
-    octo_list_init(&r->addrs);
-    r->line = l, r->pos = p;
-    return r;
-}
-octo_flow* octo_make_flow(int a, int l, int p, char* t)
-{
-    octo_flow* r = (octo_flow*)calloc(1, sizeof(octo_flow));
-    r->addr = a, r->line = l, r->pos = p, r->type = t;
-    return r;
-}
-octo_mon* octo_make_mon()
-{
-    octo_mon* r = (octo_mon*)calloc(1, sizeof(octo_mon));
-    return r;
-}
-void octo_free_const(octo_const* x)
-{
-    free(x);
-}
-void octo_free_reg(octo_reg* x)
-{
-    free(x);
-}
-void octo_free_pref(octo_pref* x)
-{
-    free(x);
-}
-void octo_free_proto(octo_proto* x)
-{
-    octo_list_destroy(&x->addrs, OCTO_DESTRUCTOR(octo_free_pref));
-    free(x);
-}
-void octo_free_flow(octo_flow* x)
-{
-    free(x);
-}
-void octo_free_mon(octo_mon* x)
-{
-    free(x);
-}
-
-class OctoProgram
+class Program
 {
 public:
-    static constexpr int RAM_MAX  = 16 * 1024 * 1024;
+    static constexpr int RAM_MAX = 16 * 1024 * 1024;
     static constexpr int RAM_MASK = 16 * 1024 * 1024 - 1;
 
-    OctoProgram() = delete;
-    OctoProgram(char* text, int startAddress);
-    ~OctoProgram();
+    Program() = delete;
+    Program(char* text, int startAddress);
+    ~Program();
     bool compile();
     bool isError() const { return is_error; }
     int errorLine() const { return error_line; }
@@ -391,7 +269,7 @@ public:
     [[nodiscard]] std::string errorMessage() const { return error; }
     int romLength() const { return length; }
     int romStartAddress() const { return startAddress; }
-    const char* data() const { return rom.data(); }
+    const uint8_t* data() const { return rom.data(); }
     int numSourceLines() const { return source_line; }
     const char* breakpointInfo(uint32_t addr) const
     {
@@ -400,112 +278,97 @@ public:
         auto iter = breakpoints.find(addr);
         return iter == breakpoints.end() ? nullptr : iter->second;
     }
-    int lineForAddress(uint32_t addr) const { return !is_error && addr < romLineMap.size() ? romLineMap[addr] : 0xFFFFFFFF; }
+    uint32_t lineForAddress(uint32_t addr) const { return !is_error && addr < romLineMap.size() ? romLineMap[addr] : 0xFFFFFFFF; }
 
 private:
-    double sign(double x)
-    {
-        return (0.0 < x) - (x < 0.0);
-    }
+    static double sign(double x) { return (0.0 < x) - (x < 0.0); }
 
-    double max(double x, double y)
-    {
-        return x < y ? y : x;
-    }
-    double min(double x, double y)
-    {
-        return x < y ? x : y;
-    }
-    char* counted(char* name, int length);
-    char* counted(char* name);
+    static double max(double x, double y) { return x < y ? y : x; }
+    static double min(double x, double y) { return x < y ? x : y; }
+    std::string_view safeStringStringView(char* name, size_t len);
+    std::string_view safeStringStringView(char* name);
     int is_end() const;
     char next_char();
     char peek_char() const;
     void skip_whitespace();
     void fetch_token();
-    OctoToken next();
-    OctoToken peek();
-    int peek_match(char* name, int index);
-    int match(char* name);
-    int check_name(char* name, char* kind);
-    char* string();
-    char* identifier(char* kind);
-    void expect(char* name);
-    int is_register(char* name);
-    int peek_is_register();
+    Token next();
+    Token peek();
+    bool peek_match(const std::string_view& name, int index);
+    bool match(const std::string_view& name);
+    void eat();
+    bool check_name(std::string_view name, char* kind);
+    std::string_view string();
+    std::string_view identifier(char* kind);
+    void expect(std::string_view name);
+    bool is_register(std::string_view name);
+    bool peek_is_register();
     int register_or_alias();
     int value_range(int n, int mask);
-    void value_fail(char* w, char* n, int undef);
+    void value_fail(const std::string_view& w, const std::string_view& n, bool undef);
     int value_4bit();
     int value_8bit();
     int value_12bit();
     int value_16bit(int can_forward_ref, int offset);
     int value_24bit(int can_forward_ref, int offset);
-    octo_const* value_constant();
-    void macro_body(char* desc, char* name, OctoMacro& m);
-    double calc_expr(char* name);
-    double calc_terminal(char* name);
-    double calculated(char* name);
-    void append(char byte);
-    void instruction(char a, char b);
-    void immediate(char op, int nnn);
+    void addProtoRef(std::string_view name, int line, int pos, int where, int8_t size);
+    Constant value_constant();
+    void macro_body(const std::string_view& desc, const std::string_view& name, Macro& m);
+    double calc_expr(std::string_view name);
+    double calc_terminal(std::string_view name);
+    double calculated(std::string_view name);
+    void append(uint8_t byte);
+    void instruction(uint8_t a, uint8_t b);
+    void immediate(uint8_t op, int nnn);
     void jump(int addr, int dest);
     void pseudo_conditional(int reg, int sub, int comp);
     void conditional(int negated);
     void resolve_label(int offset);
     void compile_statement();
 
-    static int is_reserved(char* name);
+    static bool is_reserved(std::string_view name);
 
     // string interning table
-    size_t strings_used;
-    char strings[OCTO_INTERN_MAX]{};
+    std::unordered_set<std::string> stringTable;
 
     // tokenizer
     char* source;
     char* source_root;
     int source_line;
     int source_pos;
-    std::deque<OctoToken> tokens;
+    std::deque<Token> tokens;
 
     // compiler
     char has_main{};  // do we need a trampoline for 'main'?
     int startAddress{};
     int here{};
     int length{};
-    std::vector<char> rom{};
+    std::vector<uint8_t> rom{};
     std::vector<char> used{};
     std::vector<uint32_t> romLineMap{};
-    octo_map constants{};    // name -> octo_const
-    octo_map aliases{};      // name -> octo_reg
-    octo_map protos{};       // name -> octo_proto
-    std::unordered_map<std::string_view,OctoMacro> macros; // name -> octo_macro
-    std::unordered_map<std::string_view,OctoSMode> stringmodes; // name -> octo_smode
-    octo_stack loops{};      // [octo_flow]
-    octo_stack branches{};   // [octo_flow]
-    octo_stack whiles{};     // [octo_flow], value=-1 indicates a marker
+    std::unordered_map<std::string_view, Constant> constants;
+    std::unordered_map<std::string_view, int> aliases{};
+    std::unordered_map<std::string_view, Prototype> protos{};
+    std::unordered_map<std::string_view, Macro> macros{};
+    std::unordered_map<std::string_view, StringMode> stringModes{};
+    std::stack<FlowControl> loops{};
+    std::stack<FlowControl> branches{};
+    std::stack<FlowControl> whiles{}; // value=-1 indicates a marker
 
     // debugging
-    std::unordered_map<uint32_t,char*> breakpoints{};
-    octo_map monitors{};  // name -> octo_mon
+    std::unordered_map<uint32_t, const char*> breakpoints{};
+    std::unordered_map<std::string_view, Monitor> monitors{};
 
     // error reporting
     char is_error{};
-    char error[OCTO_ERR_MAX]{};
+    std::string error{};
     int error_line{};
     int error_pos{};
 };
 
-OctoProgram::~OctoProgram()
+Program::~Program()
 {
     free(source_root);
-    octo_map_destroy(&constants, OCTO_DESTRUCTOR(octo_free_const));
-    octo_map_destroy(&aliases, OCTO_DESTRUCTOR(octo_free_reg));
-    octo_map_destroy(&protos, OCTO_DESTRUCTOR(octo_free_proto));
-    octo_stack_destroy(&loops, OCTO_DESTRUCTOR(octo_free_flow));
-    octo_stack_destroy(&branches, OCTO_DESTRUCTOR(octo_free_flow));
-    octo_stack_destroy(&whiles, OCTO_DESTRUCTOR(octo_free_flow));
-    octo_map_destroy(&monitors, OCTO_DESTRUCTOR(octo_free_mon));
 }
 
 /**
@@ -514,39 +377,25 @@ OctoProgram::~OctoProgram()
  *
  **/
 
-int octo_interned_len(char* name)
+std::string_view Program::safeStringStringView(char* name, size_t len)
 {
-    return (name[-2] << 8) | name[-1];
-}
-char* OctoProgram::counted(char* name, int length)
-{
-    size_t index = 2;
-    while (index < strings_used) {
-        if (memcmp(name, strings + index, length + 1) == 0)
-            return strings + index;
-        index += octo_interned_len(strings + index) + 3;  // [ \0 , len-lo , len-hi ]
-    }
-    if (strings_used + length + 1 >= OCTO_INTERN_MAX) {
-        return is_error = 1, snprintf(error, OCTO_ERR_MAX, "Internal Error: exhausted string interning table."), (char*)"";
-    }
-    memcpy(strings + index, name, length);
-    strings[index - 2] = 0xFF & (length >> 8);
-    strings[index - 1] = 0xFF & length;
-    strings_used += length + 3;
-    return strings + index;
+    auto iter = stringTable.find({name, len});
+    if (iter != stringTable.end())
+        return *iter;
+    return *stringTable.insert({name, len}).first;
 }
 
-char* OctoProgram::counted(char* name)
+std::string_view Program::safeStringStringView(char* name)
 {
-    return counted(name, strlen(name));
+    return safeStringStringView(name, std::strlen(name));
 }
 
-int OctoProgram::is_end() const
+int Program::is_end() const
 {
     return tokens.empty() && source[0] == '\0';
 }
 
-char OctoProgram::next_char()
+char Program::next_char()
 {
     char c = source[0];
     if (c == '\0')
@@ -559,14 +408,14 @@ char OctoProgram::next_char()
     return c;
 }
 
-char OctoProgram::peek_char() const
+char Program::peek_char() const
 {
     return source[0] == '\0' ? '\0' : source[0];
 }
 
-void OctoProgram::skip_whitespace()
+void Program::skip_whitespace()
 {
-    while (1) {
+    while (true) {
         char c = peek_char();
         if (c == '#') {  // line comments
             next_char();
@@ -583,11 +432,11 @@ void OctoProgram::skip_whitespace()
     }
 }
 
-void OctoProgram::fetch_token()
+void Program::fetch_token()
 {
     if (is_end()) {
         is_error = 1;
-        snprintf(error, OCTO_ERR_MAX, "Unexpected EOF.");
+        error = "Unexpected EOF.";
         return;
     }
     if (is_error)
@@ -598,11 +447,12 @@ void OctoProgram::fetch_token()
     int index = 0;
     if (source[0] == '"') {
         next_char();
-        while (1) {
+        auto* start = source;
+        while (true) {
             char c = next_char();
             if (c == '\0') {
                 is_error = 1;
-                snprintf(error, OCTO_ERR_MAX, "Missing a closing \" in a string literal.");
+                error = "Missing a closing \" in a string literal.";
                 error_line = source_line, error_pos = source_pos;
                 return;
             }
@@ -611,10 +461,11 @@ void OctoProgram::fetch_token()
                 break;
             }
             if (c == '\\') {
+                start = nullptr;
                 char ec = next_char();
                 if (ec == '\0') {
                     is_error = 1;
-                    snprintf(error, OCTO_ERR_MAX, "Missing a closing \" in a string literal.");
+                    error = "Missing a closing \" in a string literal.";
                     error_line = source_line, error_pos = source_pos;
                     return;
                 }
@@ -634,7 +485,7 @@ void OctoProgram::fetch_token()
                     str_buffer[index++] = '"';
                 else {
                     is_error = 1;
-                    snprintf(error, OCTO_ERR_MAX, "Unrecognized escape character '%c' in a string literal.", ec);
+                    error = fmt::format("Unrecognized escape character '{}' in a string literal.", ec);
                     error_line = source_line, error_pos = source_pos - 1;
                     return;
                 }
@@ -644,16 +495,16 @@ void OctoProgram::fetch_token()
             }
             if (index >= 4095) {
                 is_error = 1;
-                snprintf(error, OCTO_ERR_MAX, "String literals must be < 4096 characters long.");
+                error = "String literals must be < 4096 characters long.";
                 error_line = source_line, error_pos = source_pos;
             }
         }
-        str_buffer[index++] = '\0';
-        t.type = OCTO_TOK_STR, t.str_value = counted(str_buffer, index - 1);
+        t.type = Token::Type::STRING;
+        t.str_value = start ? std::string_view(start, index) : safeStringStringView(str_buffer, index);
     }
     else {
         // string or number
-        while (1) {
+        while (true) {
             char c = next_char();
             if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '#' || c == '\0')
                 break;
@@ -663,31 +514,34 @@ void OctoProgram::fetch_token()
         char* float_end;
         double float_val = strtod(str_buffer, &float_end);
         if (float_end[0] == '\0') {
-            t.type = OCTO_TOK_NUM, t.num_value = float_val;
+            t.type = Token::Type::NUMBER, t.num_value = float_val;
         }
         else if (str_buffer[0] == '0' && str_buffer[1] == 'b') {
-            t.type = OCTO_TOK_NUM, t.num_value = std::strtol(str_buffer + 2, nullptr, 2);
+            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(std::strtol(str_buffer + 2, nullptr, 2));
         }
         else if (str_buffer[0] == '0' && str_buffer[1] == 'x') {
-            t.type = OCTO_TOK_NUM, t.num_value = std::strtol(str_buffer + 2, nullptr, 16);
+            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(std::strtol(str_buffer + 2, nullptr, 16));
         }
         else if (str_buffer[0] == '-' && str_buffer[1] == '0' && str_buffer[2] == 'b') {
-            t.type = OCTO_TOK_NUM, t.num_value = -std::strtol(str_buffer + 3, nullptr, 2);
+            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(-std::strtol(str_buffer + 3, nullptr, 2));
         }
         else if (str_buffer[0] == '-' && str_buffer[1] == '0' && str_buffer[2] == 'x') {
-            t.type = OCTO_TOK_NUM, t.num_value = -std::strtol(str_buffer + 3, nullptr, 16);
+            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(-std::strtol(str_buffer + 3, nullptr, 16));
         }
         else {
-            t.type = OCTO_TOK_STR, t.str_value = counted(str_buffer);
+            t.type = Token::Type::STRING, t.str_value = safeStringStringView(str_buffer, index - 1);
+            auto iter = lexerTokenMap.find(t.str_value);
+            if(iter != lexerTokenMap.end())
+                t.tid = iter->second;
         }
         // this is handy for debugging internal errors:
-        // if (t->type==OCTO_TOK_STR) printf("RAW TOKEN: %p %s\n", (void*)t->str_value, t->str_value);
-        // if (t->type==OCTO_TOK_NUM) printf("RAW TOKEN: %f\n", t->num_value);
+        // if (t->type==Token::Type::STRING) printf("RAW TOKEN: %p %s\n", (void*)t->str_value, t->str_value);
+        // if (t->type==Token::Type::NUMBER) printf("RAW TOKEN: %f\n", t->num_value);
     }
     skip_whitespace();
 }
 
-OctoToken OctoProgram::next()
+Token Program::next()
 {
     if (tokens.empty())
         fetch_token();
@@ -699,7 +553,7 @@ OctoToken OctoProgram::next()
     return t;
 }
 
-OctoToken OctoProgram::peek()
+Token Program::peek()
 {
     if (tokens.empty())
         fetch_token();
@@ -708,22 +562,27 @@ OctoToken OctoProgram::peek()
     return tokens.front();
 }
 
-int OctoProgram::peek_match(char* name, int index)
+bool Program::peek_match(const std::string_view& name, int index)
 {
     while (!is_error && !is_end() && tokens.size() < index + 1)
         fetch_token();
     if (is_end() || is_error)
-        return 0;
-    return tokens[index].type == OCTO_TOK_STR && strcmp(tokens[index].str_value, name) == 0;
+        return false;
+    return tokens[index].type == Token::Type::STRING && tokens[index].str_value == name;
 }
 
-int OctoProgram::match(char* name)
+inline bool Program::match(const std::string_view& name)
 {
     if (peek_match(name, 0)) {
         tokens.pop_front();
-        return 1;
+        return true;
     }
-    return 0;
+    return false;
+}
+
+void Program::eat()
+{
+    tokens.pop_front();
 }
 
 /**
@@ -733,285 +592,272 @@ int OctoProgram::match(char* name)
  **/
 
 char* octo_reserved_words[] = {
-    ":=",          "|=",     "&=",     "^=",        "-=",        "=-",    "+=",      ">>=",         "<<=",    "==",     "!=",     "<",     ">",           "<=",      ">=",          "key",       "-key",
-    "hex",         "bighex", "random", "delay",     ":",         ":next", ":unpack", ":breakpoint", ":proto", ":alias", ":const", ":org",  ";",           "return",  "clear",       "bcd",       "save",
-    "load",        "buzzer", "if",     "then",      "begin",     "else",  "end",     "jump",        "jump0",  "native", "sprite", "loop",  "while",       "again",   "scroll-down", "scroll-up", "scroll-right",
-    "scroll-left", "lores",  "hires",  "loadflags", "saveflags", "i",     "audio",   "plane",       ":macro", ":calc",  ":byte",  ":call", ":stringmode", ":assert", ":monitor",    ":pointer",
-    ":pointer16", ":pointer24", "pitch",
+    ":=",        "|=",        "&=",    "^=",    "-=",    "=-",      "+=",          ">>=",    "<<=",    "==",          "!=",      "<",        ">",           "<=",         ">=",           "key",         "-key",  "hex",
+    "bighex",    "random",    "delay", ":",     ":next", ":unpack", ":breakpoint", ":proto", ":alias", ":const",      ":org",    ";",        "return",      "clear",      "bcd",          "save",        "load",  "buzzer",
+    "if",        "then",      "begin", "else",  "end",   "jump",    "jump0",       "native", "sprite", "loop",        "while",   "again",    "scroll-down", "scroll-up",  "scroll-right", "scroll-left", "lores", "hires",
+    "loadflags", "saveflags", "i",     "audio", "plane", ":macro",  ":calc",       ":byte",  ":call",  ":stringmode", ":assert", ":monitor", ":pointer",    ":pointer16", ":pointer24",   "pitch",
 };
-int OctoProgram::is_reserved(char* name)
+
+bool Program::is_reserved(std::string_view name)
 {
-    for (size_t z = 0; z < sizeof(octo_reserved_words) / sizeof(char*); z++)
-        if (strcmp(name, octo_reserved_words[z]) == 0)
-            return 1;
-    return 0;
+    return std::any_of(std::begin(octo_reserved_words), std::end(octo_reserved_words), [&name](const char* reserved) { return name == reserved; });
 }
 
-int OctoProgram::check_name(char* name, char* kind)
+bool Program::check_name(std::string_view name, char* kind)
 {
     if (is_error)
-        return 0;
-    if (strncmp("OCTO_", name, 5) == 0 || is_reserved(name)) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "The name '%s' is reserved and cannot be used for a %s.", name, kind);
-        return 0;
+        return false;
+    if (strncmp("OCTO_", name.data(), 5) == 0 || is_reserved(name)) {
+        is_error = 1, error = fmt::format("The name '{}' is reserved and cannot be used for a {}.", name, kind);
+        return false;
     }
-    return 1;
+    return true;
 }
 
-char* OctoProgram::string()
+std::string_view Program::string()
 {
     if (is_error)
         return "";
     auto t = next();
-    if (t.type != OCTO_TOK_STR) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Expected a string, got %d.", (int)t.num_value);
+    if (t.type != Token::Type::STRING) {
+        is_error = 1, error = fmt::format("Expected a string, got {}.", (int)t.num_value);
         return "";
     }
-    char* n = t.str_value;
-    return n;
+    return t.str_value;
 }
 
-char* OctoProgram::identifier(char* kind)
+std::string_view Program::identifier(char* kind)
 {
     if (is_error)
         return "";
     auto t = next();
-    if (t.type != OCTO_TOK_STR) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Expected a name for a %s, got %d.", kind, (int)t.num_value);
+    if (t.type != Token::Type::STRING) {
+        is_error = 1, error = fmt::format("Expected a name for a {}, got {}.", kind, (int)t.num_value);
         return "";
     }
-    char* n = t.str_value;
-    if (!check_name(n, kind))
+    if (!check_name(t.str_value, kind))
         return "";
-    return n;
+    return t.str_value;
 }
 
-void OctoProgram::expect(char* name)
+void Program::expect(std::string_view name)
 {
     if (is_error)
         return;
     auto t = next();
-    if (t.type != OCTO_TOK_STR || strcmp(t.str_value, name) != 0) {
+    if (t.type != Token::Type::STRING || t.str_value != name) {
         char d[256];
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Expected %s, got %s.", name, t.format_value(d));
+        is_error = 1, error = fmt::format("Expected {}, got {}.", name, t.formatValue(d));
     }
 }
 
-int OctoProgram::is_register(char* name)
+bool Program::is_register(std::string_view name)
 {
-    if (octo_map_get(&aliases, name) != nullptr)
-        return 1;
-    if (octo_interned_len(name) != 2)
-        return 0;
+    if (aliases.count(name))
+        return true;
+    if (name.length() != 2)
+        return false;
     if (name[0] != 'v' && name[0] != 'V')
-        return 0;
+        return false;
     return isxdigit(name[1]);
 }
 
-int OctoProgram::peek_is_register()
+bool Program::peek_is_register()
 {
     auto t = peek();
-    return t.type == OCTO_TOK_STR && is_register(t.str_value);
+    return t.type == Token::Type::STRING && is_register(t.str_value);
 }
 
-int OctoProgram::register_or_alias()
+int Program::register_or_alias()
 {
     if (is_error)
         return 0;
     auto t = next();
-    if (t.type != OCTO_TOK_STR || !is_register(t.str_value)) {
+    if (t.type != Token::Type::STRING || !is_register(t.str_value)) {
         char d[256];
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Expected register, got %s.", t.format_value(d));
+        is_error = 1, error = fmt::format("Expected register, got {}.", t.formatValue(d));
         return 0;
     }
-    auto* a = (octo_reg*)octo_map_get(&aliases, t.str_value);
-    if (a != nullptr)
-        return a->value;
-    char c = tolower(t.str_value[1]);
+    auto iter = aliases.find(t.str_value);
+    if (iter != aliases.end())
+        return iter->second;
+    char c = static_cast<char>(std::tolower(t.str_value[1]));
     return isdigit(c) ? c - '0' : 10 + (c - 'a');
 }
 
-int OctoProgram::value_range(int n, int mask)
+int Program::value_range(int n, int mask)
 {
     if (mask == 0xF && (n < 0 || n > mask))
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Argument %d does not fit in 4 bits- must be in range [0,15].", n);
+        is_error = 1, error = fmt::format("Argument {} does not fit in 4 bits- must be in range [0,15].", n);
     if (mask == 0xFF && (n < -128 || n > mask))
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Argument %d does not fit in a byte- must be in range [-128,255].", n);
+        is_error = 1, error = fmt::format("Argument {} does not fit in a byte- must be in range [-128,255].", n);
     if (mask == 0xFFF && (n < 0 || n > mask))
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Argument %d does not fit in 12 bits.", n);
+        is_error = 1, error = fmt::format("Argument {} does not fit in 12 bits.", n);
     if (mask == 0xFFFF && (n < 0 || n > mask))
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Argument %d does not fit in 16 bits.", n);
+        is_error = 1, error = fmt::format("Argument {} does not fit in 16 bits.", n);
     if (mask == 0xFFFFFF && (n < 0 || n > mask))
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Argument %d does not fit in 24 bits.", n);
+        is_error = 1, error = fmt::format("Argument {} does not fit in 24 bits.", n);
     return n & mask;
 }
 
-void OctoProgram::value_fail(char* w, char* n, int undef)
+void Program::value_fail(const std::string_view& w, const std::string_view& n, bool undef)
 {
     if (is_error)
         return;
     if (is_register(n))
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Expected %s value, but found the register %s.", w, n);
+        is_error = 1, error = fmt::format("Expected {} value, but found the register {}.", w, n);
     else if (is_reserved(n))
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Expected %s value, but found the keyword '%s'. Missing a token?", w, n);
+        is_error = 1, error = fmt::format("Expected {} value, but found the keyword '{}'. Missing a token?", w, n);
     else if (undef)
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Expected %s value, but found the undefined name '%s'.", w, n);
+        is_error = 1, error = fmt::format("Expected {} value, but found the undefined name '{}'.", w, n);
 }
 
-int OctoProgram::value_4bit()
+int Program::value_4bit()
 {
     if (is_error)
         return 0;
     auto t = next();
-    if (t.type == OCTO_TOK_NUM) {
-        int n = t.num_value;
-        return value_range(n, 0xF);
+    if (t.type == Token::Type::NUMBER) {
+        return value_range((int)t.num_value, 0xF);
     }
-    char* n = t.str_value;
-    auto* c = (octo_const*)octo_map_get(&constants, n);
-    if (c != nullptr)
-        return value_range(c->value, 0xF);
-    return value_fail("a 4-bit", n, 1), 0;
+    auto& n = t.str_value;
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return value_range((int)iter->second.value, 0xF);
+    return value_fail("a 4-bit", n, true), 0;
 }
 
-int OctoProgram::value_8bit()
+int Program::value_8bit()
 {
     if (is_error)
         return 0;
     auto t = next();
-    if (t.type == OCTO_TOK_NUM) {
-        int n = t.num_value;
-        return value_range(n, 0xFF);
+    if (t.type == Token::Type::NUMBER) {
+        return value_range((int)t.num_value, 0xFF);
     }
-    char* n = t.str_value;
-    auto* c = (octo_const*)octo_map_get(&constants, n);
-    if (c != nullptr)
-        return value_range(c->value, 0xFF);
-    return value_fail("an 8-bit", n, 1), 0;
+    auto& n = t.str_value;
+    auto iter = constants.find(t.str_value);
+    if (iter != constants.end())
+        return value_range((int)iter->second.value, 0xFF);
+    return value_fail("an 8-bit", t.str_value, true), 0;
 }
 
-int OctoProgram::value_12bit()
+int Program::value_12bit()
 {
     if (is_error)
         return 0;
     auto t = next();
-    if (t.type == OCTO_TOK_NUM) {
-        int n = t.num_value;
-        return value_range(n, 0xFFF);
+    if (t.type == Token::Type::NUMBER) {
+        return value_range((int)t.num_value, 0xFFF);
     }
-    char* n = t.str_value;
+    auto& n = t.str_value;
     int proto_line = t.line, proto_pos = t.pos;
-    auto* c = (octo_const*)octo_map_get(&constants, n);
-    if (c != nullptr)
-        return value_range(c->value, 0xFFF);
-    value_fail("a 12-bit", n, 0);
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return value_range((int)iter->second.value, 0xFFF);
+    value_fail("a 12-bit", n, false);
     if (is_error)
         return 0;
     if (!check_name(n, "label"))
         return 0;
-    auto* pr = (octo_proto*)octo_map_get(&protos, n);
-    if (pr == nullptr) {
-        octo_map_set(&protos, n, pr = octo_make_proto(proto_line, proto_pos));
-    }
-    octo_list_append(&pr->addrs, octo_make_pref(here, 12));
+    addProtoRef(n, proto_line, proto_pos, here, 12);
     return 0;
 }
 
-int OctoProgram::value_16bit(int can_forward_ref, int offset)
+int Program::value_16bit(int can_forward_ref, int offset)
 {
     if (is_error)
         return 0;
     auto t = next();
-    if (t.type == OCTO_TOK_NUM) {
-        int n = t.num_value;
-        return value_range(n, 0xFFFF);
+    if (t.type == Token::Type::NUMBER) {
+        return value_range((int)t.num_value, 0xFFFF);
     }
-    char* n = t.str_value;
+    auto& n = t.str_value;
     int proto_line = t.line, proto_pos = t.pos;
-    auto* c = (octo_const*)octo_map_get(&constants, n);
-    if (c != nullptr)
-        return value_range(c->value, 0xFFFF);
-    value_fail("a 16-bit", n, 0);
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return value_range((int)iter->second.value, 0xFFFF);
+    value_fail("a 16-bit", n, false);
     if (is_error)
         return 0;
     if (!check_name(n, "label"))
         return 0;
     if (!can_forward_ref) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "The reference to '%s' may not be forward-declared.", n);
+        is_error = 1, error = fmt::format("The reference to '{}' may not be forward-declared.", n);
         return 0;
     }
-    auto* pr = (octo_proto*)octo_map_get(&protos, n);
-    if (pr == nullptr) {
-        octo_map_set(&protos, n, pr = octo_make_proto(proto_line, proto_pos));
-    }
-    octo_list_append(&pr->addrs, octo_make_pref(here + offset, 16));
+    addProtoRef(n, proto_line, proto_pos, here + offset, 16);
     return 0;
 }
 
-int OctoProgram::value_24bit(int can_forward_ref, int offset)
+int Program::value_24bit(int can_forward_ref, int offset)
 {
     if (is_error)
         return 0;
     auto t = next();
-    if (t.type == OCTO_TOK_NUM) {
-        int n = t.num_value;
-        return value_range(n, 0xFFFFFF);
+    if (t.type == Token::Type::NUMBER) {
+        return value_range((int)t.num_value, 0xFFFFFF);
     }
-    char* n = t.str_value;
+    auto& n = t.str_value;
     int proto_line = t.line, proto_pos = t.pos;
-    auto* c = (octo_const*)octo_map_get(&constants, n);
-    if (c != nullptr)
-        return value_range(c->value, 0xFFFFFF);
-    value_fail("a 24-bit", n, 0);
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return value_range((int)iter->second.value, 0xFFFFFF);
+    value_fail("a 24-bit", n, false);
     if (is_error)
         return 0;
     if (!check_name(n, "label"))
         return 0;
     if (!can_forward_ref) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "The reference to '%s' may not be forward-declared.", n);
+        is_error = 1, error = fmt::format("The reference to '{}' may not be forward-declared.", n);
         return 0;
     }
-    auto* pr = (octo_proto*)octo_map_get(&protos, n);
-    if (pr == nullptr) {
-        octo_map_set(&protos, n, pr = octo_make_proto(proto_line, proto_pos));
-    }
-    octo_list_append(&pr->addrs, octo_make_pref(here + offset, 24));
+    addProtoRef(n, proto_line, proto_pos, here + offset, 24);
     return 0;
 }
 
-octo_const* OctoProgram::value_constant()
+void Program::addProtoRef(std::string_view name, int line, int pos, int where, int8_t size)
+{
+    auto iter = protos.find(name);
+    if (iter == protos.end()) {
+        iter = protos.emplace(name, Prototype{line, pos}).first;
+    }
+    iter->second.addrs.push_back({where, size});
+}
+
+Constant Program::value_constant()
 {
     auto t = next();
     if (is_error)
-        return octo_make_const(0, 0);
-    if (t.type == OCTO_TOK_NUM) {
-        int n = t.num_value;
-        return octo_make_const(n, 0);
+        return {0, false};
+    if (t.type == Token::Type::NUMBER) {
+        return {(int)t.num_value, false};
     }
-    char* n = t.str_value;
-    auto* c = (octo_const*)octo_map_get(&constants, n);
-    if (c != nullptr)
-        return octo_make_const(c->value, 0);
-    if (octo_map_get(&protos, n) != nullptr)
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "A constant reference to '%s' may not be forward-declared.", n);
-    return value_fail("a constant", n, 1), octo_make_const(0, 0);
+    auto& n = t.str_value;
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return {iter->second.value, false};
+    if (protos.count(n))
+        is_error = 1, error = fmt::format("A constant reference to '{}' may not be forward-declared.", n);
+    value_fail("a constant", n, true);
+    return {0, false};
 }
 
-void OctoProgram::macro_body(char* desc, char* name, OctoMacro& m)
+void Program::macro_body(const std::string_view& desc, const std::string_view& name, Macro& m)
 {
     if (is_error)
         return;
     expect("{");
     if (is_error) {
-        snprintf(error, OCTO_ERR_MAX, "Expected '{' for definition of %s '%s'.", desc, name);
+        error = fmt::format("Expected '{{' for definition of {} '{}'.", desc, name);
         return;
     }
     int depth = 1;
     while (!is_end()) {
         auto t = peek();
-        if (t.type == OCTO_TOK_STR && strcmp(t.str_value, "{") == 0)
+        if (t.type == Token::Type::STRING && t.str_value == "{")
             depth++;
-        if (t.type == OCTO_TOK_STR && strcmp(t.str_value, "}") == 0)
+        if (t.type == Token::Type::STRING && t.str_value == "}")
             depth--;
         if (depth == 0)
             break;
@@ -1019,16 +865,14 @@ void OctoProgram::macro_body(char* desc, char* name, OctoMacro& m)
     }
     expect("}");
     if (is_error)
-        snprintf(error, OCTO_ERR_MAX, "Expected '}' for definition of %s '%s'.", desc, name);
+        error = fmt::format("Expected '}}' for definition of {} '{}'.", desc, name);
 }
 
-/**
- *
- *  Compile-time Calculation
- *
- **/
+//-----------------------------------------------------------
+// Compile-time Calculation
+//-----------------------------------------------------------
 
-double OctoProgram::calc_terminal(char* name)
+double Program::calc_terminal(std::string_view name)
 {
     // NUMBER | CONSTANT | LABEL | VREGISTER | '(' expression ')'
     if (peek_is_register())
@@ -1040,20 +884,20 @@ double OctoProgram::calc_terminal(char* name)
     if (match("HERE"))
         return here;
     auto t = next();
-    if (t.type == OCTO_TOK_NUM) {
+    if (t.type == Token::Type::NUMBER) {
         double r = t.num_value;
         return r;
     }
-    char* n = t.str_value;
-    if (octo_map_get(&protos, n) != nullptr) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Cannot use forward declaration '%s' when calculating constant '%s'.", n, name);
+    auto& n = t.str_value;
+    if (protos.count(n)) {
+        is_error = 1, error = fmt::format("Cannot use forward declaration '{}' when calculating constant '{}'.", n, name);
         return 0;
     }
-    auto* c = (octo_const*)octo_map_get(&constants, n);
-    if (c != nullptr)
-        return c->value;
-    if (strcmp(n, "(") != 0) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Found undefined name '%s' when calculating constant '%s'.", n, name);
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return iter->second.value;
+    if (n != "(") {
+        is_error = 1, error = fmt::format("Found undefined name '{}' when calculating constant '{}'.", n, name);
         return 0;
     }
     double r = calc_expr(name);
@@ -1061,11 +905,11 @@ double OctoProgram::calc_terminal(char* name)
     return r;
 }
 
-double OctoProgram::calc_expr(char* name)
+double Program::calc_expr(std::string_view name)
 {
     // UNARY expression
     if (match("strlen"))
-        return octo_interned_len(string());
+        return (double)string().length();
     if (match("-"))
         return -calc_expr(name);
     if (match("~"))
@@ -1141,7 +985,7 @@ double OctoProgram::calc_expr(char* name)
     return r;
 }
 
-double OctoProgram::calculated(char* name)
+double Program::calculated(std::string_view name)
 {
     expect("{");
     double r = calc_expr(name);
@@ -1149,32 +993,31 @@ double OctoProgram::calculated(char* name)
     return r;
 }
 
-/**
- *
- *  ROM construction
- *
- **/
-void OctoProgram::append(char byte)
+//-----------------------------------------------------------
+//  ROM construction
+//-----------------------------------------------------------
+
+void Program::append(uint8_t byte)
 {
     if (is_error)
         return;
     if (here >= RAM_MAX) {
         is_error = 1;
-        snprintf(error, OCTO_ERR_MAX, "Supported ROM space is full (16MB).");
+        error = "Supported ROM space is full (16MB).";
         return;
     }
-    if(here >= rom.size()) {
-        if(rom.size() < 1024*1024) {
-            rom.resize(1024*1024, 0);
+    if (here >= rom.size()) {
+        if (rom.size() < 1024 * 1024) {
+            rom.resize(1024 * 1024, 0);
             used.resize(1024 * 1024, 0);
             romLineMap.resize(1024 * 1024, 0xFFFFFFFF);
         }
-        else if(rom.size() < RAM_MAX/2) {
-            rom.resize(RAM_MAX/2, 0);
-            used.resize(RAM_MAX/2, 0);
-            romLineMap.resize(RAM_MAX/2, 0xFFFFFFFF);
+        else if (rom.size() < RAM_MAX / 2) {
+            rom.resize(RAM_MAX / 2, 0);
+            used.resize(RAM_MAX / 2, 0);
+            romLineMap.resize(RAM_MAX / 2, 0xFFFFFFFF);
         }
-        else if(rom.size() < RAM_MAX) {
+        else if (rom.size() < RAM_MAX) {
             rom.resize(RAM_MAX, 0);
             used.resize(RAM_MAX, 0);
             romLineMap.resize(RAM_MAX, 0xFFFFFFFF);
@@ -1182,26 +1025,26 @@ void OctoProgram::append(char byte)
     }
     if (here > startAddress && used[here]) {
         is_error = 1;
-        snprintf(error, OCTO_ERR_MAX, "Data overlap. Address 0x%0X has already been defined.", here);
+        error = fmt::format("Data overlap. Address 0x{:0X} has already been defined.", here);
         return;
     }
     romLineMap[here] = source_line;
     rom[here] = byte, used[here] = 1, here++;
-    if(here > length)
+    if (here > length)
         length = here;
 }
 
-void OctoProgram::instruction(char a, char b)
+void Program::instruction(uint8_t a, uint8_t b)
 {
     append(a), append(b);
 }
 
-void OctoProgram::immediate(char op, int nnn)
+void Program::immediate(uint8_t op, int nnn)
 {
     instruction(op | ((nnn >> 8) & 0xF), (nnn & 0xFF));
 }
 
-void OctoProgram::jump(int addr, int dest)
+void Program::jump(int addr, int dest)
 {
     if (is_error)
         return;
@@ -1209,12 +1052,11 @@ void OctoProgram::jump(int addr, int dest)
     rom[addr + 1] = (dest & 0xFF), used[addr + 1] = 1;
 }
 
-/**
- *
- *  The Compiler proper
- *
- **/
-void OctoProgram::pseudo_conditional(int reg, int sub, int comp)
+//-----------------------------------------------------------
+//  The Compiler proper
+//-----------------------------------------------------------
+
+void Program::pseudo_conditional(int reg, int sub, int comp)
 {
     if (peek_is_register())
         instruction(0x8F, register_or_alias() << 4);
@@ -1224,23 +1066,23 @@ void OctoProgram::pseudo_conditional(int reg, int sub, int comp)
     instruction(comp, 0);
 }
 
-void OctoProgram::conditional(int negated)
+void Program::conditional(int negated)
 {
     int reg = register_or_alias();
     auto t = peek();
     char d[256];
-    t.format_value(d);
+    t.formatValue(d);
     if (is_error)
         return;
-    char* n = string();
+    auto n = string();
 
-#define octo_ca(pos, neg) (strcmp(n,negated?(neg):(pos))==0)
+#define octo_ca(pos, neg) (n == (negated ? (neg) : (pos)))
 
     if (octo_ca("==", "!=")) {
         if (peek_is_register())
             instruction(0x90 | reg, register_or_alias() << 4);
         else
-            instruction( 0x40 | reg, value_8bit());
+            instruction(0x40 | reg, value_8bit());
     }
     else if (octo_ca("!=", "==")) {
         if (peek_is_register())
@@ -1261,74 +1103,75 @@ void OctoProgram::conditional(int negated)
     else if (octo_ca("<=", ">"))
         pseudo_conditional(reg, 0x5, 0x3F);
     else {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "Expected conditional operator, got %s.", d);
+        is_error = 1, error = fmt::format("Expected conditional operator, got {}.", d);
     }
 }
 
-void OctoProgram::resolve_label(int offset)
+void Program::resolve_label(int offset)
 {
     int target = (here) + offset;
-    char* n = identifier("label");
+    auto n = identifier("label");
     if (is_error)
         return;
-    if (octo_map_get(&constants, n) != nullptr) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "The name '%s' has already been defined.", n);
+    if (constants.count(n)) {
+        is_error = 1, error = fmt::format("The name '{}' has already been defined.", n);
         return;
     }
-    if (octo_map_get(&aliases, n) != nullptr) {
-        is_error = 1, snprintf(error, OCTO_ERR_MAX, "The name '%s' is already used by an alias.", n);
+    if (aliases.count(n)) {
+        is_error = 1, error = fmt::format("The name '{}' is already used by an alias.", n);
         return;
     }
-    if ((target == startAddress + 2 || target == startAddress) && (strcmp(n, "main") == 0)) {
+    if ((target == startAddress + 2 || target == startAddress) && (n == "main")) {
         has_main = 0, here = target = startAddress;
         rom[startAddress] = 0, used[startAddress] = 0;
         rom[startAddress + 1] = 0, used[startAddress + 1] = 0;
     }
-    octo_map_set(&constants, n, octo_make_const(target, 0));
-    if (octo_map_get(&protos, n) == nullptr)
+    constants.insert_or_assign(n, Constant{target, false});
+    auto iter = protos.find(n);
+    if (iter == protos.end())
         return;
 
-    auto* pr = (octo_proto*)octo_map_remove(&protos, n);
-    for (int z = 0; z < pr->addrs.count; z++) {
-        auto* pa = (octo_pref*)octo_list_get(&pr->addrs, z);
-        if (pa->size == 16 && (rom[pa->value] & 0xF0) == 0x60) {  // :unpack long target
-            rom[pa->value + 1] = target >> 8;
-            rom[pa->value + 3] = target;
+    auto& pr = iter->second;
+    for (auto& pa : pr.addrs) {
+        if (pa.size == 16 && (rom[pa.value] & 0xF0) == 0x60) {  // :unpack long target
+            rom[pa.value + 1] = target >> 8;
+            rom[pa.value + 3] = target;
         }
-        else if (pa->size == 16) {  // i := long target
-            rom[pa->value] = target >> 8;
-            rom[pa->value + 1] = target;
+        else if (pa.size == 16) {  // i := long target
+            rom[pa.value] = target >> 8;
+            rom[pa.value + 1] = target;
         }
-        else if (pa->size <= 12 && (target & 0xFFF) != target) {
-            is_error = 1, snprintf(error, OCTO_ERR_MAX, "Value 0x%0X for label '%s' does not fit in 12 bits.", target, n);
+        else if (pa.size <= 12 && (target & 0xFFF) != target) {
+            is_error = 1, error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 12 bits.", target, n);
             break;
         }
-        else if (pa->size <= 16 && (target & 0xFFFF) != target) {
-            is_error = 1, snprintf(error, OCTO_ERR_MAX, "Value 0x%0X for label '%s' does not fit in 16 bits.", target, n);
+        else if (pa.size <= 16 && (target & 0xFFFF) != target) {
+            is_error = 1, error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 16 bits.", target, n);
             break;
         }
-        else if (pa->size <= 24 && (target & 0xFFFFFF) != target) {
-            is_error = 1, snprintf(error, OCTO_ERR_MAX, "Value 0x%0X for label '%s' does not fit in 24 bits.", target, n);
+        else if (pa.size <= 24 && (target & 0xFFFFFF) != target) {
+            is_error = 1, error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 24 bits.", target, n);
             break;
         }
-        else if(pa->size == 24) {
-            rom[pa->value] = target>>16;
-            rom[pa->value + 1] = target >> 8;
-            rom[pa->value + 2] = target;
+        else if (pa.size == 24) {
+            rom[pa.value] = target >> 16;
+            rom[pa.value + 1] = target >> 8;
+            rom[pa.value + 2] = target;
         }
-        else if ((rom[pa->value] & 0xF0) == 0x60) {  // :unpack target
-            rom[pa->value + 1] = ((rom[pa->value + 1]) & 0xF0) | ((target >> 8) & 0xF);
-            rom[pa->value + 3] = target;
+        else if ((rom[pa.value] & 0xF0) == 0x60) {  // :unpack target
+            rom[pa.value + 1] = ((rom[pa.value + 1]) & 0xF0) | ((target >> 8) & 0xF);
+            rom[pa.value + 3] = target;
         }
         else {
-            rom[pa->value] = ((rom[pa->value]) & 0xF0) | ((target >> 8) & 0xF);
-            rom[pa->value + 1] = target;
+            rom[pa.value] = ((rom[pa.value]) & 0xF0) | ((target >> 8) & 0xF);
+            rom[pa.value + 1] = target;
         }
     }
-    octo_free_proto(pr);
+    protos.erase(n);
 }
 
-void OctoProgram::compile_statement()
+#if 0
+void Program::compile_statement()
 {
     if (is_error)
         return;
@@ -1375,11 +1218,10 @@ void OctoProgram::compile_statement()
             auto t = next();
             char d[256];
             if (!is_error)
-                is_error = 1, snprintf(error, OCTO_ERR_MAX, "Unrecognized operator %s.", t.format_value(d));
+                is_error = 1, error = fmt::format("Unrecognized operator {}.", t.formatValue(d));
         }
-        return;
     }
-    if (match(":"))
+    else if (match(":"))
         resolve_label(0);
     else if (match(":next"))
         resolve_label(1);
@@ -1392,75 +1234,74 @@ void OctoProgram::compile_statement()
             int v = value_4bit();
             a = (v << 12) | value_12bit();
         }
-        auto* rh = (octo_reg*)octo_map_get(&aliases, counted("unpack-hi"));
-        auto* rl = (octo_reg*)octo_map_get(&aliases, counted("unpack-lo"));
-        instruction(0x60 | rh->value, a >> 8);
-        instruction(0x60 | rl->value, a);
+        auto rh = aliases["unpack-hi"];
+        auto rl = aliases["unpack-lo"];
+        instruction(0x60 | rh, a >> 8);
+        instruction(0x60 | rl, a);
     }
     else if (match(":breakpoint"))
-        breakpoints[here] = string();
+        breakpoints[here] = string().data();
     else if (match(":monitor")) {
         char n[256];
-        octo_mon* m = octo_make_mon();
-        peek().format_value(n);
+        int type, base, len;
+        std::string format;
+        peek().formatValue(n);
         if (peek_is_register()) {
-            m->type = 0;  // register monitor
-            m->base = register_or_alias();
-            if (peek().type == OCTO_TOK_NUM)
-                m->len = value_4bit(), m->format = nullptr;
+            type = 0;  // register monitor
+            base = register_or_alias();
+            if (peek().type == Token::Type::NUMBER)
+                len = value_4bit();
             else
-                m->len = -1, m->format = string();
+                len = -1, format = string();
         }
         else {
-            m->type = 1;  // memory monitor
-            m->base = value_16bit(0, 0);
-            if (peek().type == OCTO_TOK_NUM)
-                m->len = value_16bit(0, 0), m->format = nullptr;
+            type = 1;  // memory monitor
+            base = value_16bit(0, 0);
+            if (peek().type == Token::Type::NUMBER)
+                len = value_16bit(0, 0);
             else
-                m->len = -1, m->format = string();
+                len = -1, format = string();
         }
         if (n[strlen(n) - 1] == '\'')
             n[strlen(n) - 1] = '\0';
-        char* nn = counted(n[0] == '\'' ? n + 1 : n);
-        octo_map_set(&monitors, nn, m);
+        auto nn = safeStringStringView(n[0] == '\'' ? n + 1 : n);
+        monitors.insert_or_assign(nn, Monitor{type, base, len, format});
     }
     else if (match(":assert")) {
-        char* message = peek_match("{", 0) ? nullptr : string();
-        if (!calculated("assertion")) {
+        auto message = peek_match("{", 0) ? std::string_view() : string();
+        if (!(int)calculated("assertion")) {
             is_error = 1;
-            if (message != nullptr)
-                snprintf(error, OCTO_ERR_MAX, "Assertion failed: %s", message);
+            if (!message.empty())
+                error = fmt::format("Assertion failed: {}", message);
             else
-                snprintf(error, OCTO_ERR_MAX, "Assertion failed.");
+                error = "Assertion failed.";
         }
     }
     else if (match(":proto"))
         next();  // deprecated
     else if (match(":alias")) {
-        char* n = identifier("alias");
-        if (octo_map_get(&constants, n) != nullptr) {
-            is_error = 1, snprintf(error, OCTO_ERR_MAX, "The name '%s' is already used by a constant.", n);
+        auto n = identifier("alias");
+        if (constants.count(n)) {
+            is_error = 1, error = fmt::format("The name '{}' is already used by a constant.", n);
             return;
         }
-        int v = peek_match("{", 0) ? calculated("ANONYMOUS") : register_or_alias();
+        int v = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)register_or_alias();
         if (v < 0 || v > 15) {
             is_error = 1;
-            snprintf(error, OCTO_ERR_MAX, "Register index must be in the range [0,F].");
+            error = "Register index must be in the range [0,F].";
             return;
         }
-        auto* prev = (octo_reg*)octo_map_set(&aliases, n, octo_make_reg(v));
-        if (prev != nullptr)
-            octo_free_reg(prev);
+        aliases[n] = v;
     }
     else if (match(":byte")) {
         append(peek_match("{", 0) ? (int)calculated("ANONYMOUS") : value_8bit());
     }
     else if (match(":pointer") || match(":pointer16")) {
-        int a = peek_match("{", 0) ? calculated("ANONYMOUS") : value_16bit(1, 0);
+        int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value_16bit(1, 0);
         instruction(a >> 8, a);
     }
     else if (match(":pointer24")) {
-        int a = peek_match("{", 0) ? calculated("ANONYMOUS") : value_24bit(1, 0);
+        int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value_24bit(1, 0);
         append(a >> 16);
         instruction(a >> 8, a);
     }
@@ -1471,24 +1312,22 @@ void OctoProgram::compile_statement()
         immediate(0x20, peek_match("{", 0) ? 0xFFF & (int)calculated("ANONYMOUS") : value_12bit());
     }
     else if (match(":const")) {
-        char* n = identifier("constant");
-        if (octo_map_get(&constants, n) != nullptr) {
+        auto n = identifier("constant");
+        if (constants.count(n)) {
             is_error = 1;
-            snprintf(error, OCTO_ERR_MAX, "The name '%s' has already been defined.", n);
+            error = fmt::format("The name '{}' has already been defined.", n);
             return;
         }
-        octo_map_set(&constants, n, value_constant());
+        constants.insert_or_assign(n, value_constant());
     }
     else if (match(":calc")) {
-        char* n = identifier("calculated constant");
-        auto* prev = (octo_const*)octo_map_get(&constants, n);
-        if (prev != nullptr && !prev->is_mutable) {
-            is_error = 1, snprintf(error, OCTO_ERR_MAX, "Cannot redefine the name '%s' with :calc.", n);
+        auto n = identifier("calculated constant");
+        auto iter = constants.find(n);
+        if (iter != constants.end() && !iter->second.isMutable) {
+            is_error = 1, error = fmt::format("Cannot redefine the name '{}' with :calc.", n);
             return;
         }
-        octo_map_set(&constants, n, octo_make_const(calculated(n), 1));
-        if (prev != nullptr)
-            octo_free_const(prev);
+        constants.insert_or_assign(n, Constant{calculated(n), true});
     }
     else if (match(";") || match("return"))
         instruction(0x00, 0xEE);
@@ -1531,7 +1370,7 @@ void OctoProgram::compile_statement()
     else if (match("plane")) {
         int n = value_4bit();
         if (n > 15)
-            is_error = 1, snprintf(error, OCTO_ERR_MAX, "The plane bitmask must be [0,15], was %d.", n);
+            is_error = 1, error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
         instruction(0xF0 | n, 0x01);
     }
     else if (match("saveflags"))
@@ -1571,7 +1410,7 @@ void OctoProgram::compile_statement()
         else {
             auto t = next();
             char d[256];
-            is_error = 1, snprintf(error, OCTO_ERR_MAX, "%s is not an operator that can target the i register.", t.format_value(d));
+            is_error = 1, error = fmt::format("{} is not an operator that can target the i register.", t.formatValue(d));
         }
     }
     else if (match("if")) {
@@ -1581,7 +1420,7 @@ void OctoProgram::compile_statement()
         }
         else if (peek_match("begin", index)) {
             conditional(1), expect("begin");
-            octo_stack_push(&branches, octo_make_flow(here, source_line, source_pos, "begin"));
+            branches.push({here, source_line, source_pos, "begin"});
             instruction(0x00, 0x00);
         }
         else {
@@ -1589,94 +1428,91 @@ void OctoProgram::compile_statement()
                 if (!is_end())
                     next();
             is_error = 1;
-            snprintf(error, OCTO_ERR_MAX, "Expected 'then' or 'begin'.");
+            error = "Expected 'then' or 'begin'.";
         }
     }
     else if (match("else")) {
-        if (octo_stack_is_empty(&branches)) {
+        if (branches.empty()) {
             is_error = 1;
-            snprintf(error, OCTO_ERR_MAX, "This 'else' does not have a matching 'begin'.");
+            error = "This 'else' does not have a matching 'begin'.";
             return;
         }
-        auto* f = (octo_flow*)octo_stack_pop(&branches);
-        jump(f->addr, here + 2);
-        octo_free_flow(f);
-        octo_stack_push(&branches, octo_make_flow(here, peek_line, peek_pos, "else"));
+        jump(branches.top().addr, here + 2);
+        branches.pop();
+        branches.push({here, peek_line, peek_pos, "else"});
         instruction(0x00, 0x00);
     }
     else if (match("end")) {
-        if (octo_stack_is_empty(&branches)) {
+        if (branches.empty()) {
             is_error = 1;
-            snprintf(error, OCTO_ERR_MAX, "This 'end' does not have a matching 'begin'.");
+            error = "This 'end' does not have a matching 'begin'.";
             return;
         }
-        auto* f = (octo_flow*)octo_stack_pop(&branches);
-        jump(f->addr, here);
-        octo_free_flow(f);
+        jump(branches.top().addr, here);
+        branches.pop();
     }
     else if (match("loop")) {
-        octo_stack_push(&loops, octo_make_flow(here, peek_line, peek_pos, "loop"));
-        octo_stack_push(&whiles, octo_make_flow(-1, peek_line, peek_pos, "loop"));
+        loops.push({here, peek_line, peek_pos, "loop"});
+        whiles.push({-1, peek_line, peek_pos, "loop"});
     }
     else if (match("while")) {
-        if (octo_stack_is_empty(&loops)) {
+        if (loops.empty()) {
             is_error = 1;
-            snprintf(error, OCTO_ERR_MAX, "This 'while' is not within a loop.");
+            error = "This 'while' is not within a loop.";
             return;
         }
         conditional(1);
-        octo_stack_push(&whiles, octo_make_flow(here, peek_line, peek_pos, "while"));
+        whiles.push({here, peek_line, peek_pos, "while"});
         immediate(0x10, 0);  // forward jump
     }
     else if (match("again")) {
-        if (octo_stack_is_empty(&loops)) {
+        if (loops.empty()) {
             is_error = 1;
-            snprintf(error, OCTO_ERR_MAX, "This 'again' does not have a matching 'loop'.");
+            error = "This 'again' does not have a matching 'loop'.";
             return;
         }
-        auto* f = (octo_flow*)octo_stack_pop(&loops);
-        immediate(0x10, f->addr);
-        octo_free_flow(f);
-        while (1) {
-            auto* f = (octo_flow*)octo_stack_pop(&whiles);
-            int a = f->addr;
-            octo_free_flow(f);
+        immediate(0x10, loops.top().addr);
+        loops.pop();
+        while (true) {
+            // works as loop always pushes a -1 while, but is it needed?
+            int a = whiles.top().addr;
+            whiles.pop();
             if (a == -1)
                 break;
             jump(a, here);
         }
     }
     else if (match(":macro")) {
-        char* n = identifier("macro");
-        if(is_error)
+        auto n = identifier("macro");
+        if (is_error)
             return;
         if (macros.count(n)) {
-            is_error = 1, snprintf(error, OCTO_ERR_MAX, "The name '%s' has already been defined.", n);
+            is_error = 1, error = fmt::format("The name '{}' has already been defined.", n);
             return;
         }
-        auto& m = macros.emplace(n, OctoMacro()).first->second;
+        auto& m = macros.emplace(n, Macro()).first->second;
         while (!is_error && !is_end() && !peek_match("{", 0))
             m.args.push_back(identifier("macro argument"));
         macro_body("macro", n, m);
     }
     else if (match(":stringmode")) {
-        char* n = identifier("stringmode");
+        auto n = identifier("stringmode");
         if (is_error)
             return;
-        auto& s = stringmodes.try_emplace(n, OctoSMode()).first->second;
+        auto& s = stringModes.try_emplace(n, StringMode()).first->second;
         int alpha_base = source_pos, alpha_quote = peek_char() == '"';
-        char* alphabet = string();
-        OctoMacro m;  // every stringmode needs its own copy of this
+        auto alphabet = string();
+        Macro m;  // every stringmode needs its own copy of this
         macro_body("string mode", n, m);
-        for (int z = 0; z < octo_interned_len(alphabet); z++) {
+        for (int z = 0; z < alphabet.length(); z++) {
             int c = 0xFF & alphabet[z];
             if (s.modes[c]) {
                 error_pos = alpha_base + z + (alpha_quote ? 1 : 0);
-                is_error = 1, snprintf(error, OCTO_ERR_MAX, "String mode '%s' is already defined for the character '%c'.", n, c);
+                is_error = 1, error = fmt::format("String mode '{}' is already defined for the character '{:c}'.", n, c);
                 break;
             }
-            s.values[c] = z;
-            auto mm = std::make_unique<OctoMacro>();
+            s.values[c] = (char)z;
+            auto mm = std::make_unique<Macro>();
             mm->body = m.body;
             s.modes[c] = std::move(mm);
         }
@@ -1685,58 +1521,57 @@ void OctoProgram::compile_statement()
         auto t = peek();
         if (is_error)
             return;
-        if (t.type == OCTO_TOK_NUM) {
-            int n = t.num_value;
+        if (t.type == Token::Type::NUMBER) {
+            int n = (int)t.num_value;
             next();
             if (n < -128 || n > 255) {
-                is_error = 1, snprintf(error, OCTO_ERR_MAX, "Literal value '%d' does not fit in a byte- must be in range [-128,255].", n);
+                is_error = 1, error = fmt::format("Literal value '{}' does not fit in a byte- must be in range [-128,255].", n);
             }
             append(n);
             return;
         }
-        char* n = t.type == OCTO_TOK_STR ? t.str_value : (char*)"";
-        if (auto iter = macros.find(n); iter != macros.end()) {
+        auto n = t.type == Token::Type::STRING ? t.str_value : std::string_view();
+        if (auto mi = macros.find(n); mi != macros.end()) {
             next();
-            auto& m = iter->second;
-            std::unordered_map<std::string_view,OctoToken> bindings;  // name -> tok
-            bindings.emplace(counted("CALLS"), OctoToken(m.calls++));
-            for (int z = 0; z < m.args.size(); z++) {
+            auto& m = mi->second;
+            std::unordered_map<std::string_view, Token> bindings;  // name -> tok
+            bindings.emplace("CALLS", Token(m.calls++));
+            for (auto& arg : m.args) {
                 if (is_end()) {
                     error_line = source_line, error_pos = source_pos;
-                    is_error = 1, snprintf(error, OCTO_ERR_MAX, "Not enough arguments for expansion of macro '%s'.", n);
+                    is_error = 1, error = fmt::format("Not enough arguments for expansion of macro '{}'.", n);
                     break;
                 }
-                bindings.emplace(m.args[z], next());
+                bindings.emplace(arg, next());
             }
             int splice_index = 0;
             for (int z = 0; z < m.body.size(); z++) {
                 auto& bt = m.body[z];
-                auto argIter = (bt.type == OCTO_TOK_STR ? bindings.find(bt.str_value) : bindings.end());
+                auto argIter = (bt.type == Token::Type::STRING ? bindings.find(bt.str_value) : bindings.end());
                 tokens.insert(tokens.begin() + z, argIter != bindings.end() ? argIter->second : bt);
             }
         }
-        else if (auto iter = stringmodes.find(n); iter != stringmodes.end()) {
+        else if (auto iter = stringModes.find(n); iter != stringModes.end()) {
             next();
             auto& s = iter->second;
             int text_base = source_pos, text_quote = peek_char() == '"';
-            char* text = string();
+            auto text = string();
             int splice_index = 0;
-            for (int tz = 0; tz < octo_interned_len(text); tz++) {
+            for (int tz = 0; tz < text.length(); tz++) {
                 int c = 0xFF & text[tz];
                 if (!s.modes[c]) {
                     error_pos = text_base + tz + (text_quote ? 1 : 0);
-                    is_error = 1, snprintf(error, OCTO_ERR_MAX, "String mode '%s' is not defined for the character '%c'.", n, c);
+                    is_error = 1, error = fmt::format("String mode '{}' is not defined for the character '{:c}'.", n, c);
                     break;
                 }
-                std::unordered_map<std::string_view,OctoToken> bindings;  // name -> tok
-                bindings.emplace(counted("CALLS"), OctoToken(s.calls++));    // expansion count
-                bindings.emplace(counted("CHAR"), OctoToken(c));              // ascii value of current char
-                bindings.emplace(counted("INDEX"), OctoToken((int)tz));       // index of char in input string
-                bindings.emplace(counted("VALUE"), OctoToken(s.values[c]));  // index of char in class alphabet
+                std::unordered_map<std::string_view, Token> bindings;  // name -> tok
+                bindings.emplace("CALLS", Token(s.calls++));           // expansion count
+                bindings.emplace("CHAR", Token(c));                    // ascii value of current char
+                bindings.emplace("INDEX", Token((int)tz));             // index of char in input string
+                bindings.emplace("VALUE", Token(s.values[c]));         // index of char in class alphabet
                 auto& sm = *s.modes[c];
-                for (int z = 0; z < sm.body.size(); z++) {
-                    auto& bt = sm.body[z];
-                    auto argIter = (bt.type == OCTO_TOK_STR ? bindings.find(bt.str_value) : bindings.end());
+                for (auto& bt : sm.body) {
+                    auto argIter = (bt.type == Token::Type::STRING ? bindings.find(bt.str_value) : bindings.end());
                     tokens.insert(tokens.begin() + splice_index++, argIter != bindings.end() ? argIter->second : bt);
                 }
             }
@@ -1745,11 +1580,505 @@ void OctoProgram::compile_statement()
             immediate(0x20, value_12bit());
     }
 }
-
-OctoProgram::OctoProgram(char* text, int startAddress)
+#else
+void Program::compile_statement()
 {
-    strings_used = 0;
-    memset(strings, '\0', OCTO_INTERN_MAX);
+    if (is_error)
+        return;
+    int peek_line = peek().line, peek_pos = peek().pos;
+    if (peek_is_register()) {
+        int r = register_or_alias();
+        if (match(":=")) {
+            if (peek_is_register())
+                instruction(0x80 | r, (register_or_alias() << 4) | 0x0);
+            else if (match("random"))
+                instruction(0xC0 | r, value_8bit());
+            else if (match("key"))
+                instruction(0xF0 | r, 0x0A);
+            else if (match("delay"))
+                instruction(0xF0 | r, 0x07);
+            else
+                instruction(0x60 | r, value_8bit());
+        }
+        else if (match("+=")) {
+            if (peek_is_register())
+                instruction(0x80 | r, (register_or_alias() << 4) | 0x4);
+            else
+                instruction(0x70 | r, value_8bit());
+        }
+        else if (match("-=")) {
+            if (peek_is_register())
+                instruction(0x80 | r, (register_or_alias() << 4) | 0x5);
+            else
+                instruction(0x70 | r, 1 + ~value_8bit());
+        }
+        else if (match("|="))
+            instruction(0x80 | r, (register_or_alias() << 4) | 0x1);
+        else if (match("&="))
+            instruction(0x80 | r, (register_or_alias() << 4) | 0x2);
+        else if (match("^="))
+            instruction(0x80 | r, (register_or_alias() << 4) | 0x3);
+        else if (match("=-"))
+            instruction(0x80 | r, (register_or_alias() << 4) | 0x7);
+        else if (match(">>="))
+            instruction(0x80 | r, (register_or_alias() << 4) | 0x6);
+        else if (match("<<="))
+            instruction(0x80 | r, (register_or_alias() << 4) | 0xE);
+        else {
+            auto t = next();
+            char d[256];
+            if (!is_error)
+                is_error = 1, error = fmt::format("Unrecognized operator {}.", t.formatValue(d));
+        }
+    }
+    else {
+        if (!is_error && !is_end() && tokens.empty())
+            fetch_token();
+        if (is_end() || is_error)
+            return;
+        switch (tokens.front().tid) {
+            case TokenId::COLON:
+                eat();
+                resolve_label(0);
+                break;
+            case TokenId::NEXT:
+                eat();
+                resolve_label(1);
+                break;
+            case TokenId::UNPACK: {
+                eat();
+                int a = 0;
+                if (match("long")) {
+                    a = value_16bit(1, 0);
+                }
+                else {
+                    int v = value_4bit();
+                    a = (v << 12) | value_12bit();
+                }
+                auto rh = aliases["unpack-hi"];
+                auto rl = aliases["unpack-lo"];
+                instruction(0x60 | rh, a >> 8);
+                instruction(0x60 | rl, a);
+                break;
+            }
+            case TokenId::BREAKPOINT:
+                eat();
+                breakpoints[here] = string().data();
+                break;
+            case TokenId::MONITOR: {
+                eat();
+                char n[256];
+                int type, base, len;
+                std::string format;
+                peek().formatValue(n);
+                if (peek_is_register()) {
+                    type = 0;  // register monitor
+                    base = register_or_alias();
+                    if (peek().type == Token::Type::NUMBER)
+                        len = value_4bit();
+                    else
+                        len = -1, format = string();
+                }
+                else {
+                    type = 1;  // memory monitor
+                    base = value_16bit(0, 0);
+                    if (peek().type == Token::Type::NUMBER)
+                        len = value_16bit(0, 0);
+                    else
+                        len = -1, format = string();
+                }
+                if (n[strlen(n) - 1] == '\'')
+                    n[strlen(n) - 1] = '\0';
+                auto nn = safeStringStringView(n[0] == '\'' ? n + 1 : n);
+                monitors.insert_or_assign(nn, Monitor{type, base, len, format});
+                break;
+            }
+            case TokenId::ASSERT: {
+                eat();
+                auto message = peek_match("{", 0) ? std::string_view() : string();
+                if (!(int)calculated("assertion")) {
+                    is_error = 1;
+                    if (!message.empty())
+                        error = fmt::format("Assertion failed: {}", message);
+                    else
+                        error = "Assertion failed.";
+                }
+                break;
+            }
+            case TokenId::PROTO:
+                eat();
+                next();  // deprecated
+                break;
+            case TokenId::ALIAS: {
+                eat();
+                auto n = identifier("alias");
+                if (constants.count(n)) {
+                    is_error = 1, error = fmt::format("The name '{}' is already used by a constant.", n);
+                    return;
+                }
+                int v = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)register_or_alias();
+                if (v < 0 || v > 15) {
+                    is_error = 1;
+                    error = "Register index must be in the range [0,F].";
+                    return;
+                }
+                aliases[n] = v;
+                break;
+            }
+            case TokenId::BYTE: {
+                eat();
+                append(peek_match("{", 0) ? (int)calculated("ANONYMOUS") : value_8bit());
+                break;
+            }
+            case TokenId::POINTER:
+            case TokenId::POINTER16: {
+                eat();
+                int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value_16bit(1, 0);
+                instruction(a >> 8, a);
+                break;
+            }
+            case TokenId::POINTER24: {
+                eat();
+                int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value_24bit(1, 0);
+                append(a >> 16);
+                instruction(a >> 8, a);
+                break;
+            }
+            case TokenId::ORG: {
+                eat();
+                here = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value_16bit(0, 0));
+                break;
+            }
+            case TokenId::CALL: {
+                eat();
+                immediate(0x20, peek_match("{", 0) ? 0xFFF & (int)calculated("ANONYMOUS") : value_12bit());
+                break;
+            }
+            case TokenId::CONST: {
+                eat();
+                auto n = identifier("constant");
+                if (constants.count(n)) {
+                    is_error = 1;
+                    error = fmt::format("The name '{}' has already been defined.", n);
+                    return;
+                }
+                constants.insert_or_assign(n, value_constant());
+                break;
+            }
+            case TokenId::CALC: {
+                eat();
+                auto n = identifier("calculated constant");
+                auto iter = constants.find(n);
+                if (iter != constants.end() && !iter->second.isMutable) {
+                    is_error = 1, error = fmt::format("Cannot redefine the name '{}' with :calc.", n);
+                    return;
+                }
+                constants.insert_or_assign(n, Constant{calculated(n), true});
+                break;
+            }
+            case TokenId::SEMICOLON:
+            case TokenId::RETURN:
+                eat(), instruction(0x00, 0xEE);
+                break;
+            case TokenId::CLEAR:
+                eat(), instruction(0x00, 0xE0);
+                break;
+            case TokenId::BCD:
+                eat(), instruction(0xF0 | register_or_alias(), 0x33);
+                break;
+            case TokenId::DELAY:
+                eat(), expect(":="), instruction(0xF0 | register_or_alias(), 0x15);
+                break;
+            case TokenId::BUZZER:
+                eat(), expect(":="), instruction(0xF0 | register_or_alias(), 0x18);
+                break;
+            case TokenId::PITCH:
+                eat(), expect(":="), instruction(0xF0 | register_or_alias(), 0x3A);
+                break;
+            case TokenId::JUMP0:
+                eat(), immediate(0xB0, value_12bit());
+                break;
+            case TokenId::JUMP:
+                eat(), immediate(0x10, value_12bit());
+                break;
+            case TokenId::NATIVE:
+                eat(), immediate(0x00, value_12bit());
+                break;
+            case TokenId::AUDIO:
+                eat(), instruction(0xF0, 0x02);
+                break;
+            case TokenId::SCROLL_DOWN:
+                eat(), instruction(0x00, 0xC0 | value_4bit());
+                break;
+            case TokenId::SCROLL_UP:
+                eat(), instruction(0x00, 0xD0 | value_4bit());
+                break;
+            case TokenId::SCROLL_RIGHT:
+                eat(), instruction(0x00, 0xFB);
+                break;
+            case TokenId::SCROLL_LEFT:
+                eat(), instruction(0x00, 0xFC);
+                break;
+            case TokenId::EXIT:
+                eat(), instruction(0x00, 0xFD);
+                break;
+            case TokenId::LORES:
+                eat(), instruction(0x00, 0xFE);
+                break;
+            case TokenId::HIRES:
+                eat(), instruction(0x00, 0xFF);
+                break;
+            case TokenId::SPRITE: {
+                eat();
+                int x = register_or_alias(), y = register_or_alias();
+                instruction(0xD0 | x, (y << 4) | value_4bit());
+                break;
+            }
+            case TokenId::PLANE: {
+                eat();
+                int n = value_4bit();
+                if (n > 15)
+                    is_error = 1, error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
+                instruction(0xF0 | n, 0x01);
+                break;
+            }
+            case TokenId::SAVEFLAGS:
+                eat(), instruction(0xF0 | register_or_alias(), 0x75);
+                break;
+            case TokenId::LOADFLAGS:
+                eat(), instruction(0xF0 | register_or_alias(), 0x85);
+                break;
+            case TokenId::SAVE: {
+                eat();
+                int r = register_or_alias();
+                if (match("-"))
+                    instruction(0x50 | r, (register_or_alias() << 4) | 0x02);
+                else
+                    instruction(0xF0 | r, 0x55);
+                break;
+            }
+            case TokenId::LOAD: {
+                eat();
+                int r = register_or_alias();
+                if (match("-"))
+                    instruction(0x50 | r, (register_or_alias() << 4) | 0x03);
+                else
+                    instruction(0xF0 | r, 0x65);
+                break;
+            }
+            case TokenId::I_REG: {
+                eat();
+                if (match(":=")) {
+                    if (match("long")) {
+                        int a = value_16bit(1, 2);
+                        instruction(0xF0, 0x00);
+                        instruction((a >> 8), a);
+                    }
+                    else if (match("hex"))
+                        instruction(0xF0 | register_or_alias(), 0x29);
+                    else if (match("bighex"))
+                        instruction(0xF0 | register_or_alias(), 0x30);
+                    else
+                        immediate(0xA0, value_12bit());
+                }
+                else if (match("+="))
+                    instruction(0xF0 | register_or_alias(), 0x1E);
+                else {
+                    auto t = next();
+                    char d[256];
+                    is_error = 1, error = fmt::format("{} is not an operator that can target the i register.", t.formatValue(d));
+                }
+                break;
+            }
+            case TokenId::IF: {
+                eat();
+                int index = (peek_match("key", 1) || peek_match("-key", 1)) ? 2 : 3;
+                if (peek_match("then", index)) {
+                    conditional(0), expect("then");
+                }
+                else if (peek_match("begin", index)) {
+                    conditional(1), expect("begin");
+                    branches.push({here, source_line, source_pos, "begin"});
+                    instruction(0x00, 0x00);
+                }
+                else {
+                    for (int z = 0; z <= index; z++)
+                        if (!is_end())
+                            next();
+                    is_error = 1;
+                    error = "Expected 'then' or 'begin'.";
+                }
+                break;
+            }
+            case TokenId::ELSE: {
+                eat();
+                if (branches.empty()) {
+                    is_error = 1;
+                    error = "This 'else' does not have a matching 'begin'.";
+                    return;
+                }
+                jump(branches.top().addr, here + 2);
+                branches.pop();
+                branches.push({here, peek_line, peek_pos, "else"});
+                instruction(0x00, 0x00);
+                break;
+            }
+            case TokenId::END: {
+                eat();
+                if (branches.empty()) {
+                    is_error = 1;
+                    error = "This 'end' does not have a matching 'begin'.";
+                    return;
+                }
+                jump(branches.top().addr, here);
+                branches.pop();
+                break;
+            }
+            case TokenId::LOOP: {
+                eat();
+                loops.push({here, peek_line, peek_pos, "loop"});
+                whiles.push({-1, peek_line, peek_pos, "loop"});
+                break;
+            }
+            case TokenId::WHILE: {
+                eat();
+                if (loops.empty()) {
+                    is_error = 1;
+                    error = "This 'while' is not within a loop.";
+                    return;
+                }
+                conditional(1);
+                whiles.push({here, peek_line, peek_pos, "while"});
+                immediate(0x10, 0);  // forward jump
+                break;
+            }
+            case TokenId::AGAIN: {
+                eat();
+                if (loops.empty()) {
+                    is_error = 1;
+                    error = "This 'again' does not have a matching 'loop'.";
+                    return;
+                }
+                immediate(0x10, loops.top().addr);
+                loops.pop();
+                while (true) {
+                    // works as loop always pushes a -1 while, but is it needed?
+                    int a = whiles.top().addr;
+                    whiles.pop();
+                    if (a == -1)
+                        break;
+                    jump(a, here);
+                }
+                break;
+            }
+            case TokenId::MACRO: {
+                eat();
+                auto n = identifier("macro");
+                if (is_error)
+                    return;
+                if (macros.count(n)) {
+                    is_error = 1, error = fmt::format("The name '{}' has already been defined.", n);
+                    return;
+                }
+                auto& m = macros.emplace(n, Macro()).first->second;
+                while (!is_error && !is_end() && !peek_match("{", 0))
+                    m.args.push_back(identifier("macro argument"));
+                macro_body("macro", n, m);
+                break;
+            }
+            case TokenId::STRINGMODE: {
+                eat();
+                auto n = identifier("stringmode");
+                if (is_error)
+                    return;
+                auto& s = stringModes.try_emplace(n, StringMode()).first->second;
+                int alpha_base = source_pos, alpha_quote = peek_char() == '"';
+                auto alphabet = string();
+                Macro m;  // every stringmode needs its own copy of this
+                macro_body("string mode", n, m);
+                for (int z = 0; z < alphabet.length(); z++) {
+                    int c = 0xFF & alphabet[z];
+                    if (s.modes[c]) {
+                        error_pos = alpha_base + z + (alpha_quote ? 1 : 0);
+                        is_error = 1, error = fmt::format("String mode '{}' is already defined for the character '{:c}'.", n, c);
+                        break;
+                    }
+                    s.values[c] = (char)z;
+                    auto mm = std::make_unique<Macro>();
+                    mm->body = m.body;
+                    s.modes[c] = std::move(mm);
+                }
+                break;
+            }
+            default: {
+                auto t = peek();
+                if (is_error)
+                    return;
+                if (t.type == Token::Type::NUMBER) {
+                    int n = (int)t.num_value;
+                    next();
+                    if (n < -128 || n > 255) {
+                        is_error = 1, error = fmt::format("Literal value '{}' does not fit in a byte- must be in range [-128,255].", n);
+                    }
+                    append(n);
+                    return;
+                }
+                auto n = t.type == Token::Type::STRING ? t.str_value : std::string_view();
+                if (auto mi = macros.find(n); mi != macros.end()) {
+                    next();
+                    auto& m = mi->second;
+                    std::unordered_map<std::string_view, Token> bindings;  // name -> tok
+                    bindings.emplace("CALLS", Token(m.calls++));
+                    for (auto& arg : m.args) {
+                        if (is_end()) {
+                            error_line = source_line, error_pos = source_pos;
+                            is_error = 1, error = fmt::format("Not enough arguments for expansion of macro '{}'.", n);
+                            break;
+                        }
+                        bindings.emplace(arg, next());
+                    }
+                    int splice_index = 0;
+                    for (int z = 0; z < m.body.size(); z++) {
+                        auto& bt = m.body[z];
+                        auto argIter = (bt.type == Token::Type::STRING ? bindings.find(bt.str_value) : bindings.end());
+                        tokens.insert(tokens.begin() + z, argIter != bindings.end() ? argIter->second : bt);
+                    }
+                }
+                else if (auto iter = stringModes.find(n); iter != stringModes.end()) {
+                    next();
+                    auto& s = iter->second;
+                    int text_base = source_pos, text_quote = peek_char() == '"';
+                    auto text = string();
+                    int splice_index = 0;
+                    for (int tz = 0; tz < text.length(); tz++) {
+                        int c = 0xFF & text[tz];
+                        if (!s.modes[c]) {
+                            error_pos = text_base + tz + (text_quote ? 1 : 0);
+                            is_error = 1, error = fmt::format("String mode '{}' is not defined for the character '{:c}'.", n, c);
+                            break;
+                        }
+                        std::unordered_map<std::string_view, Token> bindings;  // name -> tok
+                        bindings.emplace("CALLS", Token(s.calls++));           // expansion count
+                        bindings.emplace("CHAR", Token(c));                    // ascii value of current char
+                        bindings.emplace("INDEX", Token((int)tz));             // index of char in input string
+                        bindings.emplace("VALUE", Token(s.values[c]));         // index of char in class alphabet
+                        auto& sm = *s.modes[c];
+                        for (auto& bt : sm.body) {
+                            auto argIter = (bt.type == Token::Type::STRING ? bindings.find(bt.str_value) : bindings.end());
+                            tokens.insert(tokens.begin() + splice_index++, argIter != bindings.end() ? argIter->second : bt);
+                        }
+                    }
+                }
+                else
+                    immediate(0x20, value_12bit());
+            }
+        }
+    }
+}
+#endif
+
+Program::Program(char* text, int startAddress)
+{
     source = text;
     source_root = text;
     source_line = 0;
@@ -1761,13 +2090,6 @@ OctoProgram::OctoProgram(char* text, int startAddress)
     rom.resize(65536, 0);
     used.resize(65536, 0);
     romLineMap.resize(65536, 0xFFFFFFFF);
-    octo_map_init(&constants);
-    octo_map_init(&aliases);
-    octo_map_init(&protos);
-    octo_stack_init(&loops);
-    octo_stack_init(&branches);
-    octo_stack_init(&whiles);
-    octo_map_init(&monitors);
     is_error = 0;
     error[0] = '\0';
     error_line = 0;
@@ -1776,15 +2098,15 @@ OctoProgram::OctoProgram(char* text, int startAddress)
         source += 3;  // UTF-8 BOM
     skip_whitespace();
 
-#define octo_kc(l, n) (octo_map_set(&constants, counted(("OCTO_KEY_" l)), octo_make_const(n, 0)))
+#define octo_kc(l, n) constants.emplace(("OCTO_KEY_" l), Constant{n, 0})
     octo_kc("1", 0x1), octo_kc("2", 0x2), octo_kc("3", 0x3), octo_kc("4", 0xC), octo_kc("Q", 0x4), octo_kc("W", 0x5), octo_kc("E", 0x6), octo_kc("R", 0xD), octo_kc("A", 0x7), octo_kc("S", 0x8), octo_kc("D", 0x9), octo_kc("F", 0xE), octo_kc("Z", 0xA),
         octo_kc("X", 0x0), octo_kc("C", 0xB), octo_kc("V", 0xF);
 
-    octo_map_set(&aliases, counted("unpack-hi"), octo_make_reg(0));
-    octo_map_set(&aliases, counted("unpack-lo"), octo_make_reg(1));
+    aliases["unpack-hi"] = 0;
+    aliases["unpack-lo"] = 1;
 }
 
-bool OctoProgram::compile()
+bool Program::compile()
 {
     instruction(0x00, 0x00);  // reserve a jump slot for main
     while (!is_end() && !is_error) {
@@ -1799,33 +2121,31 @@ bool OctoProgram::compile()
     error_line = source_line, error_pos = source_pos;
 
     if (has_main) {
-        auto* c = (octo_const*)octo_map_get(&constants, counted("main"));
-        if (c == nullptr)
-            return is_error = 1, snprintf(error, OCTO_ERR_MAX, "This program is missing a 'main' label."), false;
-        jump(startAddress, c->value);
+        auto iter = constants.find("main");
+        if (iter == constants.end())
+            return is_error = 1, error = "This program is missing a 'main' label.", false;
+        jump(startAddress, (int)iter->second.value);
     }
-    if (protos.keys.count > 0) {
-        auto* pr = (octo_proto*)octo_list_get(&protos.values, 0);
-        error_line = pr->line, error_pos = pr->pos;
+    if (!protos.empty()) {
+        auto& pr = protos.begin()->second;
+        error_line = pr.line, error_pos = pr.pos;
         is_error = 1;
-        snprintf(error, OCTO_ERR_MAX, "Undefined forward reference: %s", (char*)octo_list_get(&protos.keys, 0));
+        error = fmt::format("Undefined forward reference: {}", protos.begin()->first);
         return false;
     }
-    if (!octo_stack_is_empty(&loops)) {
-        auto* f = (octo_flow*)octo_stack_pop(&loops);
+    if (!loops.empty()) {
         is_error = 1;
-        snprintf(error, OCTO_ERR_MAX, "This 'loop' does not have a matching 'again'.");
-        error_line = f->line, error_pos = f->pos;
-        octo_free_flow(f);
+        error = "This 'loop' does not have a matching 'again'.";
+        error_line = loops.top().line, error_pos = loops.top().pos;
         return false;
     }
-    if (!octo_stack_is_empty(&branches)) {
-        auto* f = (octo_flow*)octo_stack_pop(&branches);
+    if (!branches.empty()) {
         is_error = 1;
-        snprintf(error, OCTO_ERR_MAX, "This '%s' does not have a matching 'end'.", f->type);
-        error_line = f->line, error_pos = f->pos;
-        octo_free_flow(f);
+        error = fmt::format("This '{}' does not have a matching 'end'.", branches.top().type);
+        error_line = branches.top().line, error_pos = branches.top().pos;
         return false;
     }
-    return true; // success!
+    return true;  // success!
+}
+
 }

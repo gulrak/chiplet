@@ -11,18 +11,17 @@ from collections.abc import Sequence
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    # Add arguments here
     parser.add_argument('assembler')
+    parser.add_argument('testdir')
     args = parser.parse_args(argv)
 
-    # Implement behaviour here
-    for source_file in Path(__file__).parent.absolute().joinpath('c-octo-tests').glob('*.8o'):
+    for source_file in Path(args.testdir).absolute().glob('*.8o'):
         print(f"Testing '{source_file.name}'")
         result = subprocess.run([args.assembler, '-o', 'temp.ch8', '--no-line-info', source_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if source_file.with_suffix('.ch8').exists():
             # positive test
             if result.stderr:
-                print(f"Error while assembling '{source_file}': {result.stderr}")
+                print(f"Error while assembling '{source_file}': {result.stderr.decode('utf-8')}")
                 return result.returncode
             elif not filecmp.cmp(source_file.with_suffix('.ch8'), 'temp.ch8'):
                 print(f"Reference binary doesn't match for '{source_file}'")

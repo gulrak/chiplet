@@ -35,6 +35,7 @@
 #include <chiplet/stb_image.h>
 
 #include <chrono>
+#include <set>
 #include <stdexcept>
 
 enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH };
@@ -47,6 +48,9 @@ static bool genListing = false;
 static int foundFiles = 0;
 static bool roundTrip = false;
 static int errors = 0;
+static int64_t totalSourceLines = 0;
+static int64_t totalDecompileTime_us = 0;
+static int64_t totalAssembleTime_us = 0;
 
 
 std::string fileOrPath(const std::string& file)
@@ -66,7 +70,9 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
             if(roundTrip) {
                 std::stringstream os;
                 emu::OctoCompiler comp;
+                auto decStart = std::chrono::steady_clock::now();
                 dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &os, false, true);
+                auto decEnd = std::chrono::steady_clock::now();
                 if(dec.possibleVariants() == emu::C8V::CHIP_8X || dec.possibleVariants() == emu::C8V::HI_RES_CHIP_8X)
                     startAddress = 0x300;
                 else if(dec.possibleVariants() == emu::C8V::CHIP_8X_TPD)
@@ -76,6 +82,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                 auto source = os.str();
                 comp.setStartAddress(startAddress);
                 if(comp.compile(file, source.data(), source.data() + source.size() + 1, false).resultType == emu::CompileResult::eOK) {
+                    auto compEnd = std::chrono::steady_clock::now();
                     if(comp.codeSize() != data.size()) {
                         std::cerr << "    " << fileOrPath(file) << ": Compiled size doesn't match! (" << data.size() << " bytes)" << std::endl;
                         workFile(eANALYSE, file, data);
@@ -87,6 +94,14 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                         workFile(eANALYSE, file, data);
                         writeFile(fs::path(file).filename().string().c_str(), comp.code(), comp.codeSize());
                         ++errors;
+                    }
+                    else {
+                        totalSourceLines += comp.numSourceLines();
+                        auto decompTime = std::chrono::duration_cast<std::chrono::microseconds>(decEnd - decStart).count();
+                        auto assemTime = std::chrono::duration_cast<std::chrono::microseconds>(compEnd - decEnd).count();
+                        totalDecompileTime_us += decompTime;
+                        totalAssembleTime_us += assemTime;
+                        std::clog << "    " << fileOrPath(file) << " [" << decompTime << "us/" << assemTime << "us]" << std::endl;
                     }
                 }
                 else {
@@ -179,7 +194,8 @@ std::pair<bool, std::string> checkDouble(const std::string& file, const std::vec
 
 bool isChipRom(const std::string& name)
 {
-    return endsWith(name, ".ch8") || endsWith(name, ".c8x") || endsWith(name, ".ch10") || endsWith(name, ".sc8") || endsWith(name, ".xo8") || endsWith(name, ".mc8");
+    static std::set<std::string> validExtensions{ ".ch8", ".ch10", ".hc8", ".c8h", ".c8e", ".c8x", ".sc8", ".mc8", ".xo8" };
+    return validExtensions.count(name) > 0;
 }
 
 int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& inputList, WorkMode& mode)
@@ -188,8 +204,10 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
     uint64_t files = 0;
     uint64_t doubles = 0;
     for(const auto& input : inputList) {
-        if(!fs::exists(input))
+        if(!fs::exists(input)) {
+            std::cerr << "Couldn't find input file: " << input << std::endl;
             continue;
+        }
         if(fs::is_directory(input)) {
             for(const auto& de : fs::recursive_directory_iterator(input, fs::directory_options::skip_permission_denied)) {
                 if(de.is_regular_file() && isChipRom(de.path().extension().string())) {
@@ -207,7 +225,7 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
                 }
             }
         }
-        else if(fs::is_regular_file(input) && isChipRom(input)) {
+        else if(fs::is_regular_file(input) && isChipRom(fs::path(input).extension())) {
             auto file = loadFile(input);
             auto [isDouble, firstName] = checkDouble(input, file);
             if(isDouble) {
@@ -237,6 +255,10 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
         std::clog << ", found opcodes in " << foundFiles << " files";
     if(errors)
         std::clog << ", round trip errors: " << errors;
+    if(totalSourceLines) {
+        std::clog << ", total number of source lines assembled: " << totalSourceLines;
+        std::clog << ", (d:" << totalDecompileTime_us/1000 << "ms/a:" << totalAssembleTime_us/1000 << "ms)";
+    }
     std::clog << " (" << duration << "ms)" <<std::endl;
     return errors ? 1 : 0;
 }

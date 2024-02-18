@@ -690,6 +690,11 @@ void OctoCompiler::info(std::string msg)
     _compileResult.resultType = CompileResult::eINFO;
 }
 
+size_t OctoCompiler::numSourceLines() const
+{
+    return _compiler->numSourceLines();
+}
+
 const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile, const char* source, const char* end)
 {
     if(end - source >= 3 && *source == (char)0xef && *(source+1) == (char)0xbb && *(source+2) == (char)0xbf)
