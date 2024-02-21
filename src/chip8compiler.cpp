@@ -50,23 +50,16 @@ Chip8Compiler::~Chip8Compiler()
     _impl->_program.reset();
 }
 
-bool Chip8Compiler::compile(std::string str, int startAddress)
-{
-    return compile(str.data(), str.data() + str.size() + 1, startAddress);
-}
 
-bool Chip8Compiler::compile(const char* start, const char* end, int startAddress)
+bool Chip8Compiler::compile(std::string_view text, int startAddress)
 {
     if (_impl->_program) {
         _impl->_program.reset();
     }
-    if(end - start >= 3 && *start == (char)0xef && *(start+1) == (char)0xbb && *(start+2) == (char)0xbf)
-        start += 3; // skip BOM
+    if(text.length() >= 3 && text[0] == (char)0xef && text[1] == (char)0xbb && text[2] == (char)0xbf)
+        text.remove_prefix(3); // skip BOM
 
-    // make a malloc based copy that c-octo will own and free on oct_free_program
-    char* source = (char*)malloc(end - start);
-    memcpy(source, start, end - start);
-    _impl->_program = std::make_unique<octo::Program>(source, startAddress);
+    _impl->_program = std::make_unique<octo::Program>(text, startAddress);
     if (!_impl->_program->compile()) {
         _impl->_errorMessage = "ERROR (" + std::to_string(_impl->_program->errorLine()) + ":" + std::to_string(_impl->_program->errorPos() + 1) + "): " + _impl->_program->errorMessage();
         //std::cerr << _impl->_errorMessage << std::endl;

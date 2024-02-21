@@ -81,7 +81,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                     startAddress = 0x244;
                 auto source = os.str();
                 comp.setStartAddress(startAddress);
-                if(comp.compile(file, source.data(), source.data() + source.size() + 1, false).resultType == emu::CompileResult::eOK) {
+                if(comp.compile(file, source.data(), source.data() + source.size(), false).resultType == emu::CompileResult::eOK) {
                     auto compEnd = std::chrono::steady_clock::now();
                     if(comp.codeSize() != data.size()) {
                         std::cerr << "    " << fileOrPath(file) << ": Compiled size doesn't match! (" << data.size() << " bytes)" << std::endl;

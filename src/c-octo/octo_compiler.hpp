@@ -2,15 +2,11 @@
  *
  *  octo_compiler.hpp
  *
- *  a compiler for Octo CHIP-8 assembly language,
- *  suitable for embedding in other tools and environments.
- *  depends only upon the C standard library.
- *
- *  the public interface is octo_compile_str(char*);
- *  the result will contain a 64k ROM image in the
- *  'rom' field of the returned octo_program.
- *  octo_free_program can clean up the entire structure
- *  when a consumer is finished using it.
+ *  A compiler for Octo CHIP-8 assembly language, suitable for embedding in other
+ *  tools and environments. Compared to its original form it depends heavily on C++17
+ *  standard library. It's for sure not as lightweight as the original, but it is
+ *  quite a bit faster and hopefully easier to extend and due to no more use of any
+ *  static arrays it has none of the original limitations.
  *
  *  The MIT License (MIT)
  *
@@ -41,6 +37,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -53,6 +50,8 @@
 #include <string_view>
 #include <vector>
 #include <fmt/format.h>
+#include <fast_float/fast_float.h>
+
 
 
 namespace octo {
@@ -132,6 +131,7 @@ namespace octo {
 
 enum class TokenId {
     TOK_UNKNOWN,
+    STRING_LITERAL,
 #define ENUM_ENTRY(NAME, TEXT) NAME,
     TOKEN_LIST(ENUM_ENTRY)
 #undef ENUM_ENTRY
@@ -260,7 +260,7 @@ public:
     static constexpr int RAM_MASK = 16 * 1024 * 1024 - 1;
 
     Program() = delete;
-    Program(char* text, int startAddress);
+    Program(std::string_view text, int startAddress);
     ~Program();
     bool compile();
     bool isError() const { return is_error; }
@@ -285,7 +285,7 @@ private:
 
     static double max(double x, double y) { return x < y ? y : x; }
     static double min(double x, double y) { return x < y ? x : y; }
-    std::string_view safeStringStringView(char* name, size_t len);
+    std::string_view safeStringStringView(std::string&& name);
     std::string_view safeStringStringView(char* name);
     int is_end() const;
     char next_char();
@@ -297,9 +297,9 @@ private:
     bool peek_match(const std::string_view& name, int index);
     bool match(const std::string_view& name);
     void eat();
-    bool check_name(std::string_view name, char* kind);
+    bool check_name(std::string_view name, const char* kind);
     std::string_view string();
-    std::string_view identifier(char* kind);
+    std::string_view identifier(const char* kind);
     void expect(std::string_view name);
     bool is_register(std::string_view name);
     bool peek_is_register();
@@ -332,8 +332,9 @@ private:
     std::unordered_set<std::string> stringTable;
 
     // tokenizer
-    char* source;
-    char* source_root;
+    const char* source;
+    const char* source_root;
+    const char* sourceEnd;
     int source_line;
     int source_pos;
     std::deque<Token> tokens;
@@ -368,7 +369,6 @@ private:
 
 Program::~Program()
 {
-    free(source_root);
 }
 
 /**
@@ -377,29 +377,29 @@ Program::~Program()
  *
  **/
 
-std::string_view Program::safeStringStringView(char* name, size_t len)
+std::string_view Program::safeStringStringView(std::string&& name)
 {
-    auto iter = stringTable.find({name, len});
+    auto iter = stringTable.find(name);
     if (iter != stringTable.end())
         return *iter;
-    return *stringTable.insert({name, len}).first;
+    return *stringTable.emplace(std::move(name)).first;
 }
 
 std::string_view Program::safeStringStringView(char* name)
 {
-    return safeStringStringView(name, std::strlen(name));
+    return safeStringStringView({name, std::strlen(name)});
 }
 
 int Program::is_end() const
 {
-    return tokens.empty() && source[0] == '\0';
+    return tokens.empty() && source >= sourceEnd;
 }
 
 char Program::next_char()
 {
+    if(source >= sourceEnd)
+        return 0;
     char c = source[0];
-    if (c == '\0')
-        return '\0';
     if (c == '\n')
         source_line++, source_pos = 0;
     else
@@ -410,7 +410,7 @@ char Program::next_char()
 
 char Program::peek_char() const
 {
-    return source[0] == '\0' ? '\0' : source[0];
+    return source >= sourceEnd ? '\0' : source[0];
 }
 
 void Program::skip_whitespace()
@@ -443,11 +443,11 @@ void Program::fetch_token()
         return;
     tokens.emplace_back(source_line, source_pos);
     auto& t = tokens.back();
-    char str_buffer[4096];
+    std::string strBuffer;
+    const auto* start = source;
     int index = 0;
     if (source[0] == '"') {
         next_char();
-        auto* start = source;
         while (true) {
             char c = next_char();
             if (c == '\0') {
@@ -470,19 +470,19 @@ void Program::fetch_token()
                     return;
                 }
                 if (ec == 't')
-                    str_buffer[index++] = '\t';
+                    strBuffer.push_back('\t');
                 else if (ec == 'n')
-                    str_buffer[index++] = '\n';
+                    strBuffer.push_back('\n');
                 else if (ec == 'r')
-                    str_buffer[index++] = '\r';
+                    strBuffer.push_back('\r');
                 else if (ec == 'v')
-                    str_buffer[index++] = '\v';
+                    strBuffer.push_back('\v');
                 else if (ec == '0')
-                    str_buffer[index++] = '\0';
+                    strBuffer.push_back('\0');
                 else if (ec == '\\')
-                    str_buffer[index++] = '\\';
+                    strBuffer.push_back('\\');
                 else if (ec == '"')
-                    str_buffer[index++] = '"';
+                    strBuffer.push_back('"');
                 else {
                     is_error = 1;
                     error = fmt::format("Unrecognized escape character '{}' in a string literal.", ec);
@@ -491,16 +491,12 @@ void Program::fetch_token()
                 }
             }
             else {
-                str_buffer[index++] = c;
-            }
-            if (index >= 4095) {
-                is_error = 1;
-                error = "String literals must be < 4096 characters long.";
-                error_line = source_line, error_pos = source_pos;
+                strBuffer.push_back(c);
             }
         }
         t.type = Token::Type::STRING;
-        t.str_value = start ? std::string_view(start, index) : safeStringStringView(str_buffer, index);
+        t.tid = TokenId::STRING_LITERAL;
+        t.str_value = start ? std::string_view(start + 1, strBuffer.length()) : safeStringStringView(std::move(strBuffer));
     }
     else {
         // string or number
@@ -508,28 +504,35 @@ void Program::fetch_token()
             char c = next_char();
             if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '#' || c == '\0')
                 break;
-            str_buffer[index++] = c;
+            ++index;
         }
-        str_buffer[index++] = '\0';
-        char* float_end;
-        double float_val = strtod(str_buffer, &float_end);
-        if (float_end[0] == '\0') {
+        double float_val = 0;
+        auto fcr = fast_float::from_chars(start, start + index, float_val);
+        if (fcr.ptr == start + index && fcr.ec == std::errc{}) {
             t.type = Token::Type::NUMBER, t.num_value = float_val;
         }
-        else if (str_buffer[0] == '0' && str_buffer[1] == 'b') {
-            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(std::strtol(str_buffer + 2, nullptr, 2));
+        else if (index > 2 && start[0] == '0' && start[1] == 'b') {
+            int64_t temp = 0;
+            std::from_chars(start + 2, start + index, temp, 2);
+            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(temp);
         }
-        else if (str_buffer[0] == '0' && str_buffer[1] == 'x') {
-            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(std::strtol(str_buffer + 2, nullptr, 16));
+        else if (index > 2 && start[0] == '0' && start[1] == 'x') {
+            int64_t temp = 0;
+            std::from_chars(start + 2, start + index, temp, 16);
+            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(temp);
         }
-        else if (str_buffer[0] == '-' && str_buffer[1] == '0' && str_buffer[2] == 'b') {
-            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(-std::strtol(str_buffer + 3, nullptr, 2));
+        else if (index > 3 && start[0] == '-' && start[1] == '0' && start[2] == 'b') {
+            int64_t temp = 0;
+            std::from_chars(start + 3, start + index, temp, 2);
+            t.type = Token::Type::NUMBER, t.num_value = -static_cast<double>(temp);
         }
-        else if (str_buffer[0] == '-' && str_buffer[1] == '0' && str_buffer[2] == 'x') {
-            t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(-std::strtol(str_buffer + 3, nullptr, 16));
+        else if (index > 3 && start[0] == '-' && start[1] == '0' && start[2] == 'x') {
+            long temp = 0;
+            std::from_chars(start + 3, start + index, temp, 16);
+            t.type = Token::Type::NUMBER, t.num_value = -static_cast<double>(temp);
         }
         else {
-            t.type = Token::Type::STRING, t.str_value = safeStringStringView(str_buffer, index - 1);
+            t.type = Token::Type::STRING, t.str_value = safeStringStringView({start, static_cast<size_t>(index)});
             auto iter = lexerTokenMap.find(t.str_value);
             if(iter != lexerTokenMap.end())
                 t.tid = iter->second;
@@ -591,7 +594,7 @@ void Program::eat()
  *
  **/
 
-char* octo_reserved_words[] = {
+const char* octo_reserved_words[] = {
     ":=",        "|=",        "&=",    "^=",    "-=",    "=-",      "+=",          ">>=",    "<<=",    "==",          "!=",      "<",        ">",           "<=",         ">=",           "key",         "-key",  "hex",
     "bighex",    "random",    "delay", ":",     ":next", ":unpack", ":breakpoint", ":proto", ":alias", ":const",      ":org",    ";",        "return",      "clear",      "bcd",          "save",        "load",  "buzzer",
     "if",        "then",      "begin", "else",  "end",   "jump",    "jump0",       "native", "sprite", "loop",        "while",   "again",    "scroll-down", "scroll-up",  "scroll-right", "scroll-left", "lores", "hires",
@@ -603,7 +606,7 @@ bool Program::is_reserved(std::string_view name)
     return std::any_of(std::begin(octo_reserved_words), std::end(octo_reserved_words), [&name](const char* reserved) { return name == reserved; });
 }
 
-bool Program::check_name(std::string_view name, char* kind)
+bool Program::check_name(std::string_view name, const char* kind)
 {
     if (is_error)
         return false;
@@ -626,7 +629,7 @@ std::string_view Program::string()
     return t.str_value;
 }
 
-std::string_view Program::identifier(char* kind)
+std::string_view Program::identifier(const char* kind)
 {
     if (is_error)
         return "";
@@ -831,7 +834,7 @@ Constant Program::value_constant()
     if (is_error)
         return {0, false};
     if (t.type == Token::Type::NUMBER) {
-        return {(int)t.num_value, false};
+        return {static_cast<double>((int)t.num_value), false};
     }
     auto& n = t.str_value;
     auto iter = constants.find(n);
@@ -1126,7 +1129,7 @@ void Program::resolve_label(int offset)
         rom[startAddress] = 0, used[startAddress] = 0;
         rom[startAddress + 1] = 0, used[startAddress + 1] = 0;
     }
-    constants.insert_or_assign(n, Constant{target, false});
+    constants.insert_or_assign(n, Constant{static_cast<double>(target), false});
     auto iter = protos.find(n);
     if (iter == protos.end())
         return;
@@ -2077,10 +2080,11 @@ void Program::compile_statement()
 }
 #endif
 
-Program::Program(char* text, int startAddress)
+Program::Program(std::string_view text, int startAddress)
 {
-    source = text;
-    source_root = text;
+    source = text.data();
+    source_root = text.data();
+    sourceEnd = source + text.length();
     source_line = 0;
     source_pos = 0;
     has_main = 1;

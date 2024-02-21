@@ -178,7 +178,7 @@ const CompileResult& OctoCompiler::compile(const std::string& filename, const ch
         dumpSegments(preprocessedStream);
         preprocessed = preprocessedStream.str();
         source = preprocessed.data();
-        end = preprocessed.data() + preprocessed.size() + 1;
+        end = preprocessed.data() + preprocessed.size();
     }
     if(_mode == eCHIPLET)
         return doCompileChiplet(filename, source, end);
@@ -199,7 +199,7 @@ const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files
         dumpSegments(preprocessedStream);
         preprocessed = preprocessedStream.str();
     }
-    return compile(fs::absolute(files.front()).string(), preprocessed.data(), preprocessed.data() + preprocessed.size() + 1, false);
+    return compile(fs::absolute(files.front()).string(), preprocessed.data(), preprocessed.data() + preprocessed.size(), false);
 }
 
 const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename, const char* source, const char* end)
@@ -298,7 +298,7 @@ const CompileResult& OctoCompiler::doCompileCOcto(const std::string& filename, c
     std::string_view sourceCode = {source, size_t(end - source)};
     _compiler = std::make_unique<Chip8Compiler>();
     if(_progress) _progress(1, "compiling ...");
-    _compiler->compile(source, end, _startAddress);
+    _compiler->compile({source, static_cast<size_t>(end-source)}, _startAddress);
     if(_compiler->isError()) {
         return synthesizeError({filename, _compiler->errorLine(), _compiler->errorCol()}, source, end, _compiler->rawErrorMessage());
     }

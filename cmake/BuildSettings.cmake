@@ -85,6 +85,13 @@ if(NOT fmtlib_POPULATED)
     message(STATUS "fmtlib: ${fmtlib_SOURCE_DIR}/include")
 endif()
 
+FetchContent_Declare(
+    fast_float
+    GIT_REPOSITORY https://github.com/fastfloat/fast_float.git
+    GIT_TAG tags/v6.1.0
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(fast_float)
+
 find_package(Git)
 if(GIT_FOUND)
     execute_process(
