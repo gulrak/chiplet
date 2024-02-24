@@ -23,9 +23,6 @@
 // SOFTWARE.
 //
 //---------------------------------------------------------------------------------------
-// NOTE: This is currently only a wrapper over the c-octo octo-compiler.h implementation
-//       by John Earnest
-//---------------------------------------------------------------------------------------
 #pragma once
 
 #include <string>

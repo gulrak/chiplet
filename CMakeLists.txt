@@ -5,6 +5,9 @@ cmake_policy(VERSION 3.16)
 
 include(cmake/BuildSettings.cmake)
 include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
+
+include_directories(${PROJECT_SOURCE_DIR}/external)
+
 enable_testing()
 
 add_subdirectory(src)

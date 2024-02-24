@@ -30,6 +30,7 @@
 #include <chiplet/utility.hpp>
 #include <chiplet/cli.hpp>
 #include <chiplet/sha1.hpp>
+#include <chiplet/octocartridge.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <chiplet/stb_image.h>
@@ -347,6 +348,12 @@ int main(int argc, char* argv[])
     if(inputList.empty()) {
         std::cerr << "ERROR: No input files given" << std::endl;
         exit(1);
+    }
+
+    if(inputList.size() == 1 && fs::path(inputList.front()).extension() == ".gif") {
+        emu::OctoCartridge cart;
+        std::cout << cart.loadJson(inputList.front()).dump(4);
+        exit(0);
     }
 
     if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH)
