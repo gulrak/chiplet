@@ -5,3 +5,5 @@ add_test(NAME assembler-test-py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SO
 add_executable(chiplet-tests main.cpp assembler_tests.cpp)
 target_link_libraries(chiplet-tests PUBLIC chiplet-lib doctest fast_float)
 doctest_discover_tests(chiplet-tests)
+
+add_executable(gifimage-test gifimage_tests.cpp)

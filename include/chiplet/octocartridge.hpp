@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <ghc/span.hpp>
@@ -67,10 +68,10 @@ public:
     using DataSpan = ghc::span<const uint8_t>;
     using Data = std::vector<uint8_t>;
 
-    OctoCartridge(std::string filename) : _filename(filename) {}
+    OctoCartridge(std::string filename) : _filename(std::move(filename)) {}
     bool loadCartridge();
     bool saveCartridge(const OctoOptions& options, std::string_view programSource, const std::string& label, const DataSpan& image);
-    const DataSpan&  getImage(const std::string& text) const;
+    std::vector<uint32_t> getImage() const;
     const OctoOptions& getOptions() const;
     static uint32_t getColorFromName(const std::string& name);
 

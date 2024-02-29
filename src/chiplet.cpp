@@ -351,7 +351,7 @@ int main(int argc, char* argv[])
     }
 
     if(inputList.size() == 1 && fs::path(inputList.front()).extension() == ".gif") {
-        emu::OctoCartridge cart;
+        emu::OctoCartridge cart(inputList.front());
         std::cout << cart.loadJson(inputList.front()).dump(4);
         exit(0);
     }

@@ -58,6 +58,9 @@ template <class ElementType, size_t Extent /*= dynamic_extent*/>
 class span
 {
 public:
+    template<class T>
+    struct type_identity { using type = T; };
+
     // constants and types
     using element_type = ElementType;
     using value_type = std::remove_cv_t<ElementType>;
@@ -89,7 +92,7 @@ public:
     {
     }
     template <size_t N>
-    constexpr span(ElementType arr[N]) noexcept
+    constexpr span(typename type_identity<element_type>::type(&arr)[N]) noexcept
         : _data(arr)
         , _size(N)
     {

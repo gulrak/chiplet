@@ -54,7 +54,11 @@
 #include <chiplet/utility.hpp>
 #include <chiplet/octocartridge.hpp>
 
+#define GIFIMAGE_IMPLEMENTATION
+#include <chiplet/gifimage.hpp>
+
 #include <nlohmann/json.hpp>
+#include <nonstd/bit.hpp>
 
 namespace emu {
 
@@ -483,15 +487,39 @@ void OctoCartridge::writePng(std::string filename) const
     for(size_t y = 0; y < _height; ++y) {
         for(size_t x = 0; x < _width; ++x) {
             auto col = frame._data[y * _width + x];
-            image[y * _width + x] = htobe32((_palette[col] << 8) | 255);
+            image[y * _width + x] = nonstd::as_big_endian(((_palette[col] << 8u) | 255u));
         }
     }
 }
 bool OctoCartridge::loadCartridge()
 {
     auto optJson = loadJson();
-    _source = optJson.value("program","");
+    return !_source.empty();
+}
+
+bool OctoCartridge::saveCartridge(const OctoOptions& options, std::string_view programSource, const std::string& label, const DataSpan& image)
+{
     return false;
+}
+
+std::vector<uint32_t> OctoCartridge::getImage() const
+{
+    if(_frames.empty())
+        return {};
+    std::vector<uint32_t> image(_width * _height);
+    const auto& frame = _frames.front();
+    for(size_t y = 0; y < _height; ++y) {
+        for(size_t x = 0; x < _width; ++x) {
+            auto col = frame._data[y * _width + x];
+            image[y * _width + x] = nonstd::as_big_endian(((_palette[col] << 8u) | 255u));
+        }
+    }
+    return image;
+}
+
+const OctoOptions& OctoCartridge::getOptions() const
+{
+    return _options;
 }
 
 }
