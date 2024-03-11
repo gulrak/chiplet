@@ -26,8 +26,6 @@ add_executable(chiplet chiplet.cpp)
 target_compile_definitions(chiplet PUBLIC CHIPLET_VERSION="${PROJECT_VERSION}" CHIPLET_HASH="${GIT_COMMIT_HASH}")
 target_link_libraries(chiplet PRIVATE chiplet-lib)
 
-add_executable(giftest giftest.cpp)
-
 if(APPLE)
     install(TARGETS chiplet DESTINATION "." COMPONENT chiplet_pack)
     install(FILES ${PROJECT_SOURCE_DIR}/LICENSE DESTINATION "." COMPONENT chiplet_pack)

@@ -7,6 +7,7 @@ include(cmake/BuildSettings.cmake)
 include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
 
 include_directories(${PROJECT_SOURCE_DIR}/external)
+add_subdirectory(external/ghc/test)
 
 enable_testing()
 

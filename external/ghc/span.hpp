@@ -1,6 +1,6 @@
 //---------------------------------------------------------------------------------------
 //
-// ghc::span - A minimal C++20-like std::span implementation for C++17
+// ghc::span - A minimal C++20-like <span> implementation for C++17
 //
 //---------------------------------------------------------------------------------------
 //
@@ -50,16 +50,19 @@ class span;
 // inline constexpr bool ranges::enable_borrowed_range<span<ElementType, Extent>> = true;
 //  22.7.3.8, views of object representation
 template <class ElementType, size_t Extent>
-span<const std::byte, Extent == dynamic_extent ? dynamic_extent : sizeof(ElementType) * Extent> as_bytes(span<ElementType, Extent> s) noexcept;
+constexpr span<const std::byte, Extent == dynamic_extent ? dynamic_extent : sizeof(ElementType) * Extent> as_bytes(span<ElementType, Extent> s) noexcept;
 template <class ElementType, size_t Extent>
-span<std::byte, Extent == dynamic_extent ? dynamic_extent : sizeof(ElementType) * Extent> as_writable_bytes(span<ElementType, Extent> s) noexcept;
+constexpr span<std::byte, Extent == dynamic_extent ? dynamic_extent : sizeof(ElementType) * Extent> as_writable_bytes(span<ElementType, Extent> s) noexcept;
 
 template <class ElementType, size_t Extent /*= dynamic_extent*/>
 class span
 {
 public:
-    template<class T>
-    struct type_identity { using type = T; };
+    template <class T>
+    struct type_identity
+    {
+        using type = T;
+    };
 
     // constants and types
     using element_type = ElementType;
@@ -92,7 +95,7 @@ public:
     {
     }
     template <size_t N>
-    constexpr span(typename type_identity<element_type>::type(&arr)[N]) noexcept
+    constexpr span(typename type_identity<element_type>::type (&arr)[N]) noexcept
         : _data(arr)
         , _size(N)
     {
@@ -183,5 +186,22 @@ private:
     pointer _data{};
     size_type _size{};
 };
+
+//---------------------------------------------------------------------------------------
+// IMPLEMENTATION
+//---------------------------------------------------------------------------------------
+
+template <class ElementType, size_t Extent>
+constexpr span<const std::byte, Extent == dynamic_extent ? dynamic_extent : sizeof(ElementType) * Extent> as_bytes(span<ElementType, Extent> s) noexcept
+{
+    return {reinterpret_cast<const std::byte*>(s.data()), s.size_bytes()};
+}
+
+template <class ElementType, size_t Extent>
+constexpr span<std::byte, Extent == dynamic_extent ? dynamic_extent : sizeof(ElementType) * Extent> as_writable_bytes(span<ElementType, Extent> s) noexcept
+{
+    return {reinterpret_cast<std::byte*>(s.data()), s.size_bytes()};
+}
+
 
 }  // namespace ghc

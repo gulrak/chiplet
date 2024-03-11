@@ -1,9 +1,14 @@
 //
 // Created by Steffen Schümann on 28.02.24.
 //
+#include <sstream>
+#include <iostream>
+#include <iomanip>
+#include <cctype>
 
 #define private public
 #include "../include/chiplet/gifimage.hpp"
+#include <ghc/lzw.hpp>
 #undef private
 
 const uint8_t sample_gif[] = {
@@ -14,8 +19,23 @@ const uint8_t sample_gif[] = {
     0x91, 0x4c, 0x01, 0x00, 0x3b
 };
 
+
 int main()
 {
-    GifImage gif(sample_gif);
+    //GifImage gif(sample_gif);
+    auto gif = GifImage::fromFile("/Users/schuemann/Development/c8/c-octo-main/carts/murder.gif");
+    ghc::hexDump(std::cout, gif.compressed().data(), gif.compressed().size());
+    const auto& frame = gif.getFrame(0);
+    std::vector<uint8_t> compressed;
+    compressed.reserve(frame._pixels.size());
+    {
+        auto output = std::back_inserter(compressed);
+        auto lzw = ghc::LzwEncoder(output, gif.minCodeSize());
+        lzw.encode(frame._pixels);
+    }
+    ghc::hexDump(std::cout, compressed.data(), compressed.size());
+    gif.writeToFile("test.gif");
+    auto gif2 = GifImage::fromFile("test.gif");
+    //compress3(std::cout, gif.compressed(), 7);
     return 0;
 }
