@@ -33,7 +33,7 @@
 
 namespace ghc {
 
-std::ostream& hexDump(std::ostream& os, const uint8_t* buffer, size_t size, bool withChars = true, uint32_t offset = 0)
+inline std::ostream& hexDump(std::ostream& os, const uint8_t* buffer, size_t size, bool withChars = true, uint32_t offset = 0)
 {
     auto prevFlags = os.flags();
     auto prevFill = os.fill();
@@ -65,6 +65,22 @@ std::ostream& hexDump(std::ostream& os, const uint8_t* buffer, size_t size, bool
         renderAscii(reinterpret_cast<const char*>(&buffer[i] - (i % 16)), (i % 16));
         os << std::endl;
     }
+    os.fill(prevFill);
+    os.flags(prevFlags);
+    return os;
+}
+
+inline std::ostream& hexCode(std::ostream& os, const uint8_t* buffer, size_t size, int fieldsPerLine = 16)
+{
+    auto prevFlags = os.flags();
+    auto prevFill = os.fill();
+    os << std::hex << std::setfill('0') << "   ";
+    for(size_t i = 0; i < size; ++i) {
+        if(i && (i % fieldsPerLine) == 0)
+            os << std::endl << "   ";
+        os << " 0x" << std::setw(2) << static_cast<unsigned>(buffer[i]) << (i + 1 == size ? "" : ",");
+    }
+    os << std::endl;
     os.fill(prevFill);
     os.flags(prevFlags);
     return os;

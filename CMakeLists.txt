@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(chiplet VERSION 1.1.0 LANGUAGES C CXX)
+project(chiplet VERSION 1.2.0 LANGUAGES C CXX)
 cmake_policy(VERSION 3.16)
 
 include(cmake/BuildSettings.cmake)

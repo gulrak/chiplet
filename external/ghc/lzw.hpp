@@ -46,13 +46,11 @@ namespace ghc {
 #include <ghc/span.hpp>
 #endif
 
-namespace ghc {
+namespace ghc::compression {
 
 using Code = uint16_t;
 using ByteArray = std::vector<uint8_t>;
 using ByteView = ghc::span<const uint8_t>;
-
-#define INVALID_CODE 0xffff
 
 namespace detail {
 
@@ -143,37 +141,26 @@ struct LzwDict
             return searchSymbol(c);
         }
     }
-    ByteView reconstruct(std::optional<Code> code)
+    ByteView resequence(std::optional<uint8_t> first, std::optional<Code> prev, std::optional<Code> code)
     {
         auto outPos = _buffer.end();
-        uint8_t symbol;
-        if (code) {
-            auto k = *code;
-            if (k < _table.size()) {
-                symbol = _table[k]._c;
-                code = _table[k]._prefix;
-                *--outPos = symbol;
-            }
-            else {
-                // ERROR: Invalid code
+        int t = *code;
+        if (t == nextCode()) {
+            if(!first)
                 return {};
-            }
+            *--outPos = *first, t = *prev;
         }
-        while (code) {
-            auto k = *code;
-            if (outPos <= _buffer.begin()) {
-                // ERROR: Inconsistent code table
-                return {};
-            }
-            else {
-                auto& node = _table[k];
-                code = node._prefix;
-                symbol = node._c;
-                *--outPos = symbol;
-            }
+        while (t > clearCode() && outPos > _buffer.begin()) {
+            *--outPos = _table[t]._c, t = *_table[t]._prefix;
         }
+        if (outPos == _buffer.begin()) {
+            printf("overflowed code chunk!\n");
+            return {};
+        }
+        *--outPos = _table[t]._c;
         return ByteView{outPos, _buffer.end()};
     }
+
     Code nextCode() const { return _table.size(); }
     Code searchSymbol(Code c) const { return _table[c]._c; }
 };
@@ -215,22 +202,23 @@ private:
     size_t _size{};
 };
 
+template <class InputIter>
 class BitReader
 {
 public:
-    explicit BitReader(ByteView input)
-        : _input(input)
-        , _iter(input.begin())
+    explicit BitReader(InputIter& from, InputIter to)
+        : _from(from)
+        , _to(to)
     {
     }
     std::optional<Code> read(size_t numBits)
     {
         assert(numBits <= 16);
         Code result{};
-        if(_iter == _input.end())
+        if(_from >= _to)
             return {};
-        while (_iter < _input.end() && _size < numBits) {
-            _value |= static_cast<uint32_t>(*_iter++) << _size;
+        while (_from < _to && _size < numBits) {
+            _value |= static_cast<uint32_t>(*_from++) << _size;
             _size += 8;
         }
         result = _value & ((1 << numBits) - 1);
@@ -244,9 +232,9 @@ public:
         _size = 0;
     }
 
-private:
-    ByteView _input;
-    ByteView::iterator _iter;
+protected:
+    InputIter& _from;
+    InputIter _to;
     uint32_t _value{};
     size_t _size{};
 };
@@ -276,6 +264,10 @@ public:
     void encode(ByteView bytes)
     {
         for (auto c : bytes) {
+            if(c > (1u<<_minCodeSize)) {
+                std::cerr << "ERROR: Data contains values larger than minCodeSize allows!" << std::endl;
+                return;
+            }
             auto prev = _i;
             _i = _dict.searchAndInsert(prev, c);
             if (!_i) {
@@ -304,67 +296,60 @@ private:
     std::optional<Code> _i{};
 };
 
-class LzwDecoder : private BitReader
+template <class InputIter>
+class LzwDecoder : private BitReader<InputIter>
 {
 public:
-    LzwDecoder(ByteView data, int minCodeSize)
-        : BitReader(data)
+    using BitReader<InputIter>::read;
+    using BitReader<InputIter>::flush;
+    LzwDecoder(InputIter& from, InputIter to, int minCodeSize)
+        : BitReader<InputIter>(from, to)
         , _dict(minCodeSize)
         , _minCodeSize(minCodeSize)
         , _codeSize(minCodeSize + 1)
     {
     }
-    ByteArray decode()
+
+    std::optional<ByteArray> decompress()
     {
         ByteArray result;
+        int buffer[ghc::compression::detail::LzwDict::MAX_ENTRIES]{};
+        int size = _minCodeSize + 1;
+        _dict.reset();
+        std::optional<uint8_t> first;
         std::optional<Code> code;
         std::optional<Code> prev;
-        while((code = read(_codeSize))) {
-            if(*code == _dict.clearCode()) {
+        while ((code = read(size))) {
+            if (*code > _dict.nextCode() || *code == _dict.endCode())
+                break;
+            if (*code == _dict.clearCode()) {
                 _dict.reset();
-                _codeSize = _minCodeSize + 1;
-                flush();
+                size = _minCodeSize + 1;
+                prev.reset();
             }
-            else if(*code == _dict.endCode()) {
-                return result;
+            else if (!prev) {
+                result.push_back(*code);
+                prev = first = *code;
             }
             else {
-                auto nextCode = _dict.nextCode();
-                if(*code > nextCode) {
-                    // ERROR: Invalid code
-                    return result;
-                }
-                if(prev) {
-                    if(*code == nextCode) {
-                        auto r = _dict.reconstruct(prev);
-                        if(!r.empty()) {
-                            auto c = r[0];
-                            _dict.pushNode({prev, c});
-                            auto r2 = _dict.reconstruct(code);
-                            result.insert(result.end(), r2.begin(), r2.end());
-                        }
-                    }
-                    else {
-                        auto r = _dict.reconstruct(code);
-                        if(!r.empty()) {
-                            auto c = r[0];
-                            _dict.pushNode({prev, c});
-                            result.insert(result.end(), r.begin(), r.end());
-                        }
-                    }
-                    if((nextCode & ((1u<<_codeSize) - 1u)) == 0 && (1u << _codeSize) < ghc::detail::LzwDict::MAX_ENTRIES) {
-                        ++_codeSize;
-                    }
-                }
-                else {
-                    result.push_back(*code);
+                auto sequence = _dict.resequence(first, prev, code);
+                if(sequence.empty())
+                    return {};
+                result.insert(result.end(), sequence.begin(), sequence.end());
+                first = sequence.front();
+                if (_dict.nextCode() < ghc::compression::detail::LzwDict::MAX_ENTRIES) {
+                    _dict._table.push_back(detail::LzwDict::Node{prev, *first});
+                    if ((_dict.nextCode() & ((1 << size) - 1)) == 0 && _dict.nextCode() < ghc::compression::detail::LzwDict::MAX_ENTRIES)
+                        size++;
                 }
                 prev = code;
             }
         }
         return result;
     }
+
 private:
+    ByteView _data;
     detail::LzwDict _dict;
     size_t _minCodeSize;
     size_t _codeSize;

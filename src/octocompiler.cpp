@@ -41,6 +41,8 @@
 #include <memory>
 #include <unordered_set>
 
+#include <nlohmann/json.hpp>
+
 namespace {
 
 inline bool startsWith(const std::string& text, const std::string& prefix)
@@ -92,7 +94,7 @@ template<class... Ts> struct visitor : Ts... { using Ts::operator()...;  };
 template<class... Ts> visitor(Ts...) -> visitor<Ts...>;
 
 static std::unordered_set<std::string> _preprocessor = {
-    ":include", ":segment", ":if", ":else", ":end", ":unless", ":dump-options", ":asm"
+    ":include", ":segment", ":if", ":else", ":end", ":unless", ":dump-options", ":config", ":asm"
 };
 
 static std::unordered_set<std::string> _directives = {
@@ -781,6 +783,32 @@ const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile, 
                     else if (lex.expect(":dump-options")) {
                         // ignored for now
                         token = lex.nextToken(true);
+                    }
+                    else if (lex.expect(":config")) {
+                        token = lex.nextToken(true);
+                        if (lex.expect("{")) {
+                            std::string jsonStr = "{";
+                            int braceCnt = 1;
+                            token = lex.nextToken(true);
+                            while(braceCnt && token != Token::eEOF) {
+                                if(token == Token::eLCURLY)
+                                    ++braceCnt;
+                                else if(token == Token::eRCURLY)
+                                    --braceCnt;
+                                jsonStr += " " + std::string(lex.token().raw);
+                                token = lex.nextToken(true);
+                            }
+                            if(braceCnt)
+                                error("The ':config' JSON object parameter is not closed.");
+                            else {
+                                try {
+                                    _compileResult.config = std::make_shared<nlohmann::json>(nlohmann::json::parse(jsonStr));
+                                }
+                                catch(...) {
+                                    error("Error parsing the JSON object parameter of ':config'.");
+                                }
+                            }
+                        }
                     }
                 }
                 else if (token == Token::eDIRECTIVE && lex.expect(":const") && (_emitCode.empty() || _emitCode.top() == eACTIVE)) {

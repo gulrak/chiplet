@@ -35,6 +35,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <chiplet/stb_image.h>
 
+#include <nlohmann/json.hpp>
+
 #include <chrono>
 #include <set>
 #include <stdexcept>
@@ -277,6 +279,11 @@ int main(int argc, char* argv[])
     bool version = false;
     bool scan = false;
     bool dumpDoubles = false;
+    bool cartridgeBuild = false;
+    std::string cartridgeLabel;
+    std::string cartridgeImage;
+    std::string cartridgeOptions;
+    std::string cartridgeVariant;
     int verbosity = 1;
     int rc = 0;
     int64_t startAddress = 0x200;
@@ -290,6 +297,10 @@ int main(int argc, char* argv[])
     cli.option({"-o", "--output"}, outputFile, "name of output file, default stdout for preprocessor, a.out.ch8 for binary");
     cli.option({"--start-address"}, startAddress, "the address the program will be loaded to, the ': main' label address, default is 512");
     cli.option({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
+    cli.option({"--cartridge-label"}, cartridgeLabel, "generate an Octo compatible cartridge gif with the given text label");
+    cli.option({"--cartridge-image"}, cartridgeImage, "generate an Octo compatible cartridge gif with the given image as label");
+    cli.option({"--cartridge-options"}, cartridgeOptions, "specifies a JSON file that contains the options to use for the cartridge");
+    cli.option({"--cartridge-variant"}, cartridgeVariant, "specifies a CHIP-8 variant that will be used to set the options (chip-8, schip, octo, xo-chip)");
 
     cli.category("Disassembler/Analyzer");
     cli.option({"-d", "--disassemble"}, disassemble, "disassemble a given file");
@@ -325,6 +336,13 @@ int main(int argc, char* argv[])
         mode = ePREPROCESS;
         modes++;
     }
+    if(cartridgeLabel.empty() != cartridgeImage.empty()) {
+        cartridgeBuild = true;
+    }
+    else if(!cartridgeLabel.empty() && !cartridgeImage.empty()) {
+        std::cerr << "ERROR: Only either --cartridge-label or --cartridge-image, not both are supported!" << std::endl;
+        exit(1);
+    }
     if(modes > 1) {
         std::cerr << "ERROR: Multiple operation modes selected!" << std::endl;
         exit(1);
@@ -335,9 +353,16 @@ int main(int argc, char* argv[])
     else if(verbose)
         verbosity = 100;
 
+    if(!version && inputList.size() == 1 && fs::path(inputList.front()).extension() == ".gif") {
+        emu::OctoCartridge cart(inputList.front());
+        cart.loadCartridge();
+        std::cout << cart.getJsonString() << std::endl;
+        exit(0);
+    }
+
     if(!quiet || version) {
         logstream << "Chiplet v" CHIPLET_VERSION " [" CHIPLET_HASH "], (c) 2023 by Steffen Schümann" << std::endl;
-        logstream << "C-Octo backend v1.2, (c) by John Earnest" << std::endl;
+        logstream << "Octo assembler inspired by c-octo from John Earnest" << std::endl;
         logstream << "Preprocessor syntax based on Octopus by Tim Franssen\n" << std::endl;
         if(version)
             return 0;
@@ -348,12 +373,6 @@ int main(int argc, char* argv[])
     if(inputList.empty()) {
         std::cerr << "ERROR: No input files given" << std::endl;
         exit(1);
-    }
-
-    if(inputList.size() == 1 && fs::path(inputList.front()).extension() == ".gif") {
-        emu::OctoCartridge cart(inputList.front());
-        std::cout << cart.loadJson(inputList.front()).dump(4);
-        exit(0);
     }
 
     if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH)
@@ -387,18 +406,50 @@ int main(int argc, char* argv[])
             }
             else {
                 std::cerr << "ERROR: Directory as input, but no 'index.8o' found inside." << std::endl;
+                return 1;
             }
         }
         try {
-            if (preprocess) {
+            if (preprocess || cartridgeBuild) {
                 result = compiler.preprocessFiles(inputList);
                 if (result.resultType == emu::CompileResult::eOK) {
+                    std::ostringstream os;
+                    if(cartridgeBuild) {
+                        compiler.dumpSegments(os);
+                    }
                     if (outputFile.empty())
                         compiler.dumpSegments(std::cout);
                     else {
                         std::ofstream out(outputFile);
                         compiler.dumpSegments(out);
                     }
+                    if (outputFile.empty())
+                        outputFile = "a.out.gif";
+                    emu::OctoCartridge cart(outputFile);
+                    if(!cartridgeOptions.empty()) {
+                        if(!fs::exists(cartridgeOptions) || fs::is_directory(cartridgeOptions)) {
+                            std::cerr << "ERROR: Couldn't find JSON file '" << cartridgeOptions << "' with cartridge options." << std::endl;
+                            return 1;
+                        }
+                        else {
+                            auto optionsStr = loadTextFile(cartridgeOptions);
+                            try {
+                                auto json = nlohmann::json::parse(optionsStr);
+                                cart.setOptions(json);
+                            }
+                            catch(...) {
+                                std::cerr << "ERROR: Couldn't parse cartridge option file '" << cartridgeOptions << "'." << std::endl;
+                                return 1;
+                            }
+                        }
+                    }
+                    else if(!cartridgeVariant.empty()) {
+
+                    }
+                    else if(result.config) {
+                        cart.setOptions(result.config->at("options"));
+                    }
+                    cart.saveCartridge(os.str(), cartridgeLabel, {});
                 }
             }
             else {
@@ -412,7 +463,7 @@ int main(int argc, char* argv[])
             }
             if (result.resultType != emu::CompileResult::eOK) {
                 if (result.locations.empty()) {
-                    std::cerr << "error: " << result.errorMessage << std::endl;
+                    std::cerr << "ERROR: " << result.errorMessage << std::endl;
                 }
                 else {
                     for (auto iter = result.locations.rbegin(); iter != result.locations.rend(); ++iter) {

@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "gifimage.hpp"
 #include <ghc/span.hpp>
 #include <nlohmann/json_fwd.hpp>
 
@@ -62,7 +63,7 @@ struct OctoOptions
     OctoOptions() { colors = {0xFF996600, 0xFFFFCC00, 0xFFFF6600, 0xFF662200, 0xFF000000, 0xFFFFAA00}; }
 };
 
-class OctoCartridge
+class OctoCartridge : private GifImage
 {
 public:
     using DataSpan = ghc::span<const uint8_t>;
@@ -70,42 +71,20 @@ public:
 
     OctoCartridge(std::string filename) : _filename(std::move(filename)) {}
     bool loadCartridge();
-    bool saveCartridge(const OctoOptions& options, std::string_view programSource, const std::string& label, const DataSpan& image);
+    bool saveCartridge(std::string_view programSource, const std::string& label, const DataSpan& image);
     std::vector<uint32_t> getImage() const;
     const OctoOptions& getOptions() const;
+    void setOptions(nlohmann::json& options);
+    void setOptions(OctoOptions& options);
+    const std::string& getSource() const;
+    const std::string& getJsonString() const;
     static uint32_t getColorFromName(const std::string& name);
 
 private:
-    nlohmann::json loadJson();
-    void writePng(std::string filename) const;
-    bool decode(DataSpan dataSpan);
-    bool encode(DataSpan dataSpan);
-    static Data decompress(DataSpan dataSpan, int mcs);
+    void printLabel(const std::string& label);
     char getCartByte(size_t& offset) const;
-    static uint16_t readU16(const uint8_t*& data)
-    {
-        uint16_t result = *data++;
-        result |= *data++ << 8;
-        return result;
-    }
-    struct Frame {
-        uint16_t _left{};
-        uint16_t _top{};
-        uint16_t _width{};
-        uint16_t _height{};
-        std::vector<uint32_t> _palette;
-        Data _data;
-    };
     std::string _filename;
-    uint16_t _width{};
-    uint16_t _height{};
-    bool _is89a{};
-    bool _hasGCT{};
-    bool _isSorted{};
-    uint8_t _backgroundIndex{};
-    uint8_t _aspectRatio{};
-    std::vector<uint32_t> _palette;
-    std::vector<Frame> _frames;
+    std::string _jsonStr;
     OctoOptions _options;
     std::string _source;
 };

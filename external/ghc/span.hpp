@@ -167,12 +167,12 @@ public:
     }
     constexpr reference front() const
     {
-        static_assert(_size > 0);
+        static_assert(Extent == dynamic_extent || Extent > 0);
         return *_data;
     }
     constexpr reference back() const
     {
-        static_assert(_size > 0);
+        static_assert(Extent == dynamic_extent || Extent > 0);
         return *(_data + _size - 1);
     }
     constexpr pointer data() const noexcept { return _data; }

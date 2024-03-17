@@ -39,6 +39,7 @@
 #include <vector>
 
 #include <ghc/fs_fwd.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include "chip8meta.hpp"
 
 namespace fs = ghc::filesystem;
@@ -65,6 +66,7 @@ struct CompileResult {
     ResultType resultType{eOK};
     std::string errorMessage;
     std::vector<Location> locations;
+    std::shared_ptr<nlohmann::json> config;
     void reset()
     {
         resultType = eOK;

@@ -43,8 +43,6 @@
 #include <ghc/hexdump.hpp>
 #include <ghc/lzw.hpp>
 
-#define GIF_DEBUG_OUTPUT
-
 #ifdef GIF_DEBUG_OUTPUT
 #define GIF_DEBUG_LOG(x) std::cout << (x) << std::endl
 #else
@@ -121,7 +119,43 @@ public:
             size_t _inserted{};
         };
         std::shared_ptr<Impl> _impl;
-   };
+    };
+
+    class SubblockReader
+    {
+    public:
+        SubblockReader(ByteView input)
+            : _impl(new Impl{input, input.begin(), 0, 0})
+        {
+            _impl->_blockSize = *_impl->_src++;
+        }
+        std::optional<uint8_t> getNext()
+        {
+            if(_impl->_src < _impl->_buffer.end()) {
+                if (!_impl->_bytesLeft) {
+                    if (_impl->_blockSize) {
+                        _impl->_bytesLeft = _impl->_blockSize = *_impl->_src++;
+                    }
+                    if(_impl->_src == _impl->_buffer.end()) {
+                        return {};
+                    }
+                }
+                if (_impl->_bytesLeft) {
+                    auto val = *_impl->_src++;
+                    --_impl->_bytesLeft;
+                    return val;
+                }
+            }
+            return {};
+        }
+        struct Impl {
+            ByteView _buffer;
+            ByteView::iterator _src{};
+            size_t _blockSize{};
+            size_t _bytesLeft{};
+        };
+        std::shared_ptr<Impl> _impl;
+    };
 
     GifImage() = default;
     explicit GifImage(ByteView data);
@@ -139,8 +173,10 @@ public:
 
     static GifImage fromFile(std::string filename);
 
-private:
+protected:
+    std::optional<ByteArray> decompress(ByteView dataSpan, int mcs);
     int minCodeSize() const { return _minCodeSize; }
+    bool decodeFile(std::string filename);
     bool decode(ByteView gifData);
     bool encode(ByteArray& outputBuffer);
     static ByteArray getBlockData(const uint8_t*& data)
@@ -190,8 +226,8 @@ private:
     uint16_t _width{};
     uint16_t _height{};
     bool _is89a{};
-    bool _hasGCT{};
     bool _isSorted{false};
+    uint8_t _colorResolution{};
     uint8_t _backgroundIndex{};
     uint8_t _aspectRatio{};
     std::string _comment;
@@ -209,35 +245,42 @@ private:
 
 //#ifdef GIFIMAGE_IMPLEMENTATION
 
-GifImage GifImage::fromFile(std::string filename)
+inline GifImage GifImage::fromFile(std::string filename)
 {
-    std::ifstream is(filename, std::ios::binary | std::ios::ate);
-    if(is.is_open()) {
-        auto size = is.tellg();
-        is.seekg(0, std::ios::beg);
-        if (size > 16 * 1024 * 1024) {
-            return {};
-        }
-        std::vector<uint8_t> buffer(size);
-        if (is.read((char*)buffer.data(), size)) {
-            return GifImage(buffer);
-        }
-    }
-    return {};
+    GifImage result;
+    result.decodeFile(filename);
+    return result;
 }
 
-GifImage::GifImage(GifImage::ByteView data)
+inline GifImage::GifImage(GifImage::ByteView data)
 {
     _isValid = decode(data);
 }
 
-GifImage::GifImage(uint16_t width, uint16_t height)
+inline GifImage::GifImage(uint16_t width, uint16_t height)
 : _width(width)
 , _height(height)
 {
 }
 
-bool GifImage::decode(GifImage::ByteView gifData)
+inline bool GifImage::decodeFile(std::string filename)
+{
+    std::ifstream is(filename, std::ios::binary | std::ios::ate);
+    if(is.is_open()) {
+        size_t size = is.tellg();
+        is.seekg(0, std::ios::beg);
+        if (size > 16 * 1024 * 1024) {
+            return false;
+        }
+        std::vector<uint8_t> buffer(size);
+        if (is.read((char*)buffer.data(), size)) {
+            return decode(buffer);
+        }
+    }
+    return false;
+}
+
+inline bool GifImage::decode(GifImage::ByteView gifData)
 {
     const auto* data = gifData.data();
     const uint8_t* end = data + gifData.size();
@@ -251,10 +294,10 @@ bool GifImage::decode(GifImage::ByteView gifData)
     data += 6;
     _width = readU16(data);
     _height = readU16(data);
-    _hasGCT = *data >> 7;
+    bool hasGCT = *data >> 7;
     _isSorted = (*data >> 3) & 1;
     size_t sizeCT = 1 << ((*data & 7) + 1);
-    size_t colRes = 1 << (((*data++ >> 4) & 7) + 1);
+    _colorResolution = 1 << (((*data++ >> 4) & 7) + 1);
     _backgroundIndex = *data++;
     _aspectRatio = *data++;
     // if(colRes != 8)
@@ -328,6 +371,7 @@ bool GifImage::decode(GifImage::ByteView gifData)
 #endif
                 auto minCode = *data++;
                 const uint8_t* chunkEnd = data;
+
                 ByteArray compressed;
                 while (true) {
                     uint8_t blockSize = *chunkEnd++;
@@ -336,12 +380,21 @@ bool GifImage::decode(GifImage::ByteView gifData)
                     compressed.insert(compressed.end(), chunkEnd, chunkEnd + blockSize);
                     chunkEnd += blockSize;
                 }
+#if 0
+                ByteView comp{};
+                ghc::compression::LzwDecoder lzw(data, end, minCode);
+                //auto pixels = lzw.decode();
+                auto pixels = lzw.decompress();
+#else
+                auto pixels = decompress(compressed, minCode);
+#endif
+                if(pixels) {
+                    frame._pixels = std::move(*pixels);
+                }
                 if(_frames.empty()) {
                     _compressedBytes = compressed;
                     _minCodeSize = minCode;
                 }
-                ghc::LzwDecoder lzw(compressed, minCode);
-                frame._pixels = lzw.decode();
                 /*auto frameData = decompress(compressed, minCode);
                 frame._pixels = _frames.empty() ? ByteArray(_width * _height, 0) : _frames.back()._pixels;
                 if (frame._width * frame._height <= frameData.size() && frame._left + frame._width <= _width && frame._top + frame._height <= _height) {
@@ -369,14 +422,56 @@ bool GifImage::decode(GifImage::ByteView gifData)
     return success;
 }
 
-bool GifImage::encode(GifImage::ByteArray& out)
+std::optional<GifImage::ByteArray> GifImage::decompress(ByteView dataSpan, int mcs)
+{
+    ByteArray result;
+    int prefix[4096]{}, suffix[4096]{}, code[4096]{};
+    int clear=1<<mcs, size=mcs+1, mask=(1<<size)-1, next=clear+2, old=-1;
+    int first, i=0, b=0, d=0;
+    for(int z=0;z<clear;z++)suffix[z]=z;
+    while (i < dataSpan.size()) {
+        while (b < size)
+            d += (0xFF & dataSpan[i++]) << b, b += 8;
+        int t = d & mask;
+        d >>= size, b -= size;
+        if (t > next || t == clear + 1)
+            break;
+        if (t == clear) {
+            size = mcs + 1, mask = (1 << size) - 1, next = clear + 2, old = -1;
+        }
+        else if (old == -1)
+            result.push_back(suffix[old = first = t]);
+        else {
+            int ci = 0, tt = t;
+            if (t == next)
+                code[ci++] = first, t = old;
+            while (t > clear) {
+                code[ci++] = suffix[t], t = prefix[t];
+                if (ci >= 4096)
+                    printf("overflowed code chunk!\n");
+            }
+            result.push_back(first = suffix[t]);
+            while (ci > 0)
+                result.push_back(code[--ci]);
+            if (next < 4096) {
+                prefix[next] = old, suffix[next++] = first;
+                if ((next & mask) == 0 && next < 4096)
+                    size++, mask += next;
+            }
+            old = tt;
+        }
+    }
+    return result;
+}
+
+inline bool GifImage::encode(GifImage::ByteArray& out)
 {
     appendTo(out, _is89a ? "GIF89a" : "GIF87a");
     // Logical Screen Descriptor
     appendU16(out, _width);
     appendU16(out, _height);
-    int colBitsG = _palette.size() ? std::ceil(std::log(_palette.size())/std::log(2)) : 1;
-    appendU8(out, (_palette.size()?0x80:0)|0x70|(colBitsG - 1)|(_isSorted ? 8 : 0));
+    int colBitsG = _palette.size() ? std::ceil(std::log(_palette.size()) / std::log(2)) : 1;
+    appendU8(out, (_palette.size() ? 0x80 : 0) | ((_colorResolution - 1) << 4) | (colBitsG - 1) | (_isSorted ? 8 : 0));
     appendU8(out, _backgroundIndex);
     appendU8(out, _aspectRatio);
     // Global Color Table
@@ -429,7 +524,7 @@ bool GifImage::encode(GifImage::ByteArray& out)
         auto minCodeSize = (frame._palette.empty() ? colBitsG : colBitsL);
         appendU8(out, minCodeSize);
         SubblockInserter sbi(out); // Generates sequence of [<lengh> <data>]* 00
-        ghc::LzwEncoder lzw(sbi, minCodeSize);
+        ghc::compression::LzwEncoder lzw(sbi, minCodeSize);
         lzw.encode(frame._pixels);
     }
     // Trailer
@@ -437,7 +532,7 @@ bool GifImage::encode(GifImage::ByteArray& out)
     return true;
 }
 
-bool GifImage::writeToFile(std::string filename)
+inline bool GifImage::writeToFile(std::string filename)
 {
     ByteArray image;
     encode(image);
