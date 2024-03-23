@@ -144,20 +144,20 @@ struct LzwDict
     ByteView resequence(std::optional<uint8_t> first, std::optional<Code> prev, std::optional<Code> code)
     {
         auto outPos = _buffer.end();
-        int t = *code;
-        if (t == nextCode()) {
+        uint16_t current = *code;
+        if (current == nextCode()) {
             if(!first)
                 return {};
-            *--outPos = *first, t = *prev;
+            *--outPos = *first, current = *prev;
         }
-        while (t > clearCode() && outPos > _buffer.begin()) {
-            *--outPos = _table[t]._c, t = *_table[t]._prefix;
+        while (current > clearCode() && outPos > _buffer.begin()) {
+            *--outPos = _table[current]._c, current = *_table[current]._prefix;
         }
         if (outPos == _buffer.begin()) {
-            printf("overflowed code chunk!\n");
+            // ERROR sequence larger than MAX_ENTRIES
             return {};
         }
-        *--outPos = _table[t]._c;
+        *--outPos = _table[current]._c;
         return ByteView{outPos, _buffer.end()};
     }
 
@@ -215,9 +215,9 @@ public:
     {
         assert(numBits <= 16);
         Code result{};
-        if(_from >= _to)
+        if(_from == _to)
             return {};
-        while (_from < _to && _size < numBits) {
+        while (_from != _to && _size < numBits) {
             _value |= static_cast<uint32_t>(*_from++) << _size;
             _size += 8;
         }
@@ -302,7 +302,7 @@ class LzwDecoder : private BitReader<InputIter>
 public:
     using BitReader<InputIter>::read;
     using BitReader<InputIter>::flush;
-    LzwDecoder(InputIter& from, InputIter to, int minCodeSize)
+    LzwDecoder(InputIter& from, InputIter to, uint8_t minCodeSize)
         : BitReader<InputIter>(from, to)
         , _dict(minCodeSize)
         , _minCodeSize(minCodeSize)
@@ -325,6 +325,7 @@ public:
             if (*code == _dict.clearCode()) {
                 _dict.reset();
                 size = _minCodeSize + 1;
+                first.reset();
                 prev.reset();
             }
             else if (!prev) {

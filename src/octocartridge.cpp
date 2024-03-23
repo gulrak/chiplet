@@ -375,7 +375,8 @@ bool OctoCartridge::loadCartridge()
 
 void OctoCartridge::printLabel(const std::string& label)
 {
-    // code based on c-octo `octo_cartridge.h` by John Earnest
+    // code copied verbatim from c-octo `octo_cartridge.h` by John Earnest
+    // :
     // a whimsically impressionistic imitation
     // of a crummy dot-matrix printer:
     const char* alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-";
@@ -410,6 +411,7 @@ void OctoCartridge::printLabel(const std::string& label)
 bool OctoCartridge::saveCartridge(std::string_view programSource, const std::string& label, const DataSpan& image)
 {
     decode(ByteView{octo_cart_base_image, octo_cart_base_image + sizeof(octo_cart_base_image)});
+    _comment = "made with Chiplet";
     if(!label.empty()){
         printLabel(label);
     }

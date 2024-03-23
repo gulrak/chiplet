@@ -54,26 +54,8 @@ class GifImage
 public:
     using ByteArray = std::vector<uint8_t>;
     using ByteView = ghc::span<const uint8_t>;
-    struct Frame {
-        struct ControlExtension {
-            enum DisposalMethod { unspecified, doNotDispose, restoreToBackground, restoreToPrevious };
-            DisposalMethod _disposalMethod{unspecified};
-            bool _userInput{false};
-            bool _transparency{false};
-            uint16_t _delayTime{3};
-            uint8_t _transparentColor{0};
-        };
-        uint16_t _left{};
-        uint16_t _top{};
-        uint16_t _width{};
-        uint16_t _height{};
-        std::vector<uint32_t> _palette;
-        std::vector<uint8_t> _pixels;
-        bool _isInterlaced{false};
-        bool _isSorted{false};
-        std::optional<ControlExtension> _controlExtension;
-    };
 
+private:
     class SubblockInserter
     {
     public:
@@ -84,7 +66,7 @@ public:
         using pointer = void;
         using reference = void;
         explicit SubblockInserter(ByteArray& buffer, size_t maxSize = 255)
-        : _impl(new Impl{maxSize, buffer, buffer.size(), 0})
+            : _impl(new Impl{maxSize, buffer, buffer.size(), 0})
         {
             _impl->_buffer.push_back(0);
         }
@@ -124,37 +106,98 @@ public:
     class SubblockReader
     {
     public:
+        using iterator_category = std::input_iterator_tag;
+        using value_type = uint8_t;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const uint8_t*;
+        using reference = const uint8_t&;
         SubblockReader(ByteView input)
-            : _impl(new Impl{input, input.begin(), 0, 0})
+            : _buffer(input)
+            , _src(input.begin())
         {
-            _impl->_blockSize = *_impl->_src++;
+            if(!input.empty())
+                _bytesLeft = _blockSize = *_src++;
         }
-        std::optional<uint8_t> getNext()
+        reference operator*() const
         {
-            if(_impl->_src < _impl->_buffer.end()) {
-                if (!_impl->_bytesLeft) {
-                    if (_impl->_blockSize) {
-                        _impl->_bytesLeft = _impl->_blockSize = *_impl->_src++;
-                    }
-                    if(_impl->_src == _impl->_buffer.end()) {
-                        return {};
-                    }
+            return *_src;
+        }
+        SubblockReader& operator++()
+        {
+            if(_src < _buffer.end()) {
+                if (_bytesLeft) {
+                    --_bytesLeft;
+                    _src++;
                 }
-                if (_impl->_bytesLeft) {
-                    auto val = *_impl->_src++;
-                    --_impl->_bytesLeft;
-                    return val;
+                if(_blockSize && !_bytesLeft) {
+                    _bytesLeft = _blockSize = *_src++;
+                    if(_src == _buffer.end()) {
+                        _bytesLeft = _blockSize = 0;
+                    }
                 }
             }
-            return {};
+            else {
+                _bytesLeft = _blockSize = 0;
+            }
+            return *this;
         }
-        struct Impl {
-            ByteView _buffer;
-            ByteView::iterator _src{};
-            size_t _blockSize{};
-            size_t _bytesLeft{};
+        SubblockReader operator++(int)
+        {
+            auto temp = *this;
+            ++(*this);
+            return temp;
+        }
+        bool operator==(const SubblockReader& other) const
+        {
+            return _src == other._src || (!_blockSize && !other._blockSize);
+        }
+        bool operator!=(const SubblockReader& other) const
+        {
+            return !(*this == other);
+        }
+        size_t consumed() const
+        {
+            return _buffer.empty() ? 0 : _src - _buffer.begin();
+        }
+        SubblockReader end() const
+        {
+            SubblockReader sbr;
+            sbr._buffer = _buffer;
+            sbr._src = _buffer.end();
+            sbr._bytesLeft = sbr._blockSize = 0;
+            return sbr;
+        }
+        /*bool operator<(const SubblockReader& other) const
+        {
+            return _src < (other._buffer.empty() ? _buffer.end() : other._src);
+        }*/
+    private:
+        SubblockReader() = default;
+        ByteView _buffer;
+        ByteView::iterator _src{};
+        size_t _blockSize{};
+        size_t _bytesLeft{};
+    };
+
+public:
+    struct Frame {
+        struct ControlExtension {
+            enum DisposalMethod { unspecified, doNotDispose, restoreToBackground, restoreToPrevious };
+            DisposalMethod _disposalMethod{unspecified};
+            bool _userInput{false};
+            bool _transparency{false};
+            uint16_t _delayTime{3};
+            uint8_t _transparentColor{0};
         };
-        std::shared_ptr<Impl> _impl;
+        uint16_t _left{};
+        uint16_t _top{};
+        uint16_t _width{};
+        uint16_t _height{};
+        std::vector<uint32_t> _palette;
+        std::vector<uint8_t> _pixels;
+        bool _isInterlaced{false};
+        bool _isSorted{false};
+        std::optional<ControlExtension> _controlExtension;
     };
 
     GifImage() = default;
@@ -174,7 +217,6 @@ public:
     static GifImage fromFile(std::string filename);
 
 protected:
-    std::optional<ByteArray> decompress(ByteView dataSpan, int mcs);
     int minCodeSize() const { return _minCodeSize; }
     bool decodeFile(std::string filename);
     bool decode(ByteView gifData);
@@ -300,10 +342,10 @@ inline bool GifImage::decode(GifImage::ByteView gifData)
     _colorResolution = 1 << (((*data++ >> 4) & 7) + 1);
     _backgroundIndex = *data++;
     _aspectRatio = *data++;
-    // if(colRes != 8)
-    //     return false;
-    for (size_t i = 0; i < sizeCT; ++i, data += 3) {
-        _palette.push_back((data[0] << 16) | (data[1] << 8) | data[2]);
+    if(hasGCT) {
+        for (size_t i = 0; i < sizeCT; ++i, data += 3) {
+            _palette.push_back((data[0] << 16) | (data[1] << 8) | data[2]);
+        }
     }
 #ifdef GIF_DEBUG_OUTPUT
     std::cout << "---START-DECODE---" << std::endl;
@@ -370,6 +412,13 @@ inline bool GifImage::decode(GifImage::ByteView gifData)
                 std::cout << "Image Data:" << std::endl;
 #endif
                 auto minCode = *data++;
+#if 1
+                ByteView comp{};
+                SubblockReader sbr(ByteView{data, end});
+                ghc::compression::LzwDecoder lzw(sbr, sbr.end(), minCode);
+                auto pixels = lzw.decompress();
+                data += sbr.consumed();
+#else
                 const uint8_t* chunkEnd = data;
 
                 ByteArray compressed;
@@ -380,19 +429,26 @@ inline bool GifImage::decode(GifImage::ByteView gifData)
                     compressed.insert(compressed.end(), chunkEnd, chunkEnd + blockSize);
                     chunkEnd += blockSize;
                 }
-#if 0
+                ByteArray compressed2;
+                SubblockReader sbrt(ByteView{data, end});
+                while(sbrt != sbrt.end()) {
+                    compressed2.push_back(*sbrt++);
+                }
+                ghc::hexDump(std::cout, compressed.data(), compressed.size());
+                ghc::hexDump(std::cout, compressed2.data(), compressed2.size());
                 ByteView comp{};
-                ghc::compression::LzwDecoder lzw(data, end, minCode);
-                //auto pixels = lzw.decode();
+                auto iter = compressed.begin();
+                ghc::compression::LzwDecoder lzw(iter, compressed.end(), minCode);
                 auto pixels = lzw.decompress();
-#else
-                auto pixels = decompress(compressed, minCode);
+                data = chunkEnd;
+                if(_frames.empty()) {
+                    _compressedBytes = compressed;
+                }
 #endif
                 if(pixels) {
                     frame._pixels = std::move(*pixels);
                 }
                 if(_frames.empty()) {
-                    _compressedBytes = compressed;
                     _minCodeSize = minCode;
                 }
                 /*auto frameData = decompress(compressed, minCode);
@@ -402,7 +458,6 @@ inline bool GifImage::decode(GifImage::ByteView gifData)
                         std::memcpy(frame._pixels.data() + line * _width + frame._left, frameData.data() + (line - frame._top) * frame._width + frame._left, frame._width);
                     }
                 }*/
-                data = chunkEnd;
                 _frames.push_back(frame);
                 break;
             }
@@ -420,48 +475,6 @@ inline bool GifImage::decode(GifImage::ByteView gifData)
     }
     GIF_DEBUG_LOG("---END-DECODE---");
     return success;
-}
-
-std::optional<GifImage::ByteArray> GifImage::decompress(ByteView dataSpan, int mcs)
-{
-    ByteArray result;
-    int prefix[4096]{}, suffix[4096]{}, code[4096]{};
-    int clear=1<<mcs, size=mcs+1, mask=(1<<size)-1, next=clear+2, old=-1;
-    int first, i=0, b=0, d=0;
-    for(int z=0;z<clear;z++)suffix[z]=z;
-    while (i < dataSpan.size()) {
-        while (b < size)
-            d += (0xFF & dataSpan[i++]) << b, b += 8;
-        int t = d & mask;
-        d >>= size, b -= size;
-        if (t > next || t == clear + 1)
-            break;
-        if (t == clear) {
-            size = mcs + 1, mask = (1 << size) - 1, next = clear + 2, old = -1;
-        }
-        else if (old == -1)
-            result.push_back(suffix[old = first = t]);
-        else {
-            int ci = 0, tt = t;
-            if (t == next)
-                code[ci++] = first, t = old;
-            while (t > clear) {
-                code[ci++] = suffix[t], t = prefix[t];
-                if (ci >= 4096)
-                    printf("overflowed code chunk!\n");
-            }
-            result.push_back(first = suffix[t]);
-            while (ci > 0)
-                result.push_back(code[--ci]);
-            if (next < 4096) {
-                prefix[next] = old, suffix[next++] = first;
-                if ((next & mask) == 0 && next < 4096)
-                    size++, mask += next;
-            }
-            old = tt;
-        }
-    }
-    return result;
 }
 
 inline bool GifImage::encode(GifImage::ByteArray& out)

@@ -423,8 +423,10 @@ int main(int argc, char* argv[])
                         std::ofstream out(outputFile);
                         compiler.dumpSegments(out);
                     }
-                    if (outputFile.empty())
-                        outputFile = "a.out.gif";
+                    if (outputFile.empty()) {
+                        std::cerr << "ERROR: No output filename given for cartridge output (use -o/--output)." << std::endl;
+                        return 1;
+                    }
                     emu::OctoCartridge cart(outputFile);
                     if(!cartridgeOptions.empty()) {
                         if(!fs::exists(cartridgeOptions) || fs::is_directory(cartridgeOptions)) {
@@ -455,8 +457,10 @@ int main(int argc, char* argv[])
             else {
                 result = compiler.compile(inputList);
                 if (result.resultType == emu::CompileResult::eOK) {
-                    if (outputFile.empty())
-                        outputFile = "a.out.ch8";
+                    if (outputFile.empty()) {
+                        std::cerr << "ERROR: No output filename given for binary output (use -o/--output)." << std::endl;
+                        return 1;
+                    }
                     std::ofstream out(outputFile, std::ios::binary);
                     out.write((const char*)compiler.code(), compiler.codeSize());
                 }

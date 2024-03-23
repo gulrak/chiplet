@@ -25,15 +25,15 @@ const uint8_t sample_gif[] = {
 int main()
 {
     //GifImage gif(sample_gif);
-    //auto gif = GifImage::fromFile("/home/schuemann/Downloads/murder.gif");
-    auto gif = GifImage::fromFile("../../murder.gif");
+    auto gif = GifImage::fromFile("/home/schuemann/Downloads/murder.gif");
+    //auto gif = GifImage::fromFile("../../murder.gif");
     //auto gif = GifImage::fromFile("/home/schuemann/attic/dev/c-octo/carts/test_tiny.gif");
     //ghc::hexDump(std::cout, gif.compressed().data(), gif.compressed().size());
-    const auto& frame = gif.getFrame(0);
-    auto compr = gif.compressed();
-    std::cout << "LZW-Data (" << gif.minCodeSize() << "):" << std::endl;
-    ghc::hexCode(std::cout, compr.data(), compr.size());
-    std::vector<uint8_t> compressed;
+    //const auto& frame = gif.getFrame(0);
+    //auto compr = gif.compressed();
+    //std::cout << "LZW-Data (" << gif.minCodeSize() << "):" << std::endl;
+    //ghc::hexCode(std::cout, compr.data(), compr.size());
+    /*std::vector<uint8_t> compressed;
     compressed.reserve(frame._pixels.size());
     {
         auto output = std::back_inserter(compressed);
@@ -41,6 +41,7 @@ int main()
         lzw.encode(frame._pixels);
     }
     ghc::hexDump(std::cout, compressed.data(), compressed.size());
+     */
     gif.writeToFile("test.gif");
     auto gif2 = GifImage::fromFile("test.gif");
     //compress3(std::cout, gif.compressed(), 7);
