@@ -26,6 +26,13 @@
 
 #include <chiplet/chip8decompiler.hpp>
 
+
+#define CASE_7(base) case base: case base+1: case base+2: case base+3: case base+4: case base+5: case base+6
+#define CASE_15(base) case base: case base+1: case base+2: case base+3: case base+4: case base+5: case base+6: case base+7:\
+                     case base+8: case base+9: case base+10: case base+11: case base+12: case base+13: case base+14
+#define CASE_16(base) case base: case base+1: case base+2: case base+3: case base+4: case base+5: case base+6: case base+7:\
+                     case base+8: case base+9: case base+10: case base+11: case base+12: case base+13: case base+14: case base+15
+
 namespace emu {
 
 std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant cv)
@@ -87,6 +94,111 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant
         case C8V::OCTO: return {"octo", "Octo"};
         case C8V::CHIP_8_CL_COL: return {"chip-8-cl-col", "CHIP-8 Classic / Color"};
         default: return {"", ""};
+    }
+}
+
+
+std::pair<int, std::string> Chip8Decompiler::disassemble1802InstructionWithBytes(int32_t pc, const uint8_t* code, const uint8_t* end)
+{
+    auto addr = pc;
+    uint8_t data[3]{};
+    for(size_t i = 0; i < 3; ++i) {
+        data[i] = (code + i < end ? *code++ : 0);
+    }
+    auto [size, text] = disassemble1802Instruction(data, data+3);
+    switch(size) {
+        case 2:  return {size, fmt::format("{:04x}: {:02x} {:02x}  {}", addr, data[0], data[1], text)};
+        case 3:  return {size, fmt::format("{:04x}: {:02x} {:02x} {:02x}  {}", addr, data[0], data[1], data[2], text)};
+        default: return {size, fmt::format("{:04x}: {:02x}     {}", addr, data[0], text)};
+    }
+}
+
+std::pair<int, std::string> Chip8Decompiler::disassemble1802Instruction(const uint8_t* code, const uint8_t* end)
+{
+    auto opcode = *code++;
+    auto n = opcode & 0xF;
+    switch(opcode) {
+        case 0x00: return {1, "IDL"};
+            CASE_15(0x01): return {1, fmt::format("LDN R{:X}", n)};
+            CASE_16(0x10): return {1, fmt::format("INC R{:X}", n)};
+            CASE_16(0x20): return {1, fmt::format("DEC R{:X}", n)};
+        case 0x30: return {2, fmt::format("BR 0x{:02X}", *code)};
+        case 0x31: return {2, fmt::format("BQ 0x{:02X}", *code)};
+        case 0x32: return {2, fmt::format("BZ 0x{:02X}", *code)};
+        case 0x33: return {2, fmt::format("BDF 0x{:02X}", *code)};
+        case 0x34: return {2, fmt::format("B1 0x{:02X}", *code)};
+        case 0x35: return {2, fmt::format("B2 0x{:02X}", *code)};
+        case 0x36: return {2, fmt::format("B3 0x{:02X}", *code)};
+        case 0x37: return {2, fmt::format("B4 0x{:02X}", *code)};
+        case 0x38: return {1, "SKP"};
+        case 0x39: return {2, fmt::format("BNQ 0x{:02X}", *code)};
+        case 0x3A: return {2, fmt::format("BNZ 0x{:02X}", *code)};
+        case 0x3B: return {2, fmt::format("BNF 0x{:02X}", *code)};
+        case 0x3C: return {2, fmt::format("BN1 0x{:02X}", *code)};
+        case 0x3D: return {2, fmt::format("BN2 0x{:02X}", *code)};
+        case 0x3e: return {2, fmt::format("BN3 0x{:02X}", *code)};
+        case 0x3f: return {2, fmt::format("BN4 0x{:02X}", *code)};
+            CASE_16(0x40): return {1, fmt::format("LDA R{:X}", n)};
+            CASE_16(0x50): return {1, fmt::format("STR R{:X}", n)};
+        case 0x60: return {1, "IRX"};
+            CASE_7(0x61): return {1, fmt::format("OUT {:X}", n)};
+            CASE_7(0x69): return {1, fmt::format("INP {:X}", n&7)};
+        case 0x70: return {1, "RET"};
+        case 0x71: return {1, "DIS"};
+        case 0x72: return {1, "LDXA"};
+        case 0x73: return {1, "STXD"};
+        case 0x74: return {1, "ADC"};
+        case 0x75: return {1, "SDB"};
+        case 0x76: return {1, "SHRC"};
+        case 0x77: return {1, "SMB"};
+        case 0x78: return {1, "SAV"};
+        case 0x79: return {1, "MARK"};
+        case 0x7A: return {1, "REQ"};
+        case 0x7B: return {1, "SEQ"};
+        case 0x7C: return {2, fmt::format("ADCI #0x{:02X}", *code)};
+        case 0x7D: return {2, fmt::format("SDBI #0x{:02X}", *code)};
+        case 0x7E: return {1, "SHLC"};
+        case 0x7F: return {2, fmt::format("SMBI #0x{:02X}", *code)};
+            CASE_16(0x80): return {1, fmt::format("GLO R{:X}", n)};
+            CASE_16(0x90): return {1, fmt::format("GHI R{:X}", n)};
+            CASE_16(0xA0): return {1, fmt::format("PLO R{:X}", n)};
+            CASE_16(0xB0): return {1, fmt::format("PHI R{:X}", n)};
+        case 0xC0: return {3, fmt::format("LBR 0x{:04X}", (*code<<8)|*(code+1))};
+        case 0xC1: return {3, fmt::format("LBQ 0x{:04X}", (*code<<8)|*(code+1))};
+        case 0xC2: return {3, fmt::format("LBZ 0x{:04X}", (*code<<8)|*(code+1))};
+        case 0xC3: return {3, fmt::format("LBDF 0x{:04X}", (*code<<8)|*(code+1))};
+        case 0xC4: return {1, "NOP"};
+        case 0xC5: return {1, "LSNQ"};
+        case 0xC6: return {1, "LSNZ"};
+        case 0xC7: return {1, "LSNF"};
+        case 0xC8: return {1, "LSKP"};
+        case 0xC9: return {3, fmt::format("LBNQ 0x{:04X}", (*code<<8)|*(code+1))};
+        case 0xCA: return {3, fmt::format("LBNZ 0x{:04X}", (*code<<8)|*(code+1))};
+        case 0xCB: return {3, fmt::format("LBNF 0x{:04X}", (*code<<8)|*(code+1))};
+        case 0xCC: return {1, "LSIE"};
+        case 0xCD: return {1, "LSQ"};
+        case 0xCE: return {1, "LSZ"};
+        case 0xCF: return {1, "LSDF"};
+            CASE_16(0xD0): return {1, fmt::format("SEP R{:X}", n)};
+            CASE_16(0xE0): return {1, fmt::format("SEX R{:X}", n)};
+        case 0xF0: return {1, "LDX"};
+        case 0xF1: return {1, "OR"};
+        case 0xF2: return {1, "AND"};
+        case 0xF3: return {1, "XOR"};
+        case 0xF4: return {1, "ADD"};
+        case 0xF5: return {1, "SD"};
+        case 0xF6: return {1, "SHR"};
+        case 0xF7: return {1, "SM"};
+        case 0xF8: return {2, fmt::format("LDI #0x{:02X}", *code)};
+        case 0xF9: return {2, fmt::format("ORI #0x{:02X}", *code)};
+        case 0xFA: return {2, fmt::format("ANI #0x{:02X}", *code)};
+        case 0xFB: return {2, fmt::format("XRI #0x{:02X}", *code)};
+        case 0xFC: return {2, fmt::format("ADI #0x{:02X}", *code)};
+        case 0xFD: return {2, fmt::format("SDI #0x{:02X}", *code)};
+        case 0xFE: return {1, "SHL"};
+        case 0xFF: return {2, fmt::format("SMI #0x{:02X}", *code)};
+        default:
+            return {1, "ILLEGAL"};
     }
 }
 

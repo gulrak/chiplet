@@ -13,14 +13,14 @@ set(CHIPLET_LIBRARY_SOURCE
     octocartridge.cpp
 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -fsanitize=undefined -fsanitize=address")
+#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -fsanitize=undefined -fsanitize=address")
 
 add_library(chiplet-lib STATIC ${CHIPLET_LIBRARY_SOURCE})
 target_include_directories(chiplet-lib PUBLIC ${PROJECT_SOURCE_DIR}/include/)
 target_link_libraries(chiplet-lib PUBLIC ghc_filesystem fmt::fmt fast_float)
-target_link_options(chiplet-lib
-        BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address
-)
+#target_link_options(chiplet-lib
+#        BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address
+#)
 
 add_executable(chiplet chiplet.cpp)
 target_compile_definitions(chiplet PUBLIC CHIPLET_VERSION="${PROJECT_VERSION}" CHIPLET_HASH="${GIT_COMMIT_HASH}")

@@ -7,3 +7,6 @@ target_link_libraries(chiplet-tests PUBLIC chiplet-lib doctest fast_float)
 doctest_discover_tests(chiplet-tests)
 
 add_executable(gifimage-test gifimage_tests.cpp)
+
+add_executable(dis1802 dis1802.cpp)
+target_link_libraries(dis1802 PUBLIC chiplet-lib)
