@@ -416,7 +416,7 @@ bool OctoCartridge::saveCartridge(std::string_view programSource, const std::str
     if(!label.empty()){
         printLabel(label);
     }
-    auto numColors = std::min(_palette.size(),16ul);
+    auto numColors = std::min(_palette.size(),static_cast<std::vector<uint32_t>::size_type>(16));
     for (int c = 0; c < numColors; c++) {
         // use 1 bit from the red/blue channels and 2 from the green channel to store data:
         for (int x = 0; x < 16; x++) {
