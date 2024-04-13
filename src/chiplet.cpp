@@ -228,7 +228,7 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
                 }
             }
         }
-        else if(fs::is_regular_file(input) && isChipRom(fs::path(input).extension())) {
+        else if(fs::is_regular_file(input) && isChipRom(fs::path(input).extension().string())) {
             auto file = loadFile(input);
             auto [isDouble, firstName] = checkDouble(input, file);
             if(isDouble) {
