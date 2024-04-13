@@ -1,14 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(chiplet VERSION 1.1.0 LANGUAGES C CXX)
+project(chiplet VERSION 1.2.0 LANGUAGES C CXX)
 cmake_policy(VERSION 3.16)
 
 include(cmake/BuildSettings.cmake)
 include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
+
+include_directories(${PROJECT_SOURCE_DIR}/external)
+add_subdirectory(external/ghc/test)
+
 enable_testing()
 
 add_subdirectory(src)
-#add_subdirectory(test)
+add_subdirectory(test)
 
 get_directory_property(hasParent PARENT_DIRECTORY)
 if(NOT hasParent)

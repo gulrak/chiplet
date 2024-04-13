@@ -5,35 +5,14 @@
 #include <iostream>
 #include <vector>
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpragmas"
-#pragma GCC diagnostic ignored "-Wnarrowing"
-#pragma GCC diagnostic ignored "-Wc++11-narrowing"
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
-#pragma GCC diagnostic ignored "-Wenum-compare"
-#pragma GCC diagnostic ignored "-Wwritable-strings"
-#pragma GCC diagnostic ignored "-Wwrite-strings"
-#if __clang__
-#pragma GCC diagnostic ignored "-Wenum-compare-conditional"
-#endif
-#endif  // __GNUC__
-
-//extern "C" {
-#include "c-octo/octo_compiler.hpp"
-//}
-
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif  // __GNUC__
+#include "octo_compiler.hpp"
 
 namespace emu {
 
 class Chip8Compiler::Private
 {
 public:
-    std::unique_ptr<OctoProgram> _program{};
+    std::unique_ptr<octo::Program> _program{};
     std::string _sha1hex;
     std::string _errorMessage;
     std::vector<std::pair<uint32_t, uint32_t>> _lineCoverage;
@@ -50,25 +29,18 @@ Chip8Compiler::~Chip8Compiler()
     _impl->_program.reset();
 }
 
-bool Chip8Compiler::compile(std::string str, int startAddress)
-{
-    return compile(str.data(), str.data() + str.size() + 1, startAddress);
-}
 
-bool Chip8Compiler::compile(const char* start, const char* end, int startAddress)
+bool Chip8Compiler::compile(std::string_view text, int startAddress)
 {
     if (_impl->_program) {
         _impl->_program.reset();
     }
-    if(end - start >= 3 && *start == (char)0xef && *(start+1) == (char)0xbb && *(start+2) == (char)0xbf)
-        start += 3; // skip BOM
+    if(text.length() >= 3 && text[0] == (char)0xef && text[1] == (char)0xbb && text[2] == (char)0xbf)
+        text.remove_prefix(3); // skip BOM
 
-    // make a malloc based copy that c-octo will own and free on oct_free_program
-    char* source = (char*)malloc(end - start);
-    memcpy(source, start, end - start);
-    _impl->_program = std::make_unique<OctoProgram>(source, startAddress);
+    _impl->_program = std::make_unique<octo::Program>(text, startAddress);
     if (!_impl->_program->compile()) {
-        _impl->_errorMessage = "ERROR (" + std::to_string(_impl->_program->errorLine()) + ":" + std::to_string(_impl->_program->errorPos() + 1) + "): " + _impl->_program->errorMessage();
+        _impl->_errorMessage = "ERROR (" + std::to_string(_impl->_program->errorLine()) + ":" + std::to_string(_impl->_program->errorPos()) + "): " + _impl->_program->errorMessage();
         //std::cerr << _impl->_errorMessage << std::endl;
     }
     else {
@@ -90,12 +62,12 @@ std::string Chip8Compiler::rawErrorMessage() const
 
 int Chip8Compiler::errorLine() const
 {
-    return _impl->_program ? _impl->_program->errorLine() + 1 : 0;
+    return _impl->_program->errorLine();
 }
 
 int Chip8Compiler::errorCol() const
 {
-    return _impl->_program ? _impl->_program->errorPos() + 1 : 0;
+    return _impl->_program->errorPos();
 }
 
 bool Chip8Compiler::isError() const
@@ -108,14 +80,19 @@ const std::string& Chip8Compiler::errorMessage() const
     return _impl->_errorMessage;
 }
 
+size_t Chip8Compiler::numSourceLines() const
+{
+    return _impl->_program->numSourceLines();
+}
+
 uint32_t Chip8Compiler::codeSize() const
 {
-    return _impl->_program && !_impl->_program->isError() ? _impl->_program->romLength() - _impl->_program->romStartAddress() : 0;
+    return _impl->_program && !_impl->_program->isError() ? _impl->_program->codeSize() : 0;
 }
 
 const uint8_t* Chip8Compiler::code() const
 {
-    return reinterpret_cast<const uint8_t*>(_impl->_program->data() + _impl->_program->romStartAddress());
+    return reinterpret_cast<const uint8_t*>(_impl->_program->data());
 }
 
 const std::string& Chip8Compiler::sha1Hex() const
@@ -135,7 +112,7 @@ uint32_t Chip8Compiler::lineForAddr(uint32_t addr) const
 
 const char* Chip8Compiler::breakpointForAddr(uint32_t addr) const
 {
-    if(addr < _impl->_program->romLength() && _impl->_program->breakpointInfo(addr)) {
+    if(addr <= _impl->_program->lastAddressUsed() && _impl->_program->breakpointInfo(addr)) {
         return _impl->_program->breakpointInfo(addr);
     }
     return nullptr;
@@ -147,7 +124,7 @@ void Chip8Compiler::updateHash()
     char bpName[1024];
     sha1 sum;
     sum.add(code(), codeSize());
-    for(uint32_t addr = 0; addr < _impl->_program->romLength(); ++addr) {
+    for(uint32_t addr = 0; addr <= _impl->_program->lastAddressUsed(); ++addr) {
         if(_impl->_program->breakpointInfo(addr)) {
             auto l = std::snprintf(bpName, 1023, "%04x:%s", addr, _impl->_program->breakpointInfo(addr));
             sum.add(bpName, l);
@@ -164,7 +141,7 @@ void Chip8Compiler::updateLineCoverage()
     _impl->_lineCoverage.resize(_impl->_program->numSourceLines());
     if (!_impl->_program)
         return;
-    for (size_t addr = 0; addr < _impl->_program->romLength(); ++addr) {
+    for (size_t addr = 0; addr <= _impl->_program->lastAddressUsed(); ++addr) {
         auto line = _impl->_program->lineForAddress(addr);
         if (line < _impl->_lineCoverage.size()) {
             auto& range = _impl->_lineCoverage.at(line);

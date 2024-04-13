@@ -27,16 +27,21 @@ _A commandline multitool for CHIP-8 variant development_
 ## Overview
 
 Chiplet is the result of my Work on [Cadmium](https://github.com/gulrak/cadmium),
-my CHIP-8 emulator environment. It contains a preprocessor that is compatible
+my CHIP-8 emulator environment. It contains an execution path tracing
+disassembler, a preprocessor that is compatible
 with [Octopus](https://github.com/Timendus/chipcode/tree/main/octopus) from
-Tim Franssen, combined with an [Octo Assembly Language](https://github.com/Timendus/chipcode/tree/main/octopus)
-compatible assembler based on the Code from [C-Octo](https://github.com/JohnEarnest/c-octo)
+Tim Franssen, both written by me, combined with an [Octo Assembly Language](https://github.com/Timendus/chipcode/tree/main/octopus)
+compatible assembler now written in C++ but originally based on Code from [C-Octo](https://github.com/JohnEarnest/c-octo)
 from John Earnest.
 
-It combines these two to allow using modular CHIP8 projects with multiple
+It combines these to allow using modular CHIP8 projects with multiple
 files, while retaining error message output that refers to those original
-files by translating C-Octo errors back to the original locations brefore
+files by translating C-Octo errors back to the original locations before
 the preprocessing step.
+
+The disassembler also has options to search for specific opcode patterns and
+give opcode statistics or estimate the CHIP-8 variants that could execute the
+code.
 
 ## Command-line Options
 

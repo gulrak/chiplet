@@ -896,7 +896,11 @@ public:
     const auto& fullStats() const { return _fullStats; }
     static const auto& totalStats() { return _totalStats; }
 
+    static std::pair<int, std::string> disassemble1802InstructionWithBytes(int32_t pc, const uint8_t* code, const uint8_t* end);
+    static std::pair<int, std::string> disassemble1802Instruction(const uint8_t* code, const uint8_t* end);
+
 private:
+
     std::string _filename;
     const uint8_t* _start{};
     uint32_t _size{};

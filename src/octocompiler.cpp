@@ -41,6 +41,8 @@
 #include <memory>
 #include <unordered_set>
 
+#include <nlohmann/json.hpp>
+
 namespace {
 
 inline bool startsWith(const std::string& text, const std::string& prefix)
@@ -92,7 +94,7 @@ template<class... Ts> struct visitor : Ts... { using Ts::operator()...;  };
 template<class... Ts> visitor(Ts...) -> visitor<Ts...>;
 
 static std::unordered_set<std::string> _preprocessor = {
-    ":include", ":segment", ":if", ":else", ":end", ":unless", ":dump-options", ":asm"
+    ":include", ":segment", ":if", ":else", ":end", ":unless", ":dump-options", ":config", ":asm"
 };
 
 static std::unordered_set<std::string> _directives = {
@@ -178,7 +180,7 @@ const CompileResult& OctoCompiler::compile(const std::string& filename, const ch
         dumpSegments(preprocessedStream);
         preprocessed = preprocessedStream.str();
         source = preprocessed.data();
-        end = preprocessed.data() + preprocessed.size() + 1;
+        end = preprocessed.data() + preprocessed.size();
     }
     if(_mode == eCHIPLET)
         return doCompileChiplet(filename, source, end);
@@ -199,7 +201,7 @@ const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files
         dumpSegments(preprocessedStream);
         preprocessed = preprocessedStream.str();
     }
-    return compile(fs::absolute(files.front()).string(), preprocessed.data(), preprocessed.data() + preprocessed.size() + 1, false);
+    return compile(fs::absolute(files.front()).string(), preprocessed.data(), preprocessed.data() + preprocessed.size(), false);
 }
 
 const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename, const char* source, const char* end)
@@ -298,7 +300,7 @@ const CompileResult& OctoCompiler::doCompileCOcto(const std::string& filename, c
     std::string_view sourceCode = {source, size_t(end - source)};
     _compiler = std::make_unique<Chip8Compiler>();
     if(_progress) _progress(1, "compiling ...");
-    _compiler->compile(source, end, _startAddress);
+    _compiler->compile({source, static_cast<size_t>(end-source)}, _startAddress);
     if(_compiler->isError()) {
         return synthesizeError({filename, _compiler->errorLine(), _compiler->errorCol()}, source, end, _compiler->rawErrorMessage());
     }
@@ -690,6 +692,11 @@ void OctoCompiler::info(std::string msg)
     _compileResult.resultType = CompileResult::eINFO;
 }
 
+size_t OctoCompiler::numSourceLines() const
+{
+    return _compiler->numSourceLines();
+}
+
 const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile, const char* source, const char* end)
 {
     if(end - source >= 3 && *source == (char)0xef && *(source+1) == (char)0xbb && *(source+2) == (char)0xbf)
@@ -776,6 +783,32 @@ const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile, 
                     else if (lex.expect(":dump-options")) {
                         // ignored for now
                         token = lex.nextToken(true);
+                    }
+                    else if (lex.expect(":config")) {
+                        token = lex.nextToken(true);
+                        if (lex.expect("{")) {
+                            std::string jsonStr = "{";
+                            int braceCnt = 1;
+                            token = lex.nextToken(true);
+                            while(braceCnt && token != Token::eEOF) {
+                                if(token == Token::eLCURLY)
+                                    ++braceCnt;
+                                else if(token == Token::eRCURLY)
+                                    --braceCnt;
+                                jsonStr += " " + std::string(lex.token().raw);
+                                token = lex.nextToken(true);
+                            }
+                            if(braceCnt)
+                                error("The ':config' JSON object parameter is not closed.");
+                            else {
+                                try {
+                                    _compileResult.config = std::make_shared<nlohmann::json>(nlohmann::json::parse(jsonStr));
+                                }
+                                catch(...) {
+                                    error("Error parsing the JSON object parameter of ':config'.");
+                                }
+                            }
+                        }
                     }
                 }
                 else if (token == Token::eDIRECTIVE && lex.expect(":const") && (_emitCode.empty() || _emitCode.top() == eACTIVE)) {

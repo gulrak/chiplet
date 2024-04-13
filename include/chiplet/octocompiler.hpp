@@ -39,6 +39,7 @@
 #include <vector>
 
 #include <ghc/fs_fwd.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include "chip8meta.hpp"
 
 namespace fs = ghc::filesystem;
@@ -65,6 +66,7 @@ struct CompileResult {
     ResultType resultType{eOK};
     std::string errorMessage;
     std::vector<Location> locations;
+    std::shared_ptr<nlohmann::json> config;
     void reset()
     {
         resultType = eOK;
@@ -150,6 +152,7 @@ public:
     std::optional<int32_t> definedInteger(std::string_view name) const;
     const CompileResult& compileResult() const { return _compileResult; }
     bool isError() const { return _compileResult.resultType != CompileResult::eOK; }
+    size_t numSourceLines() const;
     void generateLineInfos(bool value) { _generateLineInfos = value; }
     void setIncludePaths(const std::vector<std::string>& paths);
     void setProgressHandler(ProgressHandler handler) { _progress = handler; }

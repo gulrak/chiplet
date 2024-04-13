@@ -23,9 +23,6 @@
 // SOFTWARE.
 //
 //---------------------------------------------------------------------------------------
-// NOTE: This is currently only a wrapper over the c-octo octo-compiler.h implementation
-//       by John Earnest
-//---------------------------------------------------------------------------------------
 #pragma once
 
 #include <string>
@@ -39,13 +36,13 @@ public:
     Chip8Compiler();
     ~Chip8Compiler();
 
-    bool compile(std::string text, int startAddress = 0x200);
-    bool compile(const char* start, const char* end, int startAddress = 0x200);
+    bool compile(std::string_view text, int startAddress = 0x200);
     bool isError() const;
     const std::string& errorMessage() const;
     std::string rawErrorMessage() const;
     int errorLine() const;
     int errorCol() const;
+    size_t numSourceLines() const;
     uint32_t codeSize() const;
     const uint8_t* code() const;
     const std::string& sha1Hex() const;

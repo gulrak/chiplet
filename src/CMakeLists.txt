@@ -4,15 +4,23 @@ set(CHIPLET_LIBRARY_SOURCE
     ../include/chiplet/chip8meta.hpp
     ../include/chiplet/chip8variants.hpp
     ../include/chiplet/octocompiler.hpp
+    ../include/chiplet/octocartridge.hpp
 
+    octo_compiler.cpp
     chip8compiler.cpp
     chip8decompiler.cpp
     octocompiler.cpp
+    octocartridge.cpp
 )
+
+#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -fsanitize=undefined -fsanitize=address")
 
 add_library(chiplet-lib STATIC ${CHIPLET_LIBRARY_SOURCE})
 target_include_directories(chiplet-lib PUBLIC ${PROJECT_SOURCE_DIR}/include/)
-target_link_libraries(chiplet-lib PUBLIC ghc_filesystem fmt::fmt)
+target_link_libraries(chiplet-lib PUBLIC ghc_filesystem fmt::fmt fast_float)
+#target_link_options(chiplet-lib
+#        BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address
+#)
 
 add_executable(chiplet chiplet.cpp)
 target_compile_definitions(chiplet PUBLIC CHIPLET_VERSION="${PROJECT_VERSION}" CHIPLET_HASH="${GIT_COMMIT_HASH}")
