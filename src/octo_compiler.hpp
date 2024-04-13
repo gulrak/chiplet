@@ -179,6 +179,7 @@ public:
     int line;
     int pos;
     std::string_view str_value{};
+    std::string str_container;
     double num_value{};
 };
 
@@ -226,7 +227,30 @@ struct Monitor
     std::string format;
 };
 
-class Program
+class Lexer
+{
+public:
+    Lexer() = delete;
+    explicit Lexer(std::string_view text);
+    char next_char();
+    char peek_char() const;
+    void skip_whitespace();
+    void scanNextToken(Token& t);
+
+protected:
+    const char* source;
+    const char* source_root;
+    const char* sourceEnd;
+    int source_line;
+    int source_pos;
+    // error reporting
+    char is_error{};
+    std::string error{};
+    int error_line{};
+    int error_pos{};
+};
+
+class Program : protected Lexer
 {
 public:
     static constexpr int RAM_MAX = 16 * 1024 * 1024;
@@ -261,10 +285,7 @@ private:
     std::string_view safeStringStringView(std::string&& name);
     std::string_view safeStringStringView(char* name);
     int is_end() const;
-    char next_char();
-    char peek_char() const;
-    void skip_whitespace();
-    void fetch_token();
+    void fetchToken();
     Token next();
     Token peek();
     bool peek_match(const std::string_view& name, int index);
@@ -305,11 +326,6 @@ private:
     std::unordered_set<std::string> stringTable;
 
     // tokenizer
-    const char* source;
-    const char* source_root;
-    const char* sourceEnd;
-    int source_line;
-    int source_pos;
     std::deque<Token> tokens;
 
     // compiler
@@ -333,11 +349,6 @@ private:
     std::unordered_map<uint32_t, const char*> breakpoints{};
     std::unordered_map<std::string_view, Monitor> monitors{};
 
-    // error reporting
-    char is_error{};
-    std::string error{};
-    int error_line{};
-    int error_pos{};
 };
 
 

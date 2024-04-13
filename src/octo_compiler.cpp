@@ -61,36 +61,20 @@ char* Token::formatValue(char* d) const
     return d;
 }
 
-
-Program::~Program()
+Lexer::Lexer(std::string_view text)
 {
+    source = text.data();
+    source_root = text.data();
+    sourceEnd = source + text.length();
+    source_line = 0;
+    source_pos = 0;
+    is_error = 0;
+    error[0] = '\0';
+    error_line = 0;
+    error_pos = 0;
 }
 
-/**
- *
- *  Tokenization
- *
- **/
-
-std::string_view Program::safeStringStringView(std::string&& name)
-{
-    auto iter = stringTable.find(name);
-    if (iter != stringTable.end())
-        return *iter;
-    return *stringTable.emplace(std::move(name)).first;
-}
-
-std::string_view Program::safeStringStringView(char* name)
-{
-    return safeStringStringView({name, std::strlen(name)});
-}
-
-int Program::is_end() const
-{
-    return tokens.empty() && source >= sourceEnd;
-}
-
-char Program::next_char()
+char Lexer::next_char()
 {
     if(source >= sourceEnd)
         return 0;
@@ -103,12 +87,12 @@ char Program::next_char()
     return c;
 }
 
-char Program::peek_char() const
+char Lexer::peek_char() const
 {
     return source >= sourceEnd ? '\0' : source[0];
 }
 
-void Program::skip_whitespace()
+void Lexer::skip_whitespace()
 {
     while (true) {
         char c = peek_char();
@@ -127,17 +111,9 @@ void Program::skip_whitespace()
     }
 }
 
-void Program::fetch_token()
+
+void Lexer::scanNextToken(octo::Token& t)
 {
-    if (is_end()) {
-        is_error = 1;
-        error = "Unexpected EOF.";
-        return;
-    }
-    if (is_error)
-        return;
-    tokens.emplace_back(source_line, source_pos);
-    auto& t = tokens.back();
     std::string strBuffer;
     const auto* start = source;
     size_t index = 0;
@@ -191,7 +167,13 @@ void Program::fetch_token()
         }
         t.type = Token::Type::STRING;
         t.tid = TokenId::STRING_LITERAL;
-        t.str_value = start ? std::string_view(start + 1, strBuffer.length()) : safeStringStringView(std::move(strBuffer));
+        if(start) {
+            t.str_value = std::string_view(start + 1, strBuffer.length());
+        }
+        else {
+            t.str_container = std::move(strBuffer);
+            t.str_value = t.str_container;
+        }
     }
     else {
         // string or number
@@ -232,11 +214,12 @@ void Program::fetch_token()
             if(t.type != Token::Type::NUMBER) {
                 is_error = true;
                 error = fmt::format("Expected a valid number, but found '{}'.", std::string_view(start, index));
-                error_line = source_line, error_pos = source_pos - index;
+                error_line = source_line, error_pos = static_cast<int>(source_pos - index);
             }
         }
         else {
-            t.type = Token::Type::STRING, t.str_value = safeStringStringView({start, index});
+            t.type = Token::Type::STRING;
+            t.str_value = {start, index};
             auto iter = lexerTokenMap.find(t.str_value);
             if (iter != lexerTokenMap.end())
                 t.tid = iter->second;
@@ -248,10 +231,46 @@ void Program::fetch_token()
     skip_whitespace();
 }
 
+Program::~Program()
+{
+}
+
+std::string_view Program::safeStringStringView(std::string&& name)
+{
+    auto iter = stringTable.find(name);
+    if (iter != stringTable.end())
+        return *iter;
+    return *stringTable.emplace(std::move(name)).first;
+}
+
+std::string_view Program::safeStringStringView(char* name)
+{
+    return safeStringStringView({name, std::strlen(name)});
+}
+
+int Program::is_end() const
+{
+    return tokens.empty() && source >= sourceEnd;
+}
+
+void Program::fetchToken()
+{
+    if (is_end()) {
+        is_error = 1;
+        error = "Unexpected EOF.";
+        return;
+    }
+    if (is_error)
+        return;
+    tokens.emplace_back(source_line, source_pos);
+    auto& t = tokens.back();
+    scanNextToken(t);
+}
+
 Token Program::next()
 {
     if (tokens.empty())
-        fetch_token();
+        fetchToken();
     if (is_error)
         return {source_line, source_pos};
     auto t = tokens.front();
@@ -263,7 +282,7 @@ Token Program::next()
 Token Program::peek()
 {
     if (tokens.empty())
-        fetch_token();
+        fetchToken();
     if (is_error)
         return {source_line, source_pos};
     return tokens.front();
@@ -272,7 +291,7 @@ Token Program::peek()
 bool Program::peek_match(const std::string_view& name, int index)
 {
     while (!is_error && !is_end() && tokens.size() < index + 1)
-        fetch_token();
+        fetchToken();
     if (is_end() || is_error)
         return false;
     return tokens[index].type == Token::Type::STRING && tokens[index].str_value == name;
@@ -1334,7 +1353,7 @@ void Program::compile_statement()
     }
     else {
         if (!is_error && !is_end() && tokens.empty())
-            fetch_token();
+            fetchToken();
         if (is_end() || is_error)
             return;
         switch (tokens.front().tid) {
@@ -1779,12 +1798,8 @@ void Program::compile_statement()
 #endif
 
 Program::Program(std::string_view text, int startAddress)
+: Lexer(text)
 {
-    source = text.data();
-    source_root = text.data();
-    sourceEnd = source + text.length();
-    source_line = 0;
-    source_pos = 0;
     has_main = 1;
     here = startAddress;
     this->startAddress = startAddress;
@@ -1792,10 +1807,7 @@ Program::Program(std::string_view text, int startAddress)
     rom.resize(65536, 0);
     used.resize(65536, 0);
     romLineMap.resize(65536, 0xFFFFFFFF);
-    is_error = 0;
-    error[0] = '\0';
-    error_line = 0;
-    error_pos = 0;
+
     if ((unsigned char)source[0] == 0xEF && (unsigned char)source[1] == 0xBB && (unsigned char)source[2] == 0xBF)
         source += 3;  // UTF-8 BOM
     skip_whitespace();

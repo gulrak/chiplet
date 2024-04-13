@@ -22,8 +22,8 @@ const uint8_t _rom_cvip[0x200] = {
 
 int main()
 {
-    const auto* src = _rom_cvip32;
-    const auto* end = _rom_cvip32 + sizeof(_rom_cvip);
+    const auto* src = _rom_cvip;
+    const auto* end = _rom_cvip + sizeof(_rom_cvip);
     uint16_t pc = 0x8000;
     while(src < end) {
         auto [size, text] = emu::Chip8Decompiler::disassemble1802InstructionWithBytes(pc, src, end);

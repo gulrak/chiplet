@@ -196,6 +196,7 @@ enum class Variant {
     OCTO = 0x35,               // Octo
     CHIP_8_CL_COL = 0x36,      // CHIP-8 Classic / Color
 
+    COSMAC_VIP = 59,           // A pure COSMAC VIP without CHIP-8
     CHIP_8_COSMAC_VIP = 60,    // CHIP-8 on emulated COSMAC VIP
     CHIP_8_TDP_COSMAC_VIP = 61,// CHIP-8 Two Page Display on emulated COSMAC VIP
     GENERIC_CHIP_8 = 63        // A universal program, don't switch current emulation

@@ -223,32 +223,7 @@ uint8_t octo_cart_base_image[] = {
     0x43, 0x69, 0xA5, 0xC1, 0x5C, 0x8A, 0xE9, 0x2F, 0x9A, 0x6E, 0xBA, 0x4B, 0xA7, 0x9E, 0xDE, 0x02, 0x6A, 0xA8, 0xB5, 0x8C, 0x4A, 0x2A, 0x95, 0x91, 0x9E, 0x7A, 0x68, 0xAA, 0x7B, 0x4E, 0x00, 0xA7, 0xA9, 0xBB, 0x3C, 0x81, 0x82, 0xAC, 0x6B, 0xC2, 0x1A, 0x2B,
     0xAD, 0x50, 0xE0, 0xAA, 0xA6, 0xAD, 0xBC, 0x28, 0x70, 0x0A, 0x9D, 0xBC, 0xFE, 0xE2, 0xEB, 0x9D, 0x4B, 0xA8, 0xAA, 0x65, 0x24, 0xC6, 0x3E, 0x59, 0xCD, 0xB2, 0x05, 0xCC, 0x36, 0xCB, 0x46, 0x02, 0x00, 0x3B};
 
-#if 0
-static Chip8EmulatorOptions optionsFromOctoOptions(const octo_options& octo)
-{
-    Chip8EmulatorOptions result;
-    if(octo.max_rom > 3584 || !octo.q_clip) {
-        result = Chip8EmulatorOptions::optionsOfPreset(Chip8EmulatorOptions::eXOCHIP);
-    }
-    else if(octo.q_vblank || !octo.q_loadstore || !octo.q_shift) {
-        result = Chip8EmulatorOptions::optionsOfPreset(Chip8EmulatorOptions::eCHIP8);
-    }
-    else {
-        result = Chip8EmulatorOptions::optionsOfPreset(Chip8EmulatorOptions::eSCHPC);
-    }
-    result.optJustShiftVx = octo.q_shift;
-    result.optLoadStoreDontIncI = octo.q_loadstore;
-    result.optLoadStoreIncIByX = false;
-    result.optJump0Bxnn = octo.q_jump0;
-    result.optDontResetVf = !octo.q_logic;
-    result.optWrapSprites = !octo.q_clip;
-    result.optInstantDxyn = !octo.q_vblank;
-    result.instructionsPerFrame = octo.tickrate;
-    return result;
-}
-#endif
 
-//"octo","vip","dream6800","eti660","schip","fish"   {"none","swipe","seg16","seg16fill","gamepad","vip"};
 // clang-format off
 NLOHMANN_JSON_SERIALIZE_ENUM(OctoOptions::Font, {
     {OctoOptions::Font::Octo, "octo"},
@@ -267,22 +242,48 @@ NLOHMANN_JSON_SERIALIZE_ENUM(OctoOptions::Touch, {
 })
 // clang-format on
 
+static uint32_t colorFromJson(const nlohmann::json& j, const std::string& name, uint32_t defaultValue)
+{
+    auto colstr = j.value(name, "");
+    if(colstr.empty())
+        return defaultValue;
+    return OctoCartridge::getColorFromName(colstr, defaultValue);
+}
+
+static bool boolFromJson(const nlohmann::json& j, const std::string& name, bool defaultValue)
+{
+    if(!j.contains(name))
+        return defaultValue;
+    auto& val = j.at(name);
+    if(val.is_number_integer())
+        return val.get<int>() != 0;
+    if(val.is_boolean())
+        return val.get<bool>();
+    return defaultValue;
+}
+
 void from_json(const nlohmann::json& j, OctoOptions& opt)
 {
     opt.tickrate = j.value("tickrate", opt.tickrate);
-    opt.qShift = j.value("shiftQuirks", opt.qShift);
-    opt.qLoadStore = j.value("loadStoreQuirks", opt.qLoadStore);
-    opt.qClip = j.value("clipQuirks", opt.qClip);
-    opt.qVBlank = j.value("vBlankQuirks", opt.qVBlank);
-    opt.qJump0 = j.value("jumpQuirks", opt.qJump0);
-    opt.qLogic = j.value("logicQuirks", opt.qLogic);
+    opt.colors[0] = colorFromJson(j, "backgroundColor", opt.colors[0]);
+    opt.colors[1] = colorFromJson(j, "fillColor", opt.colors[1]);
+    opt.colors[2] = colorFromJson(j, "fillColor2", opt.colors[2]);
+    opt.colors[3] = colorFromJson(j, "blendColor", opt.colors[3]);
+    opt.colors[4] = colorFromJson(j, "quietColor", opt.colors[4]);
+    opt.colors[5] = colorFromJson(j, "buzzColor", opt.colors[5]);
+    opt.qShift = boolFromJson(j, "shiftQuirks", opt.qShift);
+    opt.qLoadStore = boolFromJson(j, "loadStoreQuirks", opt.qLoadStore);
+    opt.qClip = boolFromJson(j, "clipQuirks", opt.qClip);
+    opt.qVBlank = boolFromJson(j, "vBlankQuirks", opt.qVBlank);
+    opt.qJump0 = boolFromJson(j, "jumpQuirks", opt.qJump0);
+    opt.qLogic = boolFromJson(j, "logicQuirks", opt.qLogic);
     opt.rotation = j.value("screenRotation", opt.rotation);
     if(opt.rotation != 0 && opt.rotation != 90 && opt.rotation != 180 && opt.rotation != 270)
         opt.rotation = 0;
     if(j.contains("maxSize")) {
         auto ms = j["maxSize"];
         if(ms.is_number()) {
-            j.get_to(opt.maxRom);
+            ms.get_to(opt.maxRom);
         }
         else if(ms.is_string()) {
             opt.maxRom = std::stoul(ms.get<std::string>());
@@ -320,7 +321,7 @@ void to_json(nlohmann::json& j, const OctoOptions& opt)
     };
 }
 
-uint32_t emu::OctoCartridge::getColorFromName(const std::string& name)
+uint32_t emu::OctoCartridge::getColorFromName(const std::string& name, uint32_t defaultColor)
 {
     auto namedColors = sizeof(octo_css_color_names)/sizeof(char*);
     if(!name.empty()) {
@@ -332,7 +333,7 @@ uint32_t emu::OctoCartridge::getColorFromName(const std::string& name)
                 return octo_css_color_values[i];
         }
     }
-    return 0;
+    return defaultColor;
 }
 
 char OctoCartridge::getCartByte(size_t& offset) const

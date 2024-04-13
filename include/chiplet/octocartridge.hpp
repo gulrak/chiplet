@@ -70,6 +70,7 @@ public:
     using Data = std::vector<uint8_t>;
 
     OctoCartridge(std::string filename) : _filename(std::move(filename)) {}
+    OctoCartridge(ByteView data) : GifImage(data) {}
     bool loadCartridge();
     bool saveCartridge(std::string_view programSource, const std::string& label, const DataSpan& image);
     std::vector<uint32_t> getImage() const;
@@ -78,7 +79,7 @@ public:
     void setOptions(OctoOptions& options);
     const std::string& getSource() const;
     const std::string& getJsonString() const;
-    static uint32_t getColorFromName(const std::string& name);
+    static uint32_t getColorFromName(const std::string& name, uint32_t defaultColor = 0);
 
 private:
     void printLabel(const std::string& label);
