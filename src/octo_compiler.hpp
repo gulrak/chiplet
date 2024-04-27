@@ -83,6 +83,8 @@
 
 namespace octo {
 
+// clang-format: off
+
 #define TOKEN_LIST(decl) \
     decl(ASSIGN, ":=") \
     decl(ASSIGN_OR, "|=") \
@@ -99,12 +101,15 @@ namespace octo {
     decl(GREATER, ">") \
     decl(LESS_EQUAL, "<=") \
     decl(GREATER_EQUAL, ">=") \
-    decl(KEY, "key") \
-    decl(NOT_KEY, "-key") \
-    decl(HEX, "hex") \
-    decl(BIGHEX, "bighex") \
-    decl(RANDOM, "random") \
-    decl(DELAY, "delay") \
+    decl(PRE_INCLUDE, ":include") \
+    decl(PRE_SEGMENT, ":segment") \
+    decl(PRE_IF, ":if") \
+    decl(PRE_ELSE, ":else") \
+    decl(PRE_END, ":end") \
+    decl(PRE_UNLESS, ":unless") \
+    decl(PRE_DUMP_OPTIONS, ":dump-options") \
+    decl(PRE_CONFIG, ":config") \
+    decl(PRE_ASM, ":asm") \
     decl(COLON, ":") \
     decl(NEXT, ":next") \
     decl(UNPACK, ":unpack") \
@@ -113,7 +118,23 @@ namespace octo {
     decl(ALIAS, ":alias") \
     decl(CONST, ":const") \
     decl(ORG, ":org") \
+    decl(MACRO, ":macro") \
+    decl(CALC, ":calc") \
+    decl(BYTE, ":byte") \
+    decl(CALL, ":call") \
+    decl(STRINGMODE, ":stringmode") \
+    decl(ASSERT, ":assert") \
+    decl(MONITOR, ":monitor") \
+    decl(POINTER, ":pointer") \
+    decl(POINTER16, ":pointer16") \
+    decl(POINTER24, ":pointer24") \
     decl(SEMICOLON, ";") \
+    decl(KEY, "key") \
+    decl(NOT_KEY, "-key") \
+    decl(HEX, "hex") \
+    decl(BIGHEX, "bighex") \
+    decl(RANDOM, "random") \
+    decl(DELAY, "delay") \
     decl(RETURN, "return") \
     decl(CLEAR, "clear") \
     decl(BCD, "bcd") \
@@ -144,16 +165,6 @@ namespace octo {
     decl(I_REG, "i") \
     decl(AUDIO, "audio") \
     decl(PLANE, "plane") \
-    decl(MACRO, ":macro") \
-    decl(CALC, ":calc") \
-    decl(BYTE, ":byte") \
-    decl(CALL, ":call") \
-    decl(STRINGMODE, ":stringmode") \
-    decl(ASSERT, ":assert") \
-    decl(MONITOR, ":monitor") \
-    decl(POINTER, ":pointer") \
-    decl(POINTER16, ":pointer16") \
-    decl(POINTER24, ":pointer24") \
     decl(PITCH, "pitch")
 
 enum class TokenId {
@@ -164,15 +175,25 @@ enum class TokenId {
 #undef ENUM_ENTRY
 };
 
+// clang-format: on
+
+struct FilePos {
+    std::string file;
+    int depth{0};
+    int line{0};
+};
+
 class Token
 {
 public:
-    enum class Type { STRING, NUMBER, END_OF_FILE};
+    enum class Type { STRING, NUMBER, COMMENT, END_OF_FILE};
+    enum class Group { UNKNOWN, NUMBER, STRING, OPERATOR, PREPROCESSOR, DIRECTIVE, REGISTER, STATEMENT, IDENTIFIER, COMMENT };
     Token() = delete;
     Token(int line, int pos);
     explicit Token(int n);
     Token(const Token& other);
     char* formatValue(char* d) const;
+    Group groupId() const;
 
     Type type;
     TokenId tid{TokenId::TOK_UNKNOWN};
@@ -181,6 +202,7 @@ public:
     std::string_view str_value{};
     std::string str_container;
     double num_value{};
+    bool inMacro{};
 };
 
 struct Constant
@@ -231,23 +253,24 @@ class Lexer
 {
 public:
     Lexer() = delete;
-    explicit Lexer(std::string_view text);
-    char next_char();
-    char peek_char() const;
-    void skip_whitespace();
+    explicit Lexer(std::string_view text, bool emitComments = false);
+    char nextChar();
+    char peekChar() const;
+    void skipWhitespace();
     void scanNextToken(Token& t);
 
 protected:
-    const char* source;
-    const char* source_root;
-    const char* sourceEnd;
-    int source_line;
-    int source_pos;
+    const char* _source;
+    const char* _sourceRoot;
+    const char* _sourceEnd;
+    int _sourceLine;
+    int _sourcePos;
     // error reporting
-    char is_error{};
-    std::string error{};
-    int error_line{};
-    int error_pos{};
+    char _isError{};
+    std::string _error{};
+    int _errorLine{};
+    int _errorPos{};
+    bool _emitComment{};
 };
 
 class Program : protected Lexer
@@ -260,23 +283,24 @@ public:
     explicit Program(std::string_view text, int startAddress = 0x200);
     ~Program();
     bool compile();
-    bool isError() const { return is_error; }
-    int errorLine() const { return is_error ? error_line + 1 : 0; }
-    int errorPos() const { return is_error ? error_pos + 1 : 0; }
-    [[nodiscard]] std::string errorMessage() const { return error; }
-    int lastAddressUsed() const { return length - 1; }
-    size_t codeSize() const { return length - startAddress; }
-    int romStartAddress() const { return startAddress; }
-    const uint8_t* data() const { return rom.data() + startAddress; }
-    int numSourceLines() const { return source_line; }
+    bool isError() const { return _isError; }
+    int errorLine() const { return _isError ? _errorLine + 1 : 0; }
+    int errorPos() const { return _isError ? _errorPos + 1 : 0; }
+    [[nodiscard]] std::string errorMessage() const { return _error; }
+    int lastAddressUsed() const { return _length - 1; }
+    size_t codeSize() const { return _length - _startAddress; }
+    int romStartAddress() const { return _startAddress; }
+    const uint8_t* data() const { return _rom.data() + _startAddress; }
+    int numSourceLines() const { return _sourceLine; }
     const char* breakpointInfo(uint32_t addr) const
     {
-        if (is_error || addr > rom.size())
+        if (_isError || addr > _rom.size())
             return nullptr;
-        auto iter = breakpoints.find(addr);
-        return iter == breakpoints.end() ? nullptr : iter->second;
+        auto iter = _breakpoints.find(addr);
+        return iter == _breakpoints.end() ? nullptr : iter->second;
     }
-    uint32_t lineForAddress(uint32_t addr) const { return !is_error && addr < romLineMap.size() ? romLineMap[addr] : 0xFFFFFFFF; }
+    uint32_t lineForAddress(uint32_t addr) const { return !_isError && addr < _romLineMap.size() ? _romLineMap[addr] : 0xFFFFFFFF; }
+    bool isRegisterAlias(std::string_view name) const;
 
 private:
     static double sign(double x) { return (0.0 < x) - (x < 0.0); }
@@ -284,43 +308,43 @@ private:
     static double min(double x, double y) { return x < y ? x : y; }
     std::string_view safeStringStringView(std::string&& name);
     std::string_view safeStringStringView(char* name);
-    int is_end() const;
+    int isEnd() const;
     void fetchToken();
     Token next();
     Token peek();
-    bool peek_match(const std::string_view& name, int index);
+    bool peekMatch(const std::string_view& name, int index);
     bool match(const std::string_view& name);
     void eat();
-    bool check_name(std::string_view name, const char* kind);
+    bool checkName(std::string_view name, const char* kind);
     std::string_view string();
     std::string_view identifier(const char* kind);
     void expect(std::string_view name);
-    bool is_register(std::string_view name);
-    bool peek_is_register();
-    int register_or_alias();
-    int value_range(int n, int mask);
-    void value_fail(const std::string_view& w, const std::string_view& n, bool undef);
-    int value_4bit();
-    int value_8bit();
-    int value_12bit();
-    int value_16bit(int can_forward_ref, int offset);
-    int value_24bit(int can_forward_ref, int offset);
+    bool isRegister(std::string_view name);
+    bool peekIsRegister();
+    int registerOrAlias();
+    int valueRange(int n, int mask);
+    void valueFail(const std::string_view& w, const std::string_view& n, bool undef);
+    int value4Bit();
+    int value8Bit();
+    int value12Bit();
+    int value16Bit(int can_forward_ref, int offset);
+    int value24Bit(int can_forward_ref, int offset);
     void addProtoRef(std::string_view name, int line, int pos, int where, int8_t size);
-    Constant value_constant();
-    void macro_body(const std::string_view& desc, const std::string_view& name, Macro& m);
-    double calc_expr(std::string_view name);
-    double calc_terminal(std::string_view name);
+    Constant valueConstant();
+    void macroBody(const std::string_view& desc, const std::string_view& name, Macro& m);
+    double calcExpr(std::string_view name);
+    double calcTerminal(std::string_view name);
     double calculated(std::string_view name);
     void append(uint8_t byte);
     void instruction(uint8_t a, uint8_t b);
     void immediate(uint8_t op, int nnn);
     void jump(int addr, int dest);
-    void pseudo_conditional(int reg, int sub, int comp);
+    void pseudoConditional(int reg, int sub, int comp);
     void conditional(int negated);
-    void resolve_label(int offset);
-    void compile_statement();
+    void resolveLabel(int offset);
+    void compileStatement();
 
-    static bool is_reserved(std::string_view name);
+    static bool isReserved(std::string_view name);
 
     // string interning table
     std::unordered_set<std::string> stringTable;
@@ -329,25 +353,27 @@ private:
     std::deque<Token> tokens;
 
     // compiler
-    char has_main{};  // do we need a trampoline for 'main'?
-    int startAddress{};
-    int here{};
-    int length{};
-    std::vector<uint8_t> rom{};
-    std::vector<char> used{};
-    std::vector<uint32_t> romLineMap{};
-    std::unordered_map<std::string_view, Constant> constants;
-    std::unordered_map<std::string_view, int> aliases{};
-    std::unordered_map<std::string_view, Prototype> protos{};
-    std::unordered_map<std::string_view, Macro> macros{};
-    std::unordered_map<std::string_view, StringMode> stringModes{};
-    std::stack<FlowControl> loops{};
-    std::stack<FlowControl> branches{};
-    std::stack<FlowControl> whiles{}; // value=-1 indicates a marker
+    char _hasMain{}; // do we need a trampoline for 'main'?
+    bool _isNested{};
+    int _startAddress{};
+    int _here{};
+    int _tokenStart{};
+    int _length{};
+    std::vector<uint8_t> _rom{};
+    std::vector<char> _used{};
+    std::vector<uint32_t> _romLineMap{};
+    std::unordered_map<std::string_view, Constant> _constants;
+    std::unordered_map<std::string_view, int> _aliases{};
+    std::unordered_map<std::string_view, Prototype> _protos{};
+    std::unordered_map<std::string_view, Macro> _macros{};
+    std::unordered_map<std::string_view, StringMode> _stringModes{};
+    std::stack<FlowControl> _loops{};
+    std::stack<FlowControl> _branches{};
+    std::stack<FlowControl> _whiles{}; // value=-1 indicates a marker
 
     // debugging
-    std::unordered_map<uint32_t, const char*> breakpoints{};
-    std::unordered_map<std::string_view, Monitor> monitors{};
+    std::unordered_map<uint32_t, const char*> _breakpoints{};
+    std::unordered_map<std::string_view, Monitor> _monitors{};
 
 };
 

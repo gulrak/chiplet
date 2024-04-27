@@ -33,10 +33,11 @@ namespace emu {
 class Chip8Compiler
 {
 public:
+    enum Coverage { NONE, LINE_COVERAGE};
     Chip8Compiler();
     ~Chip8Compiler();
 
-    bool compile(std::string_view text, int startAddress = 0x200);
+    bool compile(std::string_view text, int startAddress = 0x200, Coverage coverage = NONE);
     bool isError() const;
     const std::string& errorMessage() const;
     std::string rawErrorMessage() const;
@@ -49,6 +50,7 @@ public:
     std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
     uint32_t lineForAddr(uint32_t addr) const;
     const char* breakpointForAddr(uint32_t addr) const;
+    bool isRegisterAlias(std::string_view name) const;
 
 private:
     void updateHash();

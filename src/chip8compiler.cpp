@@ -15,6 +15,7 @@ public:
     std::unique_ptr<octo::Program> _program{};
     std::string _sha1hex;
     std::string _errorMessage;
+    Coverage _coverageMode{NONE};
     std::vector<std::pair<uint32_t, uint32_t>> _lineCoverage;
 };
 
@@ -30,8 +31,9 @@ Chip8Compiler::~Chip8Compiler()
 }
 
 
-bool Chip8Compiler::compile(std::string_view text, int startAddress)
+bool Chip8Compiler::compile(std::string_view text, int startAddress, Coverage coverage)
 {
+    _impl->_coverageMode = coverage;
     if (_impl->_program) {
         _impl->_program.reset();
     }
@@ -45,6 +47,8 @@ bool Chip8Compiler::compile(std::string_view text, int startAddress)
     }
     else {
         updateHash(); //calculateSha1Hex(code(), codeSize());
+        if(_impl->_coverageMode == LINE_COVERAGE)
+            updateLineCoverage();
         _impl->_errorMessage = "No errors.";
         //std::clog << "compiled successfully." << std::endl;
     }
@@ -138,7 +142,7 @@ void Chip8Compiler::updateHash()
 void Chip8Compiler::updateLineCoverage()
 {
     _impl->_lineCoverage.clear();
-    _impl->_lineCoverage.resize(_impl->_program->numSourceLines());
+    _impl->_lineCoverage.resize(_impl->_program->numSourceLines(), {0xffffffffu, 0});
     if (!_impl->_program)
         return;
     for (size_t addr = 0; addr <= _impl->_program->lastAddressUsed(); ++addr) {
@@ -151,6 +155,11 @@ void Chip8Compiler::updateLineCoverage()
                 range.second = addr;
         }
     }
+}
+
+bool Chip8Compiler::isRegisterAlias(std::string_view name) const
+{
+    return _impl->_program && _impl->_program->isRegisterAlias(name);
 }
 
 }

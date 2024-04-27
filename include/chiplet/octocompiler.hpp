@@ -140,6 +140,7 @@ public:
     static void initializeTables();
     void reset();
     bool setStartAddress(int startAddress) { if(_startAddress != startAddress) { _startAddress = startAddress; return true; } return false; }
+    int startAddress() const { return _startAddress; }
     const CompileResult& compile(const std::string& filename, const char* source, const char* end, bool needsPreprocess = true);
     const CompileResult& compile(const std::string& filename);
     const CompileResult& compile(const std::vector<std::string>& files);
@@ -162,6 +163,7 @@ public:
     std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
     uint32_t lineForAddr(uint32_t addr) const;
     const char* breakpointForAddr(uint32_t addr) const;
+    bool isRegisterAlias(std::string_view name) const;
 
 private:
     inline Lexer& lexer()
@@ -172,7 +174,7 @@ private:
     }
     enum SegmentType { eCODE, eDATA };
     enum OutputControl { eACTIVE, eINACTIVE, eSKIP_ALL };
-    const CompileResult& doCompileChiplet(const std::string& filename, const char* source, const char* end);
+    //const CompileResult& doCompileChiplet(const std::string& filename, const char* source, const char* end);
     const CompileResult& doCompileCOcto(const std::string& filename, const char* source, const char* end);
     const CompileResult& synthesizeError(const SourceLocation& location, const char* source, const char* end, const std::string& errorMessage);
     bool isTrue(const std::string_view& name) const;
