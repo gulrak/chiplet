@@ -26,12 +26,13 @@
 #pragma once
 
 #include <algorithm>
-#include <string>
-#include <sstream>
-#include <vector>
-#include <fstream>
 #include <cmath>
+#include <fstream>
 #include <new>
+#include <sstream>
+#include <string>
+#include <type_traits>
+#include <vector>
 
 #include <ghc/fs_fwd.hpp>
 #include <chiplet/sha1.hpp>
@@ -40,6 +41,11 @@
 
 namespace fs = ghc::filesystem;
 
+template<typename E, typename = std::enable_if_t<std::is_enum<E>::value, E>>
+inline constexpr auto toType(E& e) noexcept
+{
+    return static_cast<std::underlying_type_t<E>>(e);
+}
 
 inline bool endsWith(const std::string& text, const std::string& suffix)
 {
