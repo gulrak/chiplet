@@ -263,3 +263,21 @@ inline std::string calculateSha1Hex(const std::string& str)
     sum.print_hex(hex);
     return hex;
 }
+
+inline bool fuzzyCompare(std::string_view s1, std::string_view s2)
+{
+    auto iter1 = s1.begin();
+    auto iter2 = s2.begin();
+    while(iter1 != s1.end() && iter2 != s2.end()) {
+        while(iter1 != s1.end() && !std::isalnum(*iter1)) ++iter1;
+        while(iter2 != s2.end() && !std::isalnum(*iter2)) ++iter2;
+        if(iter1 != s1.end() && iter2 == s2.end() && std::tolower(*iter1) != std::tolower(*iter2)) {
+            return false;
+        }
+        if (iter1 != s1.end()) ++iter1;
+        if (iter2 != s2.end()) ++iter2;
+    }
+    while (iter1 != s1.end() && !std::isalnum(*iter1)) ++iter1;
+    while (iter2 != s2.end() && !std::isalnum(*iter2)) ++iter2;
+    return iter1 == s1.end() && iter2 == s2.end();
+}
