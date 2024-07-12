@@ -30,6 +30,15 @@
 //---------------------------------------------------------------------------------------
 #pragma once
 
+#if !defined(USE_GHC_SPAN) && __cplusplus >= 202002L && defined __has_include
+#  if __has_include (<span>)
+#define USE_STD_SPAN
+#    include <span>
+namespace ghc {
+using std::span;
+using std::dynamic_extent;
+}
+#else
 #include <array>
 #include <cstddef>
 #include <limits>
@@ -203,5 +212,7 @@ constexpr span<std::byte, Extent == dynamic_extent ? dynamic_extent : sizeof(Ele
     return {reinterpret_cast<std::byte*>(s.data()), s.size_bytes()};
 }
 
-
 }  // namespace ghc
+
+#  endif
+#endif

@@ -31,20 +31,7 @@
 #include <optional>
 #include <vector>
 
-#if !defined(USE_GHC_SPAN) && __cplusplus >= 202002L && defined __has_include
-#  if __has_include (<span>)
-#define USE_STD_SPAN
-#    include <span>
-namespace ghc {
-    using std::span;
-    using std::dynamic_extend;
-}
-#  endif
-#endif
-
-#ifndef USE_STD_SPAN
 #include <ghc/span.hpp>
-#endif
 
 namespace ghc::compression {
 
