@@ -47,12 +47,12 @@ inline constexpr auto toType(E& e) noexcept
     return static_cast<std::underlying_type_t<E>>(e);
 }
 
-inline bool endsWith(const std::string& text, const std::string& suffix)
+inline bool endsWith(std::string_view text, std::string_view suffix)
 {
     return text.size() >= suffix.size() && 0 == text.compare(text.size()-suffix.size(), suffix.size(), suffix);
 }
 
-inline bool startsWith(const std::string& text, const std::string& prefix)
+inline bool startsWith(std::string_view text, std::string_view prefix)
 {
     return text.size() >= prefix.size() && 0 == text.compare(0, prefix.size(), prefix);
 }
@@ -124,9 +124,9 @@ std::string join(Iter first, Iter last, const std::string& delimiter)
     return result.str();
 }
 
-inline std::vector<uint8_t> loadFile(const std::string& file, size_t maxSize = 16 * 1024 * 1024)
+inline std::vector<uint8_t> loadFile(const fs::path& file, size_t maxSize = 16 * 1024 * 1024)
 {
-    std::ifstream is(file, std::ios::binary | std::ios::ate);
+    fs::ifstream is(file, std::ios::binary | std::ios::ate);
     auto size = is.tellg();
     is.seekg(0, std::ios::beg);
     if(size > maxSize) {
@@ -141,7 +141,7 @@ inline std::vector<uint8_t> loadFile(const std::string& file, size_t maxSize = 1
 
 inline bool writeFile(const std::string& filename, const char* data, size_t size)
 {
-    std::ofstream os(filename, std::ios::binary | std::ios::trunc);
+    fs::ofstream os(filename, std::ios::binary | std::ios::trunc);
     if(os.write(data, size))
         return true;
     return false;
@@ -152,9 +152,9 @@ inline bool writeFile(const std::string& filename, const uint8_t* data, size_t s
     return writeFile(filename, (const char*)data, size);
 }
 
-inline std::string loadTextFile(const std::string& file)
+inline std::string loadTextFile(const fs::path& file)
 {
-    std::ifstream is(file, std::ios::binary | std::ios::ate);
+    fs::ifstream is(file, std::ios::binary | std::ios::ate);
     std::streamsize size = is.tellg();
     is.seekg(0, std::ios::beg);
 
@@ -271,24 +271,37 @@ inline bool fuzzyCompare(std::string_view s1, std::string_view s2)
     while(iter1 != s1.end() && iter2 != s2.end()) {
         while(iter1 != s1.end() && !std::isalnum(*iter1)) ++iter1;
         while(iter2 != s2.end() && !std::isalnum(*iter2)) ++iter2;
-        if(iter1 != s1.end() && iter2 == s2.end() && std::tolower(*iter1) != std::tolower(*iter2)) {
-            return false;
+        if(iter1 != s1.end() && iter2 != s2.end()) {
+            auto c1 = std::tolower(*iter1++);
+            auto c2 = std::tolower(*iter2++);
+            if(/*std::tolower(*iter1++) != std::tolower(*iter2++)*/ c1 != c2) {
+                return false;
+            }
         }
-        if (iter1 != s1.end()) ++iter1;
-        if (iter2 != s2.end()) ++iter2;
     }
     while (iter1 != s1.end() && !std::isalnum(*iter1)) ++iter1;
     while (iter2 != s2.end() && !std::isalnum(*iter2)) ++iter2;
     return iter1 == s1.end() && iter2 == s2.end();
 }
 
+inline bool fuzzyAnyOf(std::string_view text, std::initializer_list<std::string_view> alternatives)
+{
+    for(const auto& alt : alternatives) {
+        if(fuzzyCompare(text, alt))
+            return true;
+    }
+    return false;
+}
+
 inline std::string toOptionName(std::string_view text) {
     std::string result;
     bool gap = false;
+    bool wasLower = false;
     for(char c : text) {
         if(std::isalnum(c)) {
-            if(gap)
+            if(gap || (wasLower && std::isupper(c)))
                 gap = false, result.push_back('-');
+            wasLower = std::islower(c);
             result.push_back(static_cast<char>(std::tolower(c)));
         }
         else

@@ -195,11 +195,12 @@ enum class Variant {
     XO_CHIP = 0x34,            // XO-CHIP
     OCTO = 0x35,               // Octo
     CHIP_8_CL_COL = 0x36,      // CHIP-8 Classic / Color
+    SCHIP_MODERN = 0x37,       // Modern SCHIP as defined by Octo
 
-    COSMAC_VIP = 59,           // A pure COSMAC VIP without CHIP-8
-    CHIP_8_COSMAC_VIP = 60,    // CHIP-8 on emulated COSMAC VIP
-    CHIP_8_TDP_COSMAC_VIP = 61,// CHIP-8 Two Page Display on emulated COSMAC VIP
-    GENERIC_CHIP_8 = 63        // A universal program, don't switch current emulation
+    COSMAC_VIP = 0x3B,           // A pure COSMAC VIP without CHIP-8
+    CHIP_8_COSMAC_VIP = 0x3C,    // CHIP-8 on emulated COSMAC VIP
+    CHIP_8_TDP_COSMAC_VIP = 0x3C,// CHIP-8 Two Page Display on emulated COSMAC VIP
+    GENERIC_CHIP_8 = 0x3F        // A universal program, don't switch current emulation
 };
 
 using VariantSet = EnumSet<Variant>;
@@ -275,6 +276,7 @@ enum class Chip8Variant : uint64_t {
     XO_CHIP = 0x8000000000000,          // XO-CHIP
     OCTO = 0x10000000000000,            // Octo
     CHIP_8_CL_COL = 0x20000000000000,   // CHIP-8 Classic / Color
+    SCHIP_MODERN = 0x40000000000000,    // Modern SCHIP as defined by Octo
 
     NUM_VARIANTS
 };

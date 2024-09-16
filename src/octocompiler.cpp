@@ -141,10 +141,10 @@ OctoCompiler::OctoCompiler(Mode mode)
 
 OctoCompiler::~OctoCompiler() = default;
 
-const CompileResult& OctoCompiler::compile(const std::string& filename)
+const CompileResult& OctoCompiler::compile(const fs::path& filename)
 {
     std::vector<std::string> files;
-    files.push_back(filename);
+    files.push_back(filename.string());
     return compile(files);
 }
 
@@ -169,7 +169,7 @@ static FilePos extractFilePos(std::string_view info)
     return {std::string(result.ptr + 1, (info.data() + info.size()) - result.ptr - 1), depth, line};
 }
 
-const CompileResult& OctoCompiler::compile(const std::string& filename, const char* source, const char* end, bool needsPreprocess)
+const CompileResult& OctoCompiler::compile(const fs::path& filename, const char* source, const char* end, bool needsPreprocess)
 {
     std::string preprocessed;
     if(needsPreprocess) {

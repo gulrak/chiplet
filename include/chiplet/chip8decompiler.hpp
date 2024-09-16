@@ -40,6 +40,9 @@
 #include <regex>
 
 #include <fmt/format.h>
+#include <ghc/fs_fwd.hpp>
+
+namespace fs = ghc::filesystem;
 
 namespace emu {
 
@@ -749,7 +752,7 @@ public:
         }
     }
 
-    void decompile(std::string filename, const uint8_t* code, uint16_t offset, uint32_t size, uint16_t entry, std::ostream* os, bool analyzeOnly = false, bool quiet = false)
+    void decompile(const fs::path& filename, const uint8_t* code, uint16_t offset, uint32_t size, uint16_t entry, std::ostream* os, bool analyzeOnly = false, bool quiet = false)
     {
         auto start = std::chrono::steady_clock::now();
         _start = code;

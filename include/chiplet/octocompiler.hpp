@@ -140,8 +140,8 @@ public:
     static void initializeTables();
     void reset();
     bool setStartAddress(int startAddress) { if(_startAddress != startAddress) { _startAddress = startAddress; return true; } return false; }
-    const CompileResult& compile(const std::string& filename, const char* source, const char* end, bool needsPreprocess = true);
-    const CompileResult& compile(const std::string& filename);
+    const CompileResult& compile(const fs::path& filename, const char* source, const char* end, bool needsPreprocess = true);
+    const CompileResult& compile(const fs::path& filename);
     const CompileResult& compile(const std::vector<std::string>& files);
     const CompileResult& preprocessFile(const std::string& inputFile, const char* source, const char* end);
     const CompileResult& preprocessFile(const std::string& inputFile);

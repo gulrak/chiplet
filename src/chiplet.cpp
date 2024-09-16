@@ -455,6 +455,7 @@ int main(int argc, char* argv[])
                 }
             }
             else {
+
                 result = compiler.compile(inputList);
                 if (result.resultType == emu::CompileResult::eOK) {
                     if (outputFile.empty()) {
