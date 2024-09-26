@@ -140,6 +140,7 @@ private:
 namespace chip8 {
 enum class Variant {
     // based on https://chip-8.github.io/extensions
+    NONE = 0x0,                // Value for no CHIP-8 support
     CHIP_8 = 0x01,             // CHIP-8
     CHIP_8_1_2 = 0x02,         // CHIP-8 1/2
     CHIP_8_I = 0x03,           // CHIP-8I
