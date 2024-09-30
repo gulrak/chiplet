@@ -30,6 +30,7 @@
 #include <type_traits>
 #include <initializer_list>
 #include <array>
+#include <string>
 
 namespace emu {
 
@@ -349,6 +350,26 @@ inline bool contained(Chip8Variant variants, Chip8Variant subset)
 inline bool containedAny(Chip8Variant variants, Chip8Variant subset)
 {
     return uint64_t(variants & subset) != 0;
+}
+
+inline std::string romExtension(const chip8::Variant& variant)
+{
+    switch(variant) {
+        case chip8::Variant::CHIP_10: return ".ch10";
+        case chip8::Variant::CHIP_8E: return ".c8e";
+        case chip8::Variant::CHIP_8X: return ".c8x";
+        case chip8::Variant::CHIP_8_RB: return ".c8rb";
+        case chip8::Variant::CHIP_8_TPD: return ".c8tpd";
+        case chip8::Variant::HI_RES_CHIP_8: return ".c8fpd";
+        case chip8::Variant::CHIP_48: return ".ch48";
+        case chip8::Variant::SCHIP_1_0: return ".sc10";
+        case chip8::Variant::SCHIP_1_1: return ".sc11";
+        case chip8::Variant::SCHIPC: return ".scc";
+        case chip8::Variant::SCHIP_MODERN: return ".scm";
+        case chip8::Variant::MEGA_CHIP: return ".mc8";
+        case chip8::Variant::XO_CHIP: return ".xo8";
+        default: return ".ch8";
+    }
 }
 
 } // namespace emu
