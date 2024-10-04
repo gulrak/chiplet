@@ -19,7 +19,7 @@ StringMaker<Data>
         std::ostringstream oss;
         oss << "[";
         if(!vec.empty())
-            oss << std::accumulate(std::next(vec.begin()), vec.end(), fmt::format("0x{:02x}", vec[0]), [](std::string& a, uint8_t b) { return a + "," + fmt::format("0x{:02x}", b); });
+            oss << std::accumulate(std::next(vec.begin()), vec.end(), fmt::format("0x{:02x}", vec[0]), [](const std::string& a, uint8_t b) { return a + "," + fmt::format("0x{:02x}", b); });
         oss << "]";
         return oss.str().c_str();
     }
