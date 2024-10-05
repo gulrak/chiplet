@@ -173,7 +173,7 @@ const CompileResult& OctoCompiler::compile(const fs::path& filename, const char*
 {
     std::string preprocessed;
     if(needsPreprocess) {
-        preprocessFile(filename, source, end);
+        preprocessFile(filename.string(), source, end);
         if(_compileResult.resultType != CompileResult::eOK)
             return _compileResult;
         std::ostringstream preprocessedStream;
@@ -183,9 +183,9 @@ const CompileResult& OctoCompiler::compile(const fs::path& filename, const char*
         end = preprocessed.data() + preprocessed.size();
     }
     if(_mode == eCHIPLET)
-        return doCompileChiplet(filename, source, end);
+        return doCompileChiplet(filename.string(), source, end);
     else
-        return doCompileCOcto(filename, source, end);
+        return doCompileCOcto(filename.string(), source, end);
 }
 
 const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files)
