@@ -41,6 +41,7 @@
 #include <ghc/fs_fwd.hpp>
 #include <nlohmann/json_fwd.hpp>
 #include "chip8meta.hpp"
+#include "sha1.hpp"
 
 namespace fs = ghc::filesystem;
 
@@ -158,7 +159,7 @@ public:
     void setProgressHandler(ProgressHandler handler) { _progress = handler; }
     uint32_t codeSize() const;
     const uint8_t* code() const;
-    const std::string& sha1Hex() const;
+    const Sha1::Digest& sha1() const;
     std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
     uint32_t lineForAddr(uint32_t addr) const;
     const char* breakpointForAddr(uint32_t addr) const;

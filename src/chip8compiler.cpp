@@ -13,7 +13,7 @@ class Chip8Compiler::Private
 {
 public:
     std::unique_ptr<octo::Program> _program{};
-    std::string _sha1hex;
+    Sha1::Digest _sha1;
     std::string _errorMessage;
     std::vector<std::pair<uint32_t, uint32_t>> _lineCoverage;
 };
@@ -95,9 +95,9 @@ const uint8_t* Chip8Compiler::code() const
     return reinterpret_cast<const uint8_t*>(_impl->_program->data());
 }
 
-const std::string& Chip8Compiler::sha1Hex() const
+const Sha1::Digest& Chip8Compiler::sha1() const
 {
-    return _impl->_sha1hex;
+    return _impl->_sha1;
 }
 
 std::pair<uint32_t, uint32_t> Chip8Compiler::addrForLine(uint32_t line) const
@@ -122,7 +122,7 @@ void Chip8Compiler::updateHash()
 {
     char hex[SHA1_HEX_SIZE];
     char bpName[1024];
-    sha1 sum;
+    Sha1 sum;
     sum.add(code(), codeSize());
     for(uint32_t addr = 0; addr <= _impl->_program->lastAddressUsed(); ++addr) {
         if(_impl->_program->breakpointInfo(addr)) {
@@ -131,8 +131,7 @@ void Chip8Compiler::updateHash()
         }
     }
     sum.finalize();
-    sum.print_hex(hex);
-    _impl->_sha1hex = hex;
+    _impl->_sha1 = Sha1::Digest(sum);
 }
 
 void Chip8Compiler::updateLineCoverage()

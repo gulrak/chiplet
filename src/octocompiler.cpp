@@ -395,10 +395,10 @@ const uint8_t* OctoCompiler::code() const
     return _compiler ? _compiler->code() : nullptr;
 }
 
-const std::string& OctoCompiler::sha1Hex() const
+const Sha1::Digest& OctoCompiler::sha1() const
 {
-    static const std::string dummy;
-    return _compiler ? _compiler->sha1Hex() : dummy;
+    static constexpr Sha1::Digest dummy;
+    return _compiler ? _compiler->sha1() : dummy;
 }
 std::pair<uint32_t, uint32_t> OctoCompiler::addrForLine(uint32_t line) const
 {

@@ -27,6 +27,7 @@
 
 #include <string>
 #include <memory>
+#include "sha1.hpp"
 
 namespace emu {
 
@@ -45,7 +46,7 @@ public:
     size_t numSourceLines() const;
     uint32_t codeSize() const;
     const uint8_t* code() const;
-    const std::string& sha1Hex() const;
+    const Sha1::Digest& sha1() const;
     std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
     uint32_t lineForAddr(uint32_t addr) const;
     const char* breakpointForAddr(uint32_t addr) const;

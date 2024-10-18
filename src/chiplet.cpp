@@ -92,7 +92,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                         writeFile(fs::path(file).filename().string().c_str(), comp.code(), comp.codeSize());
                         ++errors;
                     }
-                    else if(comp.sha1Hex() != calculateSha1Hex(data.data(), data.size())) {
+                    else if(comp.sha1() != calculateSha1(data.data(), data.size())) {
                         std::cerr << "    " << fileOrPath(file) << ": Compiled code doesn't match! (" << data.size() << " bytes)" << std::endl;
                         workFile(eANALYSE, file, data);
                         writeFile(fs::path(file).filename().string().c_str(), comp.code(), comp.codeSize());
@@ -182,7 +182,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
 std::pair<bool, std::string> checkDouble(const std::string& file, const std::vector<uint8_t>& data)
 {
     char hex[SHA1_HEX_SIZE];
-    sha1 sum;
+    Sha1 sum;
     sum.add(data.data(), data.size());
     sum.finalize();
     sum.print_hex(hex);
