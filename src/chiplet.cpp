@@ -41,7 +41,7 @@
 #include <set>
 #include <stdexcept>
 
-enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH };
+enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH, eDEEP_ANALYSE };
 static std::unordered_map<std::string, std::string> fileMap;
 static std::vector<std::string> opcodesToFind;
 static std::string outputFile;
@@ -66,6 +66,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
     if(data.empty())
         return;
 
+    constexpr auto allowedVariants = (emu::C8V::CHIP_8 | emu::C8V::CHIP_8X | emu::C8V::CHIP_8X_TPD | emu::C8V::HI_RES_CHIP_8X | emu::C8V::CHIP_10 | emu::C8V::CHIP_48 | emu::C8V::SCHIP_1_0 | emu::C8V::SCHIP_1_1 | emu::C8V::MEGA_CHIP | emu::C8V::XO_CHIP);
     uint16_t startAddress = endsWith(file, ".c8x") ? 0x300 : 0x200;
     emu::Chip8Decompiler dec;
     switch(mode) {
@@ -126,7 +127,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
             std::cout << "    " << fileOrPath(file);
             dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout, true);
             if((uint64_t)dec.possibleVariants()) {
-                auto mask = static_cast<uint64_t>(dec.possibleVariants() & (emu::C8V::CHIP_8|emu::C8V::CHIP_8X|emu::C8V::CHIP_8X_TPD|emu::C8V::HI_RES_CHIP_8X|emu::C8V::CHIP_10|emu::C8V::CHIP_48|emu::C8V::SCHIP_1_0|emu::C8V::SCHIP_1_1|emu::C8V::MEGA_CHIP|emu::C8V::XO_CHIP));
+                auto mask = static_cast<uint64_t>(dec.possibleVariants() & allowedVariants);
                 bool first = true;
                 while(mask) {
                     auto cv = static_cast<emu::Chip8Variant>(mask & -mask);
@@ -171,6 +172,16 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                     std::cout << ": " << fileOrPath(file) << std::endl;
             }
             break;
+        }
+        case eDEEP_ANALYSE: {
+            if(data.size() > 4096 - startAddress) {
+                if(data.size() <= 65536 - startAddress) {
+                    dec.setVariant(emu::Chip8Variant::XO_CHIP | emu::Chip8Variant::MEGA_CHIP, true, true);
+                }
+                else {
+                    dec.setVariant(emu::Chip8Variant::MEGA_CHIP, true, true);
+                }
+            }
         }
         case ePREPROCESS:
         case eCOMPILE:
@@ -278,6 +289,7 @@ int main(int argc, char* argv[])
     bool verbose = false;
     bool version = false;
     bool scan = false;
+    bool deepscan = false;
     bool dumpDoubles = false;
     bool cartridgeBuild = false;
     std::string cartridgeLabel;
@@ -305,6 +317,7 @@ int main(int argc, char* argv[])
     cli.category("Disassembler/Analyzer");
     cli.option({"-d", "--disassemble"}, disassemble, "disassemble a given file");
     cli.option({"-s", "--scan"}, scan, "scan files or directories for chip roms and analyze them, giving some information");
+    cli.option({"--deep-scan"}, deepscan, "scan a directory tree for any files that look like CHIP-8 variant programs and list them, ignoring extensions");
     cli.option({"-f", "--find"}, opcodesToFind, "search for use of opcodes");
     cli.option({"-u", "--opcode-use"}, withUsage, "show usage of found opcodes when using -f");
     cli.option({"-p", "--full-path"}, fullPath, "print file names with path");
@@ -326,6 +339,8 @@ int main(int argc, char* argv[])
     int modes = 0;
     if(!opcodesToFind.empty() || scan) {
         mode = scan ? eANALYSE : eSEARCH;
+        if(deepscan)
+            mode = eDEEP_ANALYSE;
         modes++;
     }
     if(disassemble) {
@@ -375,7 +390,7 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH)
+    if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH || mode == eDEEP_ANALYSE)
         rc = disassembleOrAnalyze(scan, dumpDoubles, inputList, mode);
     else {
         emu::OctoCompiler compiler;
