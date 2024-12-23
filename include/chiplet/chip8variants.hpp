@@ -83,12 +83,12 @@ public:
         set(static_cast<size_t>(other));
         return *this;
     }
-    friend constexpr EnumSet& operator&(const EnumT e1, const EnumT e2) {
+    friend constexpr EnumSet operator&(const EnumT e1, const EnumT e2) {
         EnumSet result = e1;
         result &= e2;
         return result;
     }
-    friend constexpr EnumSet& operator|(const EnumT e1, const EnumT e2) {
+    friend constexpr EnumSet operator|(const EnumT e1, const EnumT e2) {
         EnumSet result = e1;
         result |= e2;
         return result;
@@ -223,6 +223,7 @@ static const VariantSet mix = Variant::CHIP_10 | Variant::CHIP_48;
 
 
 enum class Chip8Variant : uint64_t {
+    NONE,
     CHIP_8 = 0x01,                      // CHIP-8
     CHIP_8_1_2 = 0x02,                  // CHIP-8 1/2
     CHIP_8_I = 0x04,                    // CHIP-8I

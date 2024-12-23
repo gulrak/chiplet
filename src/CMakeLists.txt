@@ -5,12 +5,14 @@ set(CHIPLET_LIBRARY_SOURCE
     ../include/chiplet/chip8variants.hpp
     ../include/chiplet/octocompiler.hpp
     ../include/chiplet/octocartridge.hpp
+    ../include/chiplet/chunkedmemory.hpp
 
     octo_compiler.cpp
     chip8compiler.cpp
     chip8decompiler.cpp
     octocompiler.cpp
     octocartridge.cpp
+    chunkedmemory.cpp
 )
 
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -fsanitize=undefined -fsanitize=address")

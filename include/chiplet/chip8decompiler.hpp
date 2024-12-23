@@ -29,6 +29,7 @@
 #pragma once
 
 #include <chiplet/chip8meta.hpp>
+#include <chiplet/chunkedmemory.hpp>
 
 #include <iostream>
 #include <chrono>
@@ -44,12 +45,13 @@
 
 namespace fs = ghc::filesystem;
 
+
 namespace emu {
 
 class Chip8Decompiler
 {
 public:
-    enum UsageType { eNONE = 0, eJUMP = 1, eCALL = 2, eSPRITE = 4, eLOAD = 8, eSTORE = 16, eREAD = 32, eWRITE = 64, eAUDIO = 128 };
+    using UsageType = ChunkedMemory::UsageType;
     struct Chunk {
         uint32_t startAddr() const { return offset; }
         uint32_t endAddr() const { return offset + size(); }
@@ -57,7 +59,7 @@ public:
         uint32_t offset{};
         const uint8_t* start{};
         const uint8_t* end{};
-        uint8_t usageType{};
+        UsageType usageType{};
     };
     struct LabelInfo {
         UsageType type{};
@@ -73,23 +75,14 @@ public:
         bool inSkip{};
     };
 
-    explicit Chip8Decompiler(Chip8Variant variants = static_cast<Chip8Variant>(~uint64_t{0}))
+    explicit Chip8Decompiler(std::span<const uint8_t> data, uint32_t offset, Chip8Variant variants = static_cast<Chip8Variant>(~uint64_t{0}))
     : _possibleVariants(variants)
     , _opcodeSet(variants, [this](uint32_t addr){ return labelOrAddress(addr); })
+    , _chunks(data, offset)
     {
         if(_mappedOpcodeInfo.empty()) {
-            _mappedOpcodeInfo.resize(65536);
-            for(uint32_t opcode = 0; opcode < 0x10000; ++opcode) {
-                for(const auto& info : detail::opcodes) {
-                    if((opcode & detail::opcodeMasks[info.type]) == info.opcode) {
-                        _mappedOpcodeInfo[opcode].push_back(&info);
-                    }
-                }
-                if(_mappedOpcodeInfo[opcode].empty())
-                    _mappedOpcodeInfo[opcode].push_back(nullptr);
-            }
+            updateOpcodeMapping(variants);
         }
-        //possibleVariants = static_cast<Chip8Variant>(~uint64_t{0});
     }
 
     void setVariant(Chip8Variant variant, bool formatInvalidAsHex, bool force = false)
@@ -101,9 +94,24 @@ public:
         }
     }
 
+    static void updateOpcodeMapping(Chip8Variant variant = static_cast<Chip8Variant>(~uint64_t{0}))
+    {
+        _mappedOpcodeInfo.resize(65536);
+        for(uint32_t opcode = 0; opcode < 0x10000; ++opcode) {
+            _mappedOpcodeInfo.clear();
+            for(const auto& info : detail::opcodes) {
+                if((opcode & detail::opcodeMasks[info.type]) == info.opcode && (info.variants & variant) != Chip8Variant::NONE) {
+                    _mappedOpcodeInfo[opcode].push_back(&info);
+                }
+            }
+            if(_mappedOpcodeInfo[opcode].empty())
+                _mappedOpcodeInfo[opcode].push_back(nullptr);
+        }
+    }
+
     static std::pair<std::string,std::string> chipVariantName(Chip8Variant cv);
 
-    uint16_t readOpcode(const uint8_t* ptr) const
+    static uint16_t readOpcode(const uint8_t* ptr)
     {
         return (*ptr<<8) + *(ptr+1);
     }
@@ -119,6 +127,7 @@ public:
         }
     }
 
+    /*
     Chunk* findChunk(uint32_t addr)
     {
         for(auto& [offset, chunk] : _chunks) {
@@ -128,8 +137,9 @@ public:
         }
         return nullptr;
     }
-
-    void splitChunk(Chunk*& chunk, const uint8_t* start, uint32_t size, UsageType type)
+    */
+    /*
+    void splitChunk(Chunk*& chunk, const uint8_t* start, uint32_t size = ~0, UsageType type = eNONE)
     {
         if(chunk->start < start) {
             // seperate prefix chunk
@@ -137,34 +147,34 @@ public:
             Chunk prefix = {chunk->offset, chunk->start, chunk->start + (start - chunk->start), chunk->usageType};
             remainingChunk.start = start;
             remainingChunk.offset = chunk->offset + (start - chunk->start);
+            remainingChunk.usageType = type;
             _chunks[prefix.offset] = prefix;
             _chunks[remainingChunk.offset] = remainingChunk;
             chunk = &_chunks[remainingChunk.offset];
         }
         if(chunk->end > start + size) {
             // seperate suffix chunk
-            Chunk suffix = {uint16_t(chunk->offset + (start - chunk->start) + size), start + size, chunk->end, chunk->usageType};
+            Chunk suffix = {uint16_t(chunk->offset + (start - chunk->start) + size), start + size, chunk->end, type};
             _chunks[suffix.offset] = suffix;
             chunk->end = start + size;
         }
-        chunk->usageType = static_cast<UsageType>(chunk->usageType | type);
     }
-
+    */
     std::string labelOrAddress(uint32_t addr, bool orNumber = false) const
     {
         auto i = _label.find(addr);
         if(i != _label.end()) {
             uint32_t number = i->second.index >= 0 ? i->second.index : addr;
-            if(i->second.type & eJUMP) {
+            if(i->second.type & UsageType::eJUMP) {
                 return fmt::format("label_{}", number);
             }
-            else if(i->second.type & eCALL) {
+            else if(i->second.type & UsageType::eCALL) {
                 return fmt::format("sub_{}", number);
             }
-            else if(i->second.type & eSPRITE) {
+            else if(i->second.type & UsageType::eSPRITE) {
                 return fmt::format("sprite_{}", number);
             }
-            else if(i->second.type & eAUDIO) {
+            else if(i->second.type & UsageType::eAUDIO) {
                 return fmt::format("audio_{}", number);
             }
             return fmt::format("data_{}", number);
@@ -290,14 +300,14 @@ public:
         return contained(_possibleVariants,  variant);
     }
 
-    void disassembleChunk(Chunk& chunk, std::ostream& os)
+    void disassembleChunk(const ChunkedMemory::Chunk& chunk, std::ostream& os)
     {
-        auto addr = chunk.offset;
-        auto* code = chunk.start;
+        auto addr = chunk.startAddr();
+        auto* code = chunk.startData();
         bool inIf = false;
-        if(chunk.usageType & (eJUMP | eCALL)) {
-            while (code + 1 < chunk.end) {
-                auto [size, opcode, instruction] = opcode2Str(code, chunk.end);
+        if(chunk.usageType() & UsageType::eEXECUTABLE) {
+            while (code + 1 < chunk.endData()) {
+                auto [size, opcode, instruction] = opcode2Str(code, chunk.endData());
                 auto labelIter = _label.find(addr);
                 if (labelIter != _label.end()) {
                     os << fmt::format(": {}", labelOrAddress(addr)) << std::endl;
@@ -324,11 +334,11 @@ public:
             }
         }
         bool inSpriteMode = false;
-        for(int i = 0; code < chunk.end; ++i, ++addr, ++code) {
+        for(int i = 0; code < chunk.endData(); ++i, ++addr, ++code) {
             auto labelIter = _label.find(addr);
             if (labelIter != _label.end()) {
                 os << fmt::format("\n: {}\n", labelOrAddress(addr));
-                inSpriteMode = (labelIter->second.type & eSPRITE) && _possibleVariants != C8V::MEGA_CHIP;
+                inSpriteMode = (labelIter->second.type & UsageType::eSPRITE) && _possibleVariants != C8V::MEGA_CHIP;
             }
             if(inSpriteMode) {
                 os << "        " << fmt::format("0b{:08b}\n", *code);
@@ -361,10 +371,10 @@ public:
                         ec.rI = -1;
                 }
                 else if ((opcode & 0xFF00) == 0x0200) {
-                    refLabel(ec.rI, eREAD);
+                    refLabel(ec.rI, UsageType::eREAD);
                 }
                 else if ((opcode & 0xFF00) == 0x0600) {
-                    refLabel(ec.rI, eAUDIO);
+                    refLabel(ec.rI, UsageType::eAUDIO);
                 }
                 else if (opcode == 0x00E0) {  // 00E0 - CLS
                 }
@@ -376,11 +386,11 @@ public:
                 }
                 break;
             case 1:  // 1nnn - JP addr
-                refLabel(nnn, eJUMP);
+                refLabel(nnn, UsageType::eJUMP);
                 endsChunk = !ec.inSkip;
                 break;
             case 2:  // 2nnn - CALL addr
-                refLabel(nnn, eCALL);
+                refLabel(nnn, UsageType::eCALL);
                 break;
             case 3:  // 3xkk - SE Vx, byte
                 inSkip = true;
@@ -531,14 +541,14 @@ public:
                     ec.rI = -1;
                 else
                     ec.rI = nnn;
-                refLabel(nnn, eREAD);
+                refLabel(nnn, UsageType::eREAD);
                 break;
             case 0xB:  // Bnnn - JP V0, addr
                 if(uint64_t(_possibleVariants & (Chip8Variant::CHIP_8X | Chip8Variant::CHIP_8X_TPD | Chip8Variant::HI_RES_CHIP_8X)) == 0) {
                     if (ec.rV[0] >= 0)
-                        refLabel(nnn + ec.rV[0], eJUMP);
+                        refLabel(nnn + ec.rV[0], UsageType::eJUMP);
                     else
-                        refLabel(nnn, eJUMP);  // TODO: Check for possible detailed target address for new code scan
+                        refLabel(nnn, UsageType::eJUMP);  // TODO: Check for possible detailed target address for new code scan
                     endsChunk = !ec.inSkip;
                 }
                 break;
@@ -548,7 +558,7 @@ public:
             }
             case 0xD: {  // Dxyn - DRW Vx, Vy, nibble
                 if(ec.rI >= 0) {
-                    refLabel(ec.rI, eSPRITE);
+                    refLabel(ec.rI, UsageType::eSPRITE);
                 }
                 ec.rV[0xF] = -1;
                 break;
@@ -569,7 +579,7 @@ public:
                         break;
                     case 0x02:
                         if(opcode == 0xF002 && ec.rI >= 0)
-                            refLabel(ec.rI, eAUDIO);
+                            refLabel(ec.rI, UsageType::eAUDIO);
                         break;
                     case 0x07:  // Fx07 - LD Vx, DT
                     case 0x0A:  // Fx0A - LD Vx, K
@@ -589,20 +599,20 @@ public:
                         break;
                     case 0x33: {  // Fx33 - LD B, Vx
                         if(ec.rI >= 0) {
-                            refLabel(ec.rI, eWRITE);
+                            refLabel(ec.rI, UsageType::eWRITE);
                         }
                         break;
                     }
                     case 0x55: {  // Fx55 - LD [I], Vx
                         if(ec.rI >= 0) {
-                            refLabel(ec.rI, eWRITE);
+                            refLabel(ec.rI, UsageType::eWRITE);
                         }
                         ec.rI = -1;
                         break;
                     }
                     case 0x65: {  // Fx65 - LD Vx, [I]
                         if(ec.rI >= 0) {
-                            refLabel(ec.rI, eREAD);
+                            refLabel(ec.rI, UsageType::eREAD);
                         }
                         for (int i = 0; i <= x; ++i)
                             ec.rV[i] = -1;
@@ -611,7 +621,7 @@ public:
                     }
                     case 0x85: {  // Fx85 - loadflags Vx
                         if(ec.rI >= 0) {
-                            refLabel(ec.rI, eREAD);
+                            refLabel(ec.rI, UsageType::eREAD);
                         }
                         for (int i = 0; i <= x; ++i)
                             ec.rV[i] = -1;
@@ -628,40 +638,39 @@ public:
         return endsChunk;
     }
 
-    uint32_t analyseCodeChunk(Chunk& chunk, uint16_t addr, const std::function<void(const EmulationContext&, uint16_t, int next)>& preCallback = {})
+    uint32_t analyseCodeChunk(const ChunkedMemory::Chunk& chunk, uint16_t addr, const std::function<void(const EmulationContext&, uint16_t, int next)>& preCallback = {})
     {
         //std::clog << "    analysing chunk " << fmt::format("[0x{:04X}, 0x{:04X}, {}),  entry 0x{:04X}", chunk.offset, chunk.offset + chunk.size(), chunk.usageType, addr) << std::endl;
-        auto* start = chunk.start + (addr - chunk.offset);
+        auto* start = chunk.startData() + (addr - chunk.startAddr());
         auto code = start;
         uint32_t result = 0;
 
         EmulationContext ec(addr);
-        while( code + 1 < chunk.end) {
+        while( code + 1 < chunk.endData()) {
             if(ec.rPC & 1)
                 _oddPcAccess = true;
             auto opcode = readOpcode(code);
             Chip8Variant mask = (Chip8Variant)0;
-            for(auto info : _mappedOpcodeInfo[opcode])
+            for(auto info : _mappedOpcodeInfo[opcode]) {
                 if(info && info->opcode) {
-                    if(info->variants != Chip8Variant::MEGA_CHIP || opcode == 0x0011)
+                    //if(info->variants != Chip8Variant::MEGA_CHIP || opcode == 0x0011)
                         mask |= info->variants;
                 }
+            }
             //const OpcodeInfo* info = mappedOpcodeInfo[opcode].front();
             if((uint64_t)mask) {
                 _possibleVariants &= mask;
                 //if (!(uint64_t)_possibleVariants)
                 //    std::cerr << "huuuu" << std::endl;
             }
+            else {
+                _possibleVariants = static_cast<Chip8Variant>(0);
+            }
             //auto category = opcode >> 12;
             code += 2;
             ec.rPC += 2;
             int next = -1;
-            if(opcode == 0xF000) {
-                next = readOpcode(code);
-                code += 2;
-                ec.rPC += 2;
-            }
-            else if((opcode & 0xFF00) == 0x0100 && supportsVariant(C8V::MEGA_CHIP)) {
+            if(opcode == 0xF000 || ((opcode & 0xFF00) == 0x0100 && supportsVariant(C8V::MEGA_CHIP))) {
                 next = readOpcode(code);
                 code += 2;
                 ec.rPC += 2;
@@ -676,21 +685,11 @@ public:
             }
         }
         if(!result)
-            result = chunk.end - chunk.start;
+            result = chunk.endData() - chunk.startData();
         //std::clog << "        found code of size " << result << std::endl;
         return result;
     }
 
-    void dumpChunks()
-    {
-        return;
-        std::clog << "    Chunks:";
-        for(auto& [offset, chunk] : _chunks) {
-            std::clog << fmt::format("   [0x{:04X}, 0x{:04X}, {})", offset, offset + chunk.size(), chunk.usageType);
-        }
-        std::clog << std::endl;
-
-    }
 
     void renumerateLabels()
     {
@@ -700,16 +699,16 @@ public:
         int spriteLabel = 0;
         int audioLabel = 0;
         for(auto& [addr, info] : _label) {
-            if(info.type & eJUMP) {
+            if(info.type & UsageType::eJUMP) {
                 info.index = jumpLabel++;
             }
-            else if(info.type & eCALL) {
+            else if(info.type & UsageType::eCALL) {
                 info.index = subLabel++;
             }
-            else if(info.type & eSPRITE) {
+            else if(info.type & UsageType::eSPRITE) {
                 info.index = spriteLabel++;
             }
-            else if(info.type & eAUDIO) {
+            else if(info.type & UsageType::eAUDIO) {
                 info.index = audioLabel++;
             }
             else {
@@ -719,15 +718,15 @@ public:
         }
     }
 
-    void generateInfoFromChunk(Chunk& chunk)
+    void generateInfoFromChunk(const ChunkedMemory::Chunk& chunk)
     {
-        auto addr = chunk.offset;
-        auto* code = chunk.start;
+        auto addr = chunk.startAddr();
+        auto* code = chunk.startData();
         bool inIf = false;
-        if(chunk.usageType & (eJUMP | eCALL)) {
-            while (code + 1 < chunk.end) {
+        if(chunk.usageType() & UsageType::eEXECUTABLE) {
+            while (code + 1 < chunk.endData()) {
                 auto rawOpcode = readOpcode(code);
-                auto [size, opcode, instruction] = opcode2Str(code, chunk.end);
+                auto [size, opcode, instruction] = opcode2Str(code, chunk.endData());
                 auto iter = _stats.find(opcode);
                 if(iter == _stats.end()) {
                     _stats.emplace(opcode, 1);
@@ -752,28 +751,45 @@ public:
         }
     }
 
-    void decompile(const fs::path& filename, const uint8_t* code, uint16_t offset, uint32_t size, uint16_t entry, std::ostream* os, bool analyzeOnly = false, bool quiet = false)
+    void decompile(const fs::path& filename, uint32_t entry, std::ostream* os, bool analyzeOnly = false, bool quiet = false)
     {
+        assert(entry == _chunks.offset());
         auto start = std::chrono::steady_clock::now();
-        _start = code;
-        _size = size;
-        _chunks[offset] = {offset, code, code + size, eNONE};
-        auto chunkSize = analyseCodeChunk(_chunks[offset], entry);
-        Chunk* chunk = &_chunks[offset];
-        splitChunk(chunk, code, chunkSize, eJUMP);
-        dumpChunks();
+        _start = _chunks.startData();
+        _size = _chunks.size();
+        //_chunks[offset] = {offset, code, code + size, eJUMP};
+        auto chunk = _chunks.chunkWithAddress(entry);
+        auto chunkSize = analyseCodeChunk(*chunk, entry);
+        auto [codeChunk,suffixChunk] = _chunks.splitChunkAt(*chunk, _chunks.offset() + chunkSize);
+        decltype(codeChunk) prefixChunk;
+        codeChunk.setUsageType(ChunkedMemory::eJUMP);
+        _chunks.dumpChunks(std::clog);
 
         bool iterate;
         do {
             iterate = false;
             for (auto& [labelOffset, info] : _label) {
-                if(info.type & (eJUMP | eCALL)) {
-                    chunk = findChunk(labelOffset);
-                    if (chunk && chunk->usageType == eNONE) {
-                        chunkSize = analyseCodeChunk(*chunk, labelOffset);
-                        splitChunk(chunk, chunk->start + (labelOffset - chunk->offset), chunkSize, info.type);
-                        dumpChunks();
-                        iterate = true;
+                std::clog << fmt::format("label: 0x{:04X} - exec: {}", labelOffset, int(info.type & UsageType::eEXECUTABLE)) << std::endl;
+                if(info.type & UsageType::eEXECUTABLE) {
+                    chunk = _chunks.chunkWithAddress(labelOffset);
+                    if (chunk) {
+                        if (labelOffset != chunk->startAddr()) {
+                            // split chunk
+                            std::tie(prefixChunk, chunk) = _chunks.splitChunkAt(*chunk, labelOffset);
+                            chunk->setUsageType(UsageType::eNONE);
+                            chunk = _chunks.chunkWithAddress(labelOffset);
+                        }
+                        if (chunk && chunk->usageType() == ChunkedMemory::eNONE) {
+                            chunkSize = analyseCodeChunk(*chunk, labelOffset);
+                            if(chunkSize) {
+                                if(chunkSize < chunk->size()) {
+                                    chunk = _chunks.splitChunkAt(*chunk, labelOffset + chunkSize).first;
+                                }
+                                chunk->setUsageType(ChunkedMemory::eEXECUTABLE);
+                            }
+                            _chunks.dumpChunks(std::clog);
+                            iterate = true;
+                        }
                     }
                 }
             }
@@ -781,11 +797,11 @@ public:
 
         if(!_megaChipEnabled)
             _possibleVariants &= ~C8V::MEGA_CHIP;
+        for (auto& [chunkOffset, chunk] : _chunks) {
+            // std::cout << fmt::format(":org {:04X} # size: {:04X}", chunkOffset, uint32_t(chunk.end - chunk.start)) << std::endl;
+            generateInfoFromChunk(chunk);
+        }
         if(analyzeOnly) {
-            for (auto& [chunkOffset, chunk] : _chunks) {
-                // std::cout << fmt::format(":org {:04X} # size: {:04X}", chunkOffset, uint32_t(chunk.end - chunk.start)) << std::endl;
-                generateInfoFromChunk(chunk);
-            }
             if(!quiet && os) {
                 *os << ", " << _stats.size() << " opcodes used";
             }
@@ -793,19 +809,19 @@ public:
         else if(os) {
             renumerateLabels();
             *os << "# This is an automatically generated source, created by the Cadmium-Decompiler\n# ROM file used: " << filename << "\n\n";
-            if(containedAny(_possibleVariants, C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::MEGA_CHIP|C8V::XO_CHIP))
+            if(containedAny(_possibleVariants, C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::MEGA_CHIP|C8V::XO_CHIP) && !contained(_possibleVariants, C8V::CHIP_8))
                 *os << "#--------------------------------------------------------------\n";
-            if(contained(_possibleVariants, C8V::XO_CHIP))
+            if(contained(_possibleVariants, C8V::XO_CHIP) && _stats.contains(0xF000))
                 *os << "# XO-CHIP support macros\n:macro i_long_labeled LABEL VALUE { 0xF0 0x00 : LABEL :pointer VALUE } # i := long NNNN\n";
 
-            if(contained(_possibleVariants, C8V::CHIP_8X)) {
+            if(contained(_possibleVariants, C8V::CHIP_8X) && !contained(_possibleVariants, C8V::CHIP_8)) {
                 *os << R"(# CHIP-8X support macros
 :macro cycle-bgcol { 0x02 0xa0 }
 :macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }
 :macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }
 )";
             }
-            if(contained(_possibleVariants, C8V::CHIP_8X_TPD)) {
+            if(contained(_possibleVariants, C8V::CHIP_8X_TPD) && !contained(_possibleVariants, C8V::CHIP_8)) {
                 *os << R"(# CHIP-8X support macros
 :macro clear-tpd { 0x02 0x30 }
 :macro cycle-bgcol-mp { 0x02 0xf0 }
@@ -813,7 +829,7 @@ public:
                 if(!contained(_possibleVariants, C8V::CHIP_8X))
                     *os << ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }\n";
             }
-            if(contained(_possibleVariants, C8V::HI_RES_CHIP_8X)) {
+            if(contained(_possibleVariants, C8V::HI_RES_CHIP_8X) && !contained(_possibleVariants, C8V::CHIP_8)) {
                 *os << R"(# CHIP-8X support macros
 :macro clear-fpd { 0x02 0x00 }
 )";
@@ -822,7 +838,7 @@ public:
                         << ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }\n";
                 }
             }
-            if(contained(_possibleVariants, C8V::MEGA_CHIP)) {
+            if(contained(_possibleVariants, C8V::MEGA_CHIP) && !contained(_possibleVariants, C8V::CHIP_8)) {
                 *os << R"(# MegaChip support macros
 :macro megaoff { :byte 0x00  :byte 0x10 }
 :macro megaon { :byte 0x00 :byte 0x11 }
@@ -843,11 +859,11 @@ public:
 :macro ccol nn { :byte 0x09 :byte nn }
 )";
             }
-            if(containedAny(_possibleVariants, C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::MEGA_CHIP|C8V::XO_CHIP))
+            if(containedAny(_possibleVariants, C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::MEGA_CHIP|C8V::XO_CHIP) && !contained(_possibleVariants, C8V::CHIP_8))
                 *os << "#--------------------------------------------------------------\n\n";
             bool hasConsts = false;
             for(auto& [addr, info] : _label) {
-                if(!findChunk(addr)) {
+                if(!_chunks.chunkWithAddress(addr)) {
                     *os << fmt::format(":const {} 0x{:04X}\n", labelOrAddress(addr), addr);
                     hasConsts = true;
                 }
@@ -856,7 +872,7 @@ public:
             setVariant(_possibleVariants, true, true);
             *os << ": main" << std::endl;
             for (auto& [chunkOffset, chunk] : _chunks) {
-                // std::cout << fmt::format(":org {:04X} # size: {:04X}", chunkOffset, uint32_t(chunk.end - chunk.start)) << std::endl;
+                //std::cout << fmt::format(":org {:04X} # size: {:04X}", chunkOffset, uint32_t(chunk.endData() - chunk.startData())) << ", " << (int)chunk.usageType() << std::endl;
                 disassembleChunk(chunk, *os);
             }
         }
@@ -868,10 +884,10 @@ public:
     {
         static std::regex rxReg("v([0-9A-F])");
         for (auto& [chunkOffset, chunk] : _chunks) {
-            auto addr = chunk.offset;
-            auto* code = chunk.start;
-            if(chunk.usageType & (eJUMP | eCALL)) {
-                analyseCodeChunk(chunk, chunk.offset, [&](const EmulationContext& ec, uint16_t opcode, int next){
+            auto addr = chunk.startAddr();
+            auto* code = chunk.startData();
+            if(chunk.usageType() & UsageType::eEXECUTABLE) {
+                analyseCodeChunk(chunk, chunk.startAddr(), [&](const EmulationContext& ec, uint16_t opcode, int next){
                     if((opcode & mask) == forOpcode) {
                         auto [size, op, instruction] = _opcodeSet.formatOpcode(opcode, next);
                         os << "    " << instruction;
@@ -911,7 +927,8 @@ private:
     bool _megaChipEnabled{false};
     Chip8Variant _possibleVariants{};
     detail::OpcodeSet _opcodeSet;
-    std::map<uint32_t, Chunk> _chunks;
+    ChunkedMemory _chunks;
+    //std::map<uint32_t, Chunk> _chunks;
     std::map<uint32_t, LabelInfo> _label;
     std::unordered_map<uint16_t, int> _stats;
     std::unordered_map<uint16_t, int> _fullStats;

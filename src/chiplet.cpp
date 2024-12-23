@@ -43,11 +43,14 @@
 
 enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH, eDEEP_ANALYSE };
 static std::unordered_map<std::string, std::string> fileMap;
+static std::set<std::string> extensionsDetected;
+static std::set<std::string> extensionsUndetected;
 static std::vector<std::string> opcodesToFind;
 static std::string outputFile;
 static bool fullPath = false;
 static bool withUsage = false;
 static bool genListing = false;
+static bool deepscan = false;
 static int foundFiles = 0;
 static bool roundTrip = false;
 static int errors = 0;
@@ -55,6 +58,12 @@ static int64_t totalSourceLines = 0;
 static int64_t totalDecompileTime_us = 0;
 static int64_t totalAssembleTime_us = 0;
 
+
+bool isChipRom(const std::string& name)
+{
+    static std::set<std::string> validExtensions{ ".ch8", ".ch10", ".hc8", ".c8h", ".c8e", ".c8x", ".sc8", ".mc8", ".xo8", ".c8", ".o8" };
+    return validExtensions.count(name) > 0;
+}
 
 std::string fileOrPath(const std::string& file)
 {
@@ -68,14 +77,14 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
 
     constexpr auto allowedVariants = (emu::C8V::CHIP_8 | emu::C8V::CHIP_8X | emu::C8V::CHIP_8X_TPD | emu::C8V::HI_RES_CHIP_8X | emu::C8V::CHIP_10 | emu::C8V::CHIP_48 | emu::C8V::SCHIP_1_0 | emu::C8V::SCHIP_1_1 | emu::C8V::MEGA_CHIP | emu::C8V::XO_CHIP);
     uint16_t startAddress = endsWith(file, ".c8x") ? 0x300 : 0x200;
-    emu::Chip8Decompiler dec;
+    emu::Chip8Decompiler dec{data, startAddress};
     switch(mode) {
         case eDISASSEMBLE:
             if(roundTrip) {
                 std::stringstream os;
                 emu::OctoCompiler comp;
                 auto decStart = std::chrono::steady_clock::now();
-                dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &os, false, true);
+                dec.decompile(file, startAddress, &os, false, true);
                 auto decEnd = std::chrono::steady_clock::now();
                 if(dec.possibleVariants() == emu::C8V::CHIP_8X || dec.possibleVariants() == emu::C8V::HI_RES_CHIP_8X)
                     startAddress = 0x300;
@@ -116,16 +125,16 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
             }
             else {
                 if(outputFile.empty())
-                    dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout);
+                    dec.decompile(file, startAddress, &std::cout);
                 else {
                     std::ofstream out(outputFile);
-                    dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &out);
+                    dec.decompile(file, startAddress, &out);
                 }
             }
             break;
         case eANALYSE:
             std::cout << "    " << fileOrPath(file);
-            dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout, true);
+            dec.decompile(file, startAddress, &std::cout, true);
             if((uint64_t)dec.possibleVariants()) {
                 auto mask = static_cast<uint64_t>(dec.possibleVariants() & allowedVariants);
                 bool first = true;
@@ -144,7 +153,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                 std::cout << "    Uses odd PC access." << std::endl;
             break;
         case eSEARCH: {
-            dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout, true, true);
+            dec.decompile(file, startAddress, &std::cout, true, true);
             bool found = false;
             for (const auto& pattern : opcodesToFind) {
                 for (const auto& [opcode, count] : dec.fullStats()) {
@@ -182,6 +191,30 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                     dec.setVariant(emu::Chip8Variant::MEGA_CHIP, true, true);
                 }
             }
+            std::ostringstream msg;
+            dec.decompile(file, startAddress, &msg, true);
+            if((uint64_t)dec.possibleVariants()) {
+                auto mask = static_cast<uint64_t>(dec.possibleVariants() & allowedVariants);
+                bool first = true;
+                if(!isChipRom(fs::path(file).extension().string())) {
+                    std::cout << "    " << fileOrPath(file);
+                    while(mask) {
+                        auto cv = static_cast<emu::Chip8Variant>(mask & -mask);
+                        mask &= mask - 1;
+                        std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(cv).first;
+                        first = false;
+                    }
+                    extensionsDetected.emplace(fs::path(file).extension());
+                    std::cout << std::endl;
+                }
+            }
+            else {
+                if(isChipRom(fs::path(file).extension().string())) {
+                    std::cout << "    " << fileOrPath(file);
+                    std::cout << ", doesn't seem to be supported by any know variant." << std::endl;
+                    extensionsUndetected.emplace(fs::path(file).extension());
+                }
+            }
         }
         case ePREPROCESS:
         case eCOMPILE:
@@ -206,12 +239,6 @@ std::pair<bool, std::string> checkDouble(const std::string& file, const std::vec
     return {true, iter->second};
 }
 
-bool isChipRom(const std::string& name)
-{
-    static std::set<std::string> validExtensions{ ".ch8", ".ch10", ".hc8", ".c8h", ".c8e", ".c8x", ".sc8", ".mc8", ".xo8" };
-    return validExtensions.count(name) > 0;
-}
-
 int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& inputList, WorkMode& mode)
 {
     auto start= std::chrono::steady_clock::now();
@@ -224,7 +251,7 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
         }
         if(fs::is_directory(input)) {
             for(const auto& de : fs::recursive_directory_iterator(input, fs::directory_options::skip_permission_denied)) {
-                if(de.is_regular_file() && isChipRom(de.path().extension().string())) {
+                if(de.is_regular_file() && (deepscan || isChipRom(de.path().extension().string()))) {
                     auto file = loadFile(de.path().string());
                     auto [isDouble, firstName] = checkDouble(de.path().string(), file);
                     if(isDouble) {
@@ -239,7 +266,7 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
                 }
             }
         }
-        else if(fs::is_regular_file(input) && isChipRom(fs::path(input).extension().string())) {
+        else if(fs::is_regular_file(input) && (deepscan || isChipRom(fs::path(input).extension().string()))) {
             auto file = loadFile(input);
             auto [isDouble, firstName] = checkDouble(input, file);
             if(isDouble) {
@@ -274,6 +301,16 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
         std::clog << ", (d:" << totalDecompileTime_us/1000 << "ms/a:" << totalAssembleTime_us/1000 << "ms)";
     }
     std::clog << " (" << duration << "ms)" <<std::endl;
+    if(deepscan) {
+        std::cout << "File extensions of detected files: ";
+        for(const auto& ext : extensionsDetected)
+            std::cout << ext << " ";
+        std::cout << std::endl;
+        std::cout << "File extensions of undetected files: ";
+        for(const auto& ext : extensionsUndetected)
+            std::cout << ext << " ";
+        std::cout << std::endl;
+    }
     return errors ? 1 : 0;
 }
 
@@ -289,7 +326,6 @@ int main(int argc, char* argv[])
     bool verbose = false;
     bool version = false;
     bool scan = false;
-    bool deepscan = false;
     bool dumpDoubles = false;
     bool cartridgeBuild = false;
     std::string cartridgeLabel;
@@ -337,11 +373,11 @@ int main(int argc, char* argv[])
 
     WorkMode mode = eCOMPILE;
     int modes = 0;
-    if(!opcodesToFind.empty() || scan) {
-        mode = scan ? eANALYSE : eSEARCH;
-        if(deepscan)
-            mode = eDEEP_ANALYSE;
-        modes++;
+    if(!opcodesToFind.empty()) {
+        mode = eSEARCH, modes++;
+    }
+    if(scan) {
+        mode = eANALYSE, modes++;
     }
     if(disassemble) {
         mode = eDISASSEMBLE;
@@ -350,6 +386,9 @@ int main(int argc, char* argv[])
     if(preprocess) {
         mode = ePREPROCESS;
         modes++;
+    }
+    if(!modes && deepscan) {
+        mode = eDEEP_ANALYSE, modes++;
     }
     if(cartridgeLabel.empty() != cartridgeImage.empty()) {
         cartridgeBuild = true;

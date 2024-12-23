@@ -83,7 +83,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x0700, 2, "stopsnd", "stopsnd", C8V::MEGA_CHIP, "stop digitized sound" },
     { OT_FFFn, 0x0800, 2, "bmode N", "bmode N", C8V::MEGA_CHIP, "set sprite blend mode (0=normal,1=25%,2=50%,3=75%,4=additive,5=multiply)" },
     { OT_FFnn, 0x0900, 2, "ccol NN", "ccol NN", C8V::MEGA_CHIP, "set collision color to index NN" },
-    { OT_Fnnn, 0x0000, 2, "dw #0NNN", "0x0N 0xNN", static_cast<Chip8Variant>((int64_t)C8V::MULTIPLE_NIM-1)|C8V::CHIP_8_D6800, "jump to native assembler subroutine at 0xNNN"},
+    { OT_Fnnn, 0x0000, 2, "dw #0NNN", ":pointer NNN", static_cast<Chip8Variant>((int64_t)C8V::MULTIPLE_NIM-1)|C8V::CHIP_8_D6800, "jump to native assembler subroutine at 0xNNN"},
     { OT_Fnnn, 0x1000, 2, "jp NNN", "jump NNN", C8VG_BASE, "jump to address NNN" },
     { OT_Fnnn, 0x2000, 2, "call NNN", ":call NNN", C8VG_BASE, "push return address onto stack and call subroutine at address NNN" },
     { OT_Fxnn, 0x3000, 2, "se vX,NN", "if vX != NN then", C8VG_BASE, "skip next opcode if vX == NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
