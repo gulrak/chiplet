@@ -38,7 +38,7 @@
 #define SHA1_HEX_SIZE (40 + 1)
 #define SHA1_BASE64_SIZE (28 + 1)
 
-#define SHA1(h1, h2, l) Sha1::Value(0x## h1, 0x## h2, 0x## l)
+// #define SHA1(h1, h2, l) Sha1::Value(0x## h1, 0x## h2, 0x## l)
 
 class Sha1
 {
