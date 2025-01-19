@@ -51,24 +51,18 @@ FetchContent_Declare(
         GIT_REPOSITORY "https://github.com/gulrak/filesystem.git"
         GIT_TAG "v1.5.12"
         GIT_SHALLOW TRUE
+        EXCLUDE_FROM_ALL
 )
-FetchContent_GetProperties(GhcFilesystem)
-if(NOT ghcfilesystem_POPULATED)
-    FetchContent_Populate(GhcFilesystem)
-    add_subdirectory(${ghcfilesystem_SOURCE_DIR} ${ghcfilesystem_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()
+FetchContent_MakeAvailable(GhcFilesystem)
 
 FetchContent_Declare(
     DocTest
     GIT_REPOSITORY "https://github.com/doctest/doctest.git"
     GIT_TAG "v2.4.9"
     GIT_SHALLOW TRUE
+    EXCLUDE_FROM_ALL
 )
-FetchContent_GetProperties(DocTest)
-if(NOT doctest_POPULATED)
-    FetchContent_Populate(doctest)
-    add_subdirectory(${doctest_SOURCE_DIR} ${doctest_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()
+FetchContent_MakeAvailable(DocTest)
 include_directories(${DOCTEST_INCLUDE_DIR})
 
 FetchContent_Declare(
@@ -76,14 +70,9 @@ FetchContent_Declare(
     GIT_REPOSITORY "https://github.com/fmtlib/fmt.git"
     GIT_TAG "9.1.0"
     GIT_SHALLOW TRUE
+    EXCLUDE_FROM_ALL
 )
-FetchContent_GetProperties(FmtLib)
-if(NOT fmtlib_POPULATED)
-    FetchContent_Populate(FmtLib)
-    add_subdirectory(${fmtlib_SOURCE_DIR} ${fmtlib_BINARY_DIR} EXCLUDE_FROM_ALL)
-    include_directories("${fmtlib_SOURCE_DIR}/include")
-    message(STATUS "fmtlib: ${fmtlib_SOURCE_DIR}/include")
-endif()
+FetchContent_MakeAvailable(FmtLib)
 
 FetchContent_Declare(
     fast_float

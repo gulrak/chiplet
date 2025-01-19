@@ -307,3 +307,81 @@ inline std::string toOptionName(std::string_view text) {
     }
     return result;
 }
+
+template <size_t N, typename ValueType = uint64_t, typename SumType = uint64_t>
+class SMA
+{
+public:
+    void reset()
+    {
+        _fill = _index = 0;
+        _sum = 0;
+        _min = std::numeric_limits<ValueType>::max();
+        _max = std::numeric_limits<ValueType>::min();
+    }
+    void add(ValueType nextVal)
+    {
+        if(_fill < N)
+            ++_fill;
+        else
+            _sum -= _history[_index];
+        _sum += nextVal;
+        _history[_index] = nextVal;
+        if (++_index == N)
+            _index = 0;
+        if (nextVal < _min)
+            _min = nextVal;
+        if (nextVal > _max)
+            _max = nextVal;
+    }
+    double get() const { return _fill ? double(_sum) / _fill : 0.0; }
+    ValueType getMin() const { return _min; }
+    ValueType getMax() const { return _max; }
+private:
+    size_t _fill{0};
+    size_t _index{0};
+    ValueType _history[N]{};
+    SumType _sum{0};
+    ValueType _min{0};
+    ValueType _max{0};
+};
+
+class Stopwatch
+{
+public:
+    Stopwatch()
+    : _start(std::chrono::steady_clock::now())
+    {}
+    void start()
+    {
+        _start = std::chrono::steady_clock::now();
+    }
+    void stop()
+    {
+        _lastLap = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _start).count();
+        _sma.add(_lastLap);
+    }
+    [[nodiscard]] std::string getElapsedLapString() const
+    {
+        return formatDuration(_lastLap);
+    }
+    [[nodiscard]] std::string getElapsedAvgString() const
+    {
+        return formatDuration(_sma.get());
+    }
+private:
+    template<typename T>
+    static std::string formatDuration(T duration)
+    {
+        if (duration > 1000000) {
+            return fmt::format("{:.1f}s", static_cast<double>(duration) / 1000000.0);
+        }
+        if (duration > 1000) {
+            return fmt::format("{:.1f}ms", static_cast<double>(duration) / 1000.0);
+        }
+        return fmt::format("{}us", static_cast<unsigned>(duration));
+    }
+    std::chrono::steady_clock::time_point _start;
+    uint64_t _lastLap{0};
+    SMA<120> _sma;
+};
