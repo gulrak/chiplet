@@ -376,7 +376,7 @@ private:
         if (duration > 1000000) {
             return fmt::format("{:.1f}s", static_cast<double>(duration) / 1000000.0);
         }
-        if (duration > 1000) {
+        if (duration > 150) {
             return fmt::format("{:.1f}ms", static_cast<double>(duration) / 1000.0);
         }
         return fmt::format("{}us", static_cast<unsigned>(duration));
