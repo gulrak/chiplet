@@ -25,10 +25,12 @@
 //---------------------------------------------------------------------------------------
 #pragma once
 
+#include <cstdint>
 #include <cstdlib>
 #include <functional>
-#include <map>
 #include <iostream>
+#include <map>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -39,7 +41,9 @@ namespace ghc
 {
 
 template<class... Ts> struct visitor : Ts... { using Ts::operator()...;  };
+#if __cplusplus < 202002L
 template<class... Ts> visitor(Ts...) -> visitor<Ts...>;
+#endif
 
 class CLI
 {
@@ -102,29 +106,29 @@ public:
         }
         return false;
     }
-    void usage()
+    void usage(std::ostream& out = std::cout)
     {
-        std::cout << "USAGE: " << argList[0] << " [options]" << (positionalArgs ? " ..." : "") << std::endl;
-        std::cout << "OPTIONS:\n" << std::endl;
+        out << "USAGE: " << argList[0] << " [options]" << (positionalArgs ? " ..." : "") << std::endl;
+        out << "OPTIONS:\n" << std::endl;
         std::sort(categories.begin(), categories.end());
         for(const auto& category : categories) {
-            if(categories.size() > 1) std::cout << category << ":" << std::endl;
+            if(categories.size() > 1) out << category << ":" << std::endl;
             for(const auto& [names, info] : handler) {
                 if(info.category == category) {
                     std::string delimiter = "  ";
                     for(const auto& name : names) {
-                        std::cout << delimiter << name;
+                        out << delimiter << name;
                         if(info.valPtr.index()) {
                             std::cout << " <arg>";
                         }
                         delimiter = ", ";
                     }
-                    std::cout << std::endl << "    " << info.help << "\n" << std::endl;
+                    out << std::endl << "    " << info.help << "\n" << std::endl;
                 }
             }
         }
         if(positionalArgs)
-            std::cout << "...\n    " << positionalHelp << "\n" << std::endl;
+            out << "...\n    " << positionalHelp << "\n" << std::endl;
     }
 private:
     bool handleOption(std::vector<std::string>::iterator& iter)

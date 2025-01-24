@@ -3,7 +3,7 @@
 //  octo_compiler.hpp
 //
 //  A compiler for Octo CHIP-8 assembly language, suitable for embedding in other
-//  tools and environments. Compared to its original form it depends heavily on C++17
+//  tools and environments. Compared to its original form it depends heavily on C++20
 //  standard library. It's for sure not as lightweight as the original, but it is
 //  quite a bit faster and hopefully easier to extend and due to no more use of any
 //  static arrays it has none of the original limitations.

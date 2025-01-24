@@ -28,13 +28,13 @@
 #include <chiplet/chip8decompiler.hpp>
 
 #include <chiplet/utility.hpp>
-#include <chiplet/cli.hpp>
 #include <chiplet/sha1.hpp>
 #include <chiplet/octocartridge.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <chiplet/stb_image.h>
 
+#include <ghc/cli.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>

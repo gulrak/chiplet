@@ -291,7 +291,7 @@ inline bool fuzzyAnyOf(std::string_view text, std::initializer_list<std::string_
     return false;
 }
 
-inline std::string toOptionName(std::string_view text) {
+inline std::string toOptionName_old(std::string_view text) {
     std::string result;
     bool gap = false;
     bool wasLower = false;
@@ -304,6 +304,84 @@ inline std::string toOptionName(std::string_view text) {
         }
         else
             gap = true;
+    }
+    return result;
+}
+
+inline std::string toOptionName(std::string_view text)
+{
+    enum class Category { NONE, LOWER, UPPER, DIGIT};
+    std::string result;
+    auto lastCategory = Category::NONE;
+    auto pushHyphen = [&]() {
+        if (lastCategory != Category::NONE && result.back() != '-') {
+            result.push_back('-');
+        }
+    };
+    for (char c : text) {
+        auto uc = static_cast<unsigned char>(c);
+        if (std::isupper(uc)) {
+            if (lastCategory != Category::UPPER)
+                pushHyphen();
+            result.push_back(static_cast<char>(std::tolower(uc)));
+            lastCategory = Category::UPPER;
+        }
+        else if (std::islower(uc)) {
+            if (lastCategory != Category::LOWER && lastCategory != Category::UPPER)
+                pushHyphen();
+            result.push_back(static_cast<char>(uc));
+            lastCategory = Category::LOWER;
+        }
+        else if (std::isdigit(uc)) {
+            if (lastCategory != Category::DIGIT)
+                pushHyphen();
+            result.push_back(c);
+            lastCategory = Category::DIGIT;
+        }
+        else {
+            pushHyphen();
+        }
+    }
+    if (!result.empty() && result.back() == '-') {
+        result.pop_back();
+    }
+    return result;
+}
+
+inline std::string toJsonKey(std::string_view text)
+{
+    enum class Category { NONE, LOWER, UPPER, DIGIT, OTHER};
+    std::string result;
+    auto lastCategory = Category::NONE;
+    auto pushUppercase = [&]() {
+        if (lastCategory != Category::NONE && result.back() != '-') {
+            return true;
+        }
+        return false;
+    };
+    for (char c : text) {
+        auto uc = static_cast<unsigned char>(c);
+        bool pushUpper = false;
+        if (std::isupper(uc)) {
+            if (lastCategory != Category::UPPER)
+                pushUpper = pushUppercase();
+            result.push_back(static_cast<char>(pushUpper ? std::toupper(uc) : std::tolower(uc)));
+            lastCategory = Category::UPPER;
+        }
+        else if (std::islower(uc)) {
+            if (lastCategory != Category::LOWER && lastCategory != Category::UPPER)
+                pushUpper = pushUppercase();
+            result.push_back(static_cast<char>(pushUpper ? std::toupper(uc) : std::tolower(uc)));
+            lastCategory = Category::LOWER;
+        }
+        else if (std::isdigit(uc)) {
+            result.push_back(c);
+            lastCategory = Category::DIGIT;
+        }
+        else {
+            if (lastCategory != Category::NONE)
+                lastCategory = Category::OTHER;
+        }
     }
     return result;
 }

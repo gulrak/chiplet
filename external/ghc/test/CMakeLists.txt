@@ -25,7 +25,7 @@ include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
 
 enable_testing()
 
-add_executable(ghcpp17-test main.cpp bit_tests.cpp span_tests.cpp lzw_tests.cpp)
-target_link_libraries(ghcpp17-test PUBLIC doctest)
-target_compile_options(ghcpp17-test PUBLIC -DCOMPILE_TIME_TESTS)
-doctest_discover_tests(ghcpp17-test)
+add_executable(ghcpp17 main.cpp bit_tests.cpp span_tests.cpp lzw_tests.cpp cli_test.cpp)
+target_link_libraries(ghcpp17 PUBLIC doctest)
+target_compile_options(ghcpp17 PUBLIC -DCOMPILE_TIME_TESTS)
+doctest_discover_tests(ghcpp17)

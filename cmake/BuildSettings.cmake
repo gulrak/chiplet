@@ -65,6 +65,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(DocTest)
 include_directories(${DOCTEST_INCLUDE_DIR})
 
+set(FMT_INSTALL OFF CACHE BOOL "disable fmt install" FORCE)
+set(FMT_TEST OFF CACHE BOOL "disable fmt tests" FORCE)
+set(FMT_FUZZ OFF CACHE BOOL "disable fmt tests" FORCE)
 FetchContent_Declare(
     FmtLib
     GIT_REPOSITORY "https://github.com/fmtlib/fmt.git"

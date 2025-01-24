@@ -72,7 +72,7 @@ private:
         }
         ~SubblockInserter()
         {
-            if(_impl.unique() && _impl->_inserted) {
+            if(_impl.use_count() == 1 && _impl->_inserted) {
                 _impl->_buffer[_impl->_subBlockStart] = _impl->_inserted;
                 _impl->_buffer.push_back(0);
             }
