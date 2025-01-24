@@ -29,11 +29,13 @@
 #include <cstdlib>
 #include <functional>
 #include <iostream>
+#include <limits>
+#include <list>
 #include <map>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -41,55 +43,108 @@ namespace ghc
 {
 
 template<class... Ts> struct visitor : Ts... { using Ts::operator()...;  };
-//#if __cplusplus < 202002L
 template<class... Ts> visitor(Ts...) -> visitor<Ts...>;
-//#endif
 
 class CLI
 {
-    using ValuePtr = std::variant<bool*, std::int64_t*, std::string*, std::vector<std::string>*>;
-    template<class T, class TL> struct Contains;
-    template<typename T, template<class...> class Container, class... Ts>
-    struct Contains<T, Container<Ts...>> : std::disjunction<std::is_same<T, Ts>...> {};
+public:
+    struct Combo
+    {
+        int index;
+        std::vector<std::string> combinations;
+    };
+
+private:
+    using Value = std::variant<bool, int, std::int64_t, std::string, std::vector<std::string>, Combo>;
+    using ValuePtr = std::variant<bool*, int*, std::int64_t*, std::string*, std::vector<std::string>*, Combo*>;
+    template <class T, class TL>
+    struct Contains;
+    template <typename T, template <class...> class Container, class... Ts>
+    struct Contains<T, Container<Ts...>> : std::disjunction<std::is_same<T, Ts>...>
+    {
+    };
+
+public:
     struct Info
     {
         ValuePtr valPtr;
-        std::function<void(std::string, ValuePtr)> converter;
+        std::function<void(std::string, std::string, const Info&)> converter;
         std::string help;
         std::string category;
+        std::function<void(std::string)> triggerCallback;
+        std::function<bool()> condition;
+        int64_t minVal{std::numeric_limits<int64_t>::min()};
+        int64_t maxVal{std::numeric_limits<int64_t>::max()};
+        Info& dependsOn(std::function<bool()> dependCondition)
+        {
+            condition = std::move(dependCondition);
+            return *this;
+        }
+        Info& range(int64_t minV, int64_t maxV)
+        {
+            minVal = minV;
+            maxVal = maxV;
+            return *this;
+        }
     };
-public:
     CLI(int argc, char* argv[])
     {
-        for(size_t i = 0; i < argc; ++i) {
+        for (size_t i = 0; i < argc; ++i) {
             argList.emplace_back(argv[i]);
         }
     }
-    void category(std::string cat)
+    std::string category(std::string cat)
     {
-        currentCategory = cat;
-        if(std::find(categories.begin(), categories.end(), currentCategory) == categories.end()) {
+        auto prevCat = currentCategory;
+        currentCategory = std::move(cat);
+        if (std::find(categories.begin(), categories.end(), currentCategory) == categories.end()) {
             categories.push_back(currentCategory);
         }
+        return prevCat;
+    }
+    template <typename T>
+    Info& option(const std::vector<std::string>& names, T& destVal, std::string description = {}, std::function<void(std::string)> trigger = {})
+    {
+        static_assert(Contains<T*, ValuePtr>::value, "CLI: supported option types are only bool, int, std::int64_t, std::string or std::vector<std::string>");
+        auto iter = handler.insert({names,
+                                    {&destVal,
+                                     [](const std::string& name, const std::string& arg, const Info& valInfo) {
+                                         std::visit(visitor{[name, arg](bool* val) { *val = !*val; },
+                                                            [name, arg, &valInfo](int* val) { handleInt(val, arg, name, valInfo); },
+                                                            [name, arg, &valInfo](std::int64_t* val) { handleInt(val, arg, name, valInfo); },
+                                                            [name, arg](std::string* val) { *val = arg; }, [name, arg](std::vector<std::string>* val) { val->push_back(arg); },
+                                                            [name, arg](Combo* val) {
+                                                                int idx = 0;
+                                                                for (const auto& alt : val->combinations) {
+                                                                    if (compareFuzzy(alt, arg)) {
+                                                                        val->index = idx;
+                                                                        return;
+                                                                    }
+                                                                    ++idx;
+                                                                }
+                                                                throw std::runtime_error("Invalid alternative '" + arg + "' for option " + name);
+                                                            }
+
+                                                    },
+                                                    valInfo.valPtr);
+                                     },
+                                     description,
+                                     currentCategory,
+                                     trigger,
+                                     {}}});
+        return iter->second;
     }
     template<typename T>
-    void option(const std::vector<std::string>& names, T& destVal, std::string description = "")
+    Info& option(const std::vector<std::string>& names, std::function<void(std::string, T&)> callback, std::string description = {})
     {
-        static_assert(Contains<T*, ValuePtr>::value, "CLI: supported option types are only bool, std::int64_t, std::string or std::vector<std::string>");
-        handler[names] = {&destVal,
-                          [](const std::string& arg, ValuePtr valp) {
-                              std::visit(visitor{[arg](bool* val) { *val = !*val; },
-                                                 [arg](std::int64_t* val) { *val = std::strtoll(arg.c_str(), nullptr, 0); },
-                                                 [arg](std::string* val) { *val = arg; },
-                                                 [arg](std::vector<std::string>* val) { val->push_back(arg); }}, valp);
-                          },
-                          description,
-                          currentCategory};
+        callbackArgs.push_back(T{});
+        auto& val = std::get<T>(callbackArgs.back());
+        return option(names, val, description, [callback,&val](std::string name){ callback(name, val); });
     }
     void positional(std::vector<std::string>& dest, std::string description = std::string())
     {
         positionalArgs = &dest;
-        positionalHelp = description;
+        positionalHelp = std::move(description);
     }
     bool parse()
     {
@@ -97,12 +152,15 @@ public:
         while(iter != argList.end()) {
             if(!handleOption(iter)) {
                 if(positionalArgs && iter->at(0) != '-') {
-                    positionalArgs->push_back(*iter);
+                    positionalArgs->push_back(*iter++);
                 }
-                else
-                    throw std::runtime_error("Unexpected argument " + *iter);
+                else {
+                    if(conditionFailed)
+                        throw std::runtime_error("Unexpected argument " + *iter + ", a needed dependency was not met");
+                    else
+                        throw std::runtime_error("Unknown argument " + *iter);
+                }
             }
-            ++iter;
         }
         return false;
     }
@@ -110,7 +168,7 @@ public:
     {
         out << "USAGE: " << argList[0] << " [options]" << (positionalArgs ? " ..." : "") << std::endl;
         out << "OPTIONS:\n" << std::endl;
-        std::sort(categories.begin(), categories.end());
+        //std::sort(categories.begin(), categories.end());
         for(const auto& category : categories) {
             if(categories.size() > 1) out << category << ":" << std::endl;
             for(const auto& [names, info] : handler) {
@@ -119,7 +177,7 @@ public:
                     for(const auto& name : names) {
                         out << delimiter << name;
                         if(info.valPtr.index()) {
-                            std::cout << " <arg>";
+                            out << " <arg>";
                         }
                         delimiter = ", ";
                     }
@@ -131,37 +189,78 @@ public:
             out << "...\n    " << positionalHelp << "\n" << std::endl;
     }
 private:
+    template <typename T>
+    static void handleInt(T* val, const std::string& arg, const std::string& name, const Info& info) {
+        errno = 0;
+        char* endPtr{};
+        long long int llVal = static_cast<long long int>(std::strtoll(arg.c_str(), &endPtr, 0));
+        if (errno > 0 || endPtr != arg.c_str() + arg.length() || llVal < std::numeric_limits<T>::min() || llVal > std::numeric_limits<T>::max() || llVal < info.minVal || llVal > info.maxVal) {
+            throw std::runtime_error("Conversion error for option: " + name);
+        }
+        *val = static_cast<T>(llVal);
+    }
+
     bool handleOption(std::vector<std::string>::iterator& iter)
     {
+        static const std::map<std::string,bool> boolKeys = {{"true", true}, {"false", false}, {"yes", true}, {"no", false}, {"on", true}, {"off", false}};
         if(*iter == "-?" || *iter == "-h" || *iter == "--help") {
             usage();
             exit(1);
         }
+        conditionFailed = false;
         for(const auto& [names, info] : handler) {
             for(const auto& name : names) {
                 if(name == *iter) {
+                    if(info.condition && !info.condition()) {
+                        conditionFailed = true;
+                        continue;
+                    }
+                    ++iter;
                     if(info.valPtr.index()) {
-                        if(++iter == argList.end()) {
+                        if(iter == argList.end()) {
                             throw std::runtime_error("Missing argument to option " + name);
                         }
+                        info.converter(name, *iter++, info);
                     }
-                    errno = 0;
-                    info.converter(*iter, info.valPtr);
-                    if(errno) {
-                        throw std::runtime_error("Conversion error for option " + name);
+                    else if(iter != argList.end() && boolKeys.count(*iter)) {
+                        *std::get<bool*>(info.valPtr) = boolKeys.at(*iter++);
                     }
+                    else {
+                        *std::get<bool*>(info.valPtr) = true;
+                    }
+                    if(info.triggerCallback)
+                        info.triggerCallback(name);
                     return true;
                 }
             }
         }
         return false;
     }
+    static bool compareFuzzy(std::string_view s1, std::string_view s2)
+    {
+        auto iter1 = s1.begin();
+        auto iter2 = s2.begin();
+        while(iter1 != s1.end() && iter2 != s2.end()) {
+            while(iter1 != s1.end() && !std::isalnum(*iter1)) ++iter1;
+            while(iter2 != s2.end() && !std::isalnum(*iter2)) ++iter2;
+            if(iter1 != s1.end() && iter2 == s2.end() && std::tolower(*iter1) != std::tolower(*iter2)) {
+                return false;
+            }
+            if (iter1 != s1.end()) ++iter1;
+            if (iter2 != s2.end()) ++iter2;
+        }
+        while (iter1 != s1.end() && !std::isalnum(*iter1)) ++iter1;
+        while (iter2 != s2.end() && !std::isalnum(*iter2)) ++iter2;
+        return iter1 == s1.end() && iter2 == s2.end();
+    }
     std::vector<std::string> argList;
-    std::map<std::vector<std::string>, Info> handler;
+    std::multimap<std::vector<std::string>, Info> handler;
+    std::list<Value> callbackArgs;
     std::vector<std::string>* positionalArgs{nullptr};
     std::vector<std::string> categories;
     std::string currentCategory;
     std::string positionalHelp;
+    bool conditionFailed{false};
 };
 
 }
