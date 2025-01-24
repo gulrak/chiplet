@@ -41,9 +41,9 @@ namespace ghc
 {
 
 template<class... Ts> struct visitor : Ts... { using Ts::operator()...;  };
-#if __cplusplus < 202002L
+//#if __cplusplus < 202002L
 template<class... Ts> visitor(Ts...) -> visitor<Ts...>;
-#endif
+//#endif
 
 class CLI
 {
