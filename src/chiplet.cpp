@@ -201,10 +201,10 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                     while(mask) {
                         auto cv = static_cast<emu::Chip8Variant>(mask & -mask);
                         mask &= mask - 1;
-                        std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(cv).first;
+                        std::cout << (first ? ", possible variants: " : ", ") << emu::Chip8Decompiler::chipVariantName(cv).first;
                         first = false;
                     }
-                    extensionsDetected.emplace(fs::path(file).extension());
+                    extensionsDetected.emplace(fs::path(file).extension().string());
                     std::cout << std::endl;
                 }
             }
@@ -212,7 +212,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                 if(isChipRom(fs::path(file).extension().string())) {
                     std::cout << "    " << fileOrPath(file);
                     std::cout << ", doesn't seem to be supported by any know variant." << std::endl;
-                    extensionsUndetected.emplace(fs::path(file).extension());
+                    extensionsUndetected.emplace(fs::path(file).extension().string());
                 }
             }
         }
