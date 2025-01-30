@@ -93,6 +93,7 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant
         case C8V::XO_CHIP: return {"xo-chip", "XO-CHIP"};
         case C8V::OCTO: return {"octo", "Octo"};
         case C8V::CHIP_8_CL_COL: return {"chip-8-cl-col", "CHIP-8 Classic / Color"};
+        case C8V::SCHIP_MODERN: return {"schip-modern", "SUPER-CHIP Modern"};
         default: return {"", ""};
     }
 }
