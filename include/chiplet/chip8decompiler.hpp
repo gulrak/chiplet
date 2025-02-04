@@ -763,13 +763,13 @@ public:
         auto [codeChunk,suffixChunk] = _chunks.splitChunkAt(*chunk, _chunks.offset() + chunkSize);
         decltype(codeChunk) prefixChunk;
         codeChunk.setUsageType(ChunkedMemory::eJUMP);
-        _chunks.dumpChunks(std::clog);
+        //_chunks.dumpChunks(std::clog);
 
         bool iterate;
         do {
             iterate = false;
             for (auto& [labelOffset, info] : _label) {
-                std::clog << fmt::format("label: 0x{:04X} - exec: {}", labelOffset, int(info.type & UsageType::eEXECUTABLE)) << std::endl;
+                //std::clog << fmt::format("label: 0x{:04X} - exec: {}", labelOffset, int(info.type & UsageType::eEXECUTABLE)) << std::endl;
                 if(info.type & UsageType::eEXECUTABLE) {
                     chunk = _chunks.chunkWithAddress(labelOffset);
                     if (chunk) {
@@ -787,7 +787,7 @@ public:
                                 }
                                 chunk->setUsageType(ChunkedMemory::eEXECUTABLE);
                             }
-                            _chunks.dumpChunks(std::clog);
+                            //_chunks.dumpChunks(std::clog);
                             iterate = true;
                         }
                     }
