@@ -30,6 +30,7 @@
 #include <iomanip>
 #include <ostream>
 #include <string>
+#include <cstdint>
 
 namespace ghc {
 
