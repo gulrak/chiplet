@@ -182,10 +182,7 @@ const CompileResult& OctoCompiler::compile(const fs::path& filename, const char*
         source = preprocessed.data();
         end = preprocessed.data() + preprocessed.size();
     }
-    if(_mode == eCHIPLET)
-        return doCompileChiplet(filename.string(), source, end);
-    else
-        return doCompileCOcto(filename.string(), source, end);
+    return doCompileOcto(filename.string(), source, end);
 }
 
 const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files)
@@ -295,7 +292,7 @@ const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename,
     return _compileResult;
 }
 
-const CompileResult& OctoCompiler::doCompileCOcto(const std::string& filename, const char* source, const char* end)
+const CompileResult& OctoCompiler::doCompileOcto(const std::string& filename, const char* source, const char* end)
 {
     std::string_view sourceCode = {source, size_t(end - source)};
     _compiler = std::make_unique<Chip8Compiler>();

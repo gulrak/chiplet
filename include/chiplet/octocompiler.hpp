@@ -174,7 +174,7 @@ private:
     enum SegmentType { eCODE, eDATA };
     enum OutputControl { eACTIVE, eINACTIVE, eSKIP_ALL };
     const CompileResult& doCompileChiplet(const std::string& filename, const char* source, const char* end);
-    const CompileResult& doCompileCOcto(const std::string& filename, const char* source, const char* end);
+    const CompileResult& doCompileOcto(const std::string& filename, const char* source, const char* end);
     const CompileResult& synthesizeError(const SourceLocation& location, const char* source, const char* end, const std::string& errorMessage);
     bool isTrue(const std::string_view& name) const;
     static bool isImage(const std::string& filename);
