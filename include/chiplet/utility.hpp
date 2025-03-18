@@ -74,6 +74,15 @@ inline std::string trim(std::string s)
     return trimRight(trimLeft(s));
 }
 
+constexpr std::string_view trim(std::string_view str) {
+    const auto start = str.find_first_not_of(" \t\n\r\f\v");
+    if (start == std::string_view::npos) {
+        return {};
+    }
+    const auto end = str.find_last_not_of(" \t\n\r\f\v");
+    return str.substr(start, end - start + 1);
+}
+
 inline std::string trimMultipleSpaces(std::string s)
 {
     auto result = s;

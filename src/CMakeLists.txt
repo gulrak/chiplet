@@ -6,6 +6,7 @@ set(CHIPLET_LIBRARY_SOURCE
     ../include/chiplet/octocompiler.hpp
     ../include/chiplet/octocartridge.hpp
     ../include/chiplet/chunkedmemory.hpp
+    ../include/chiplet/decoder/saturndecoder.hpp
 
     octo_compiler.cpp
     chip8compiler.cpp
@@ -13,6 +14,7 @@ set(CHIPLET_LIBRARY_SOURCE
     octocompiler.cpp
     octocartridge.cpp
     chunkedmemory.cpp
+    decoder/saturndecoder.cpp
 )
 
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -fsanitize=undefined -fsanitize=address")
