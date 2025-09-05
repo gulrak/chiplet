@@ -26,6 +26,11 @@ target_link_libraries(chiplet-lib PUBLIC ghc_filesystem fmt::fmt fast_float)
 #        BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address
 #)
 
+
+add_library(chiplet-utility INTERFACE)
+target_include_directories(chiplet-utility INTERFACE ${PROJECT_SOURCE_DIR}/include/ ${PROJECT_SOURCE_DIR}/external)
+target_link_libraries(chiplet-utility INTERFACE ghc_filesystem)
+
 add_executable(chiplet chiplet.cpp)
 target_compile_definitions(chiplet PUBLIC CHIPLET_VERSION="${PROJECT_VERSION}" CHIPLET_HASH="${GIT_COMMIT_HASH}")
 target_link_libraries(chiplet PRIVATE chiplet-lib)

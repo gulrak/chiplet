@@ -36,3 +36,11 @@ constexpr Enum& operator&=(Enum& X, Enum Y) { using underlying = std::underlying
 constexpr Enum& operator|=(Enum& X, Enum Y) { using underlying = std::underlying_type_t<Enum>; X = static_cast<Enum>(static_cast<underlying>(X) | static_cast<underlying>(Y)); return X; } \
 constexpr Enum& operator^=(Enum& X, Enum Y) { using underlying = std::underlying_type_t<Enum>; X = static_cast<Enum>(static_cast<underlying>(X) ^ static_cast<underlying>(Y)); return X; }
 
+namespace ghc {
+template <typename Enum>
+constexpr bool contains(Enum value, Enum mask)
+{
+    using underlying = std::underlying_type_t<Enum>;
+    return (static_cast<underlying>(value) & static_cast<underlying>(mask)) == static_cast<underlying>(mask);
+}
+}

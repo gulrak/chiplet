@@ -47,7 +47,7 @@ public:
 
 private:
     static uint64_t rotl(const uint64_t x, int k) { return (x << k) | (x >> (64 - k)); }
-    uint64_t next(void) {
+    uint64_t next() {
         const uint64_t result = s[0] + s[3];
 
         const uint64_t t = s[1] << 17;
@@ -63,7 +63,7 @@ private:
 
         return result;
     }
-    uint64_t splitMix64(uint64_t& x)
+    static uint64_t splitMix64(uint64_t& x)
     {
         uint64_t z = (x += 0x9e3779b97f4a7c15);
         z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
