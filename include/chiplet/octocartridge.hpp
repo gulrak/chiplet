@@ -32,8 +32,7 @@
 #include <utility>
 #include <vector>
 
-#include "gifimage.hpp"
-#include <ghc/span.hpp>
+#include <ghc/gifimage.hpp>
 #include <nlohmann/json_fwd.hpp>
 
 namespace emu
@@ -63,10 +62,10 @@ struct OctoOptions
     OctoOptions() { colors = {0xFF996600, 0xFFFFCC00, 0xFFFF6600, 0xFF662200, 0xFF000000, 0xFFFFAA00}; }
 };
 
-class OctoCartridge : private GifImage
+class OctoCartridge : private ghc::GifImage
 {
 public:
-    using DataSpan = ghc::span<const uint8_t>;
+    using DataSpan = std::span<const uint8_t>;
     using Data = std::vector<uint8_t>;
 
     OctoCartridge(std::string filename) : _filename(std::move(filename)) {}

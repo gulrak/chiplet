@@ -198,6 +198,7 @@ enum class Variant {
     OCTO = 0x35,               // Octo
     CHIP_8_CL_COL = 0x36,      // CHIP-8 Classic / Color
     SCHIP_MODERN = 0x37,       // Modern SCHIP as defined by Octo
+    SCHIP_1_0_BETA = 0x38,     // SUPER-CHIP 1.0 Beta (with the wrong big-font function)
 
     COSMAC_VIP = 0x3B,           // A pure COSMAC VIP without CHIP-8
     CHIP_8_COSMAC_VIP = 0x3C,    // CHIP-8 on emulated COSMAC VIP
@@ -280,6 +281,7 @@ enum class Chip8Variant : uint64_t {
     OCTO = 0x10000000000000,            // Octo
     CHIP_8_CL_COL = 0x20000000000000,   // CHIP-8 Classic / Color
     SCHIP_MODERN = 0x40000000000000,    // Modern SCHIP as defined by Octo
+    SCHIP_1_0_BETA = 0x80000000000000,  // SUPER-CHIP 1.0 Beta (with the wrong big-font function)
 
     NUM_VARIANTS
 };

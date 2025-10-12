@@ -38,7 +38,6 @@
 #include <fstream>
 #include <iostream>
 
-#include <ghc/span.hpp>
 #include <fmt/format.h>
 #include <ghc/hexdump.hpp>
 #include <ghc/lzw.hpp>
@@ -49,11 +48,13 @@
 #define GIF_DEBUG_LOG(x)
 #endif
 
+namespace ghc {
+
 class GifImage
 {
 public:
     using ByteArray = std::vector<uint8_t>;
-    using ByteView = ghc::span<const uint8_t>;
+    using ByteView = std::span<const uint8_t>;
 
 private:
     class SubblockInserter
@@ -554,4 +555,4 @@ inline bool GifImage::writeToFile(std::string filename)
     return !!os;
 }
 
-//#endif
+}

@@ -9,8 +9,8 @@
 #define private public
 #define protected public
 //#define GIF_DEBUG_OUTPUT
-#include "../include/chiplet/gifimage.hpp"
 #include <ghc/lzw.hpp>
+#include "../external/ghc/gifimage.hpp"
 #undef private
 
 const uint8_t sample_gif[] = {

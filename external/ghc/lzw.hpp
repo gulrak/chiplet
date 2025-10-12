@@ -30,14 +30,13 @@
 #include <ostream>
 #include <optional>
 #include <vector>
-
-#include <ghc/span.hpp>
+#include <span>
 
 namespace ghc::compression {
 
 using Code = uint16_t;
 using ByteArray = std::vector<uint8_t>;
-using ByteView = ghc::span<const uint8_t>;
+using ByteView = std::span<const uint8_t>;
 
 namespace detail {
 
