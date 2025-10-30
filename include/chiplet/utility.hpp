@@ -245,7 +245,7 @@ inline std::string formatUnit(double val, const std::string& suffix, int minScal
     bool isNeg = val < 0;
     val = std::abs(val);
     if(val < 0.000000001) return "0" + suffix;
-    auto scale = std::max(int(std::log10(val) - (val < 10.0 ? 4 : 1)) / 3, minScale);
+    auto scale = (std::max)(int(std::log10(val) - (val < 10.0 ? 4 : 1)) / 3, minScale);
     if(scale >= -3 && scale <= 4) {
         auto scaledVal = val / std::pow(10.0, scale * 3);
         return (isNeg ? "-" : "") + std::to_string(static_cast<int>(scaledVal + 0.5)) + prefix[scale + 3] + suffix;
@@ -403,8 +403,8 @@ public:
     {
         _fill = _index = 0;
         _sum = 0;
-        _min = std::numeric_limits<ValueType>::max();
-        _max = std::numeric_limits<ValueType>::min();
+        _min = (std::numeric_limits<ValueType>::max)();
+        _max = (std::numeric_limits<ValueType>::min)();
     }
     void add(ValueType nextVal)
     {
