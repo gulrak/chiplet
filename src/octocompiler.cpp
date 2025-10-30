@@ -1017,6 +1017,7 @@ std::vector<uint8_t> processImage(uint8_t* data, size_t width, size_t height, Im
         case eDITHER:
             return img::dither(data, width, height, palette);
     }
+    return {};
 }
 }
 

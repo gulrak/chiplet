@@ -45,42 +45,40 @@ jobs:
           # macOS runners include CMake; if your project needs extras, add brew installs here.
           cmake --version
 
-      - name: Configure (Windows)
+      # Windows: use latest MSVC toolset with Ninja (no dialect flags here)
+      - name: Enable MSVC dev environment
+        if: startsWith(matrix.os, 'windows')
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          toolset: 14.3
+
+      - name: Configure (Windows + Ninja + MSVC)
         if: startsWith(matrix.os, 'windows')
         run: |
-          cmake -S . -B build -G "${{ matrix.cmake_generator }}" -A ${{ matrix.cmake_arch }} -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
         shell: bash
 
       - name: Configure (*nix)
         if: startsWith(matrix.os, 'ubuntu') || startsWith(matrix.os, 'macos')
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G "Ninja"
-        shell: bash
+        run: cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: |
-          cmake --build build --config Release --parallel
-        shell: bash
+        run: cmake --build build --config Release --parallel
 
       - name: Run tests (CTest)
-        run: |
-          ctest --test-dir build --output-on-failure --no-tests=error ${{ startsWith(matrix.os, 'windows') && '--build-config Release' || '' }}
-        shell: bash
+        run: ctest --test-dir build --output-on-failure --no-tests=error
 
-      # --- Nightly packaging with CPack ---
+      # Package only on nightly or tag builds
       - name: Package (CPack)
-        if: github.event_name == 'schedule'
-        run: |
-          # On multi-config generators (Windows), pass -C Release
-          if [[ "${{ startsWith(matrix.os, 'windows') }}" == "true" ]]; then
-            cpack -C Release -G "${{ matrix.cpack_generator }}" --config build/CPackConfig.cmake
-          else
-            cpack -C Release -G "${{ matrix.cpack_generator }}" --config build/CPackConfig.cmake
-          fi
-        shell: bash
+        if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/')
+        run: >
+          cpack -C Release
+          -G "${{ matrix.cpack_generator }}"
+          --config build/CPackConfig.cmake
 
       - name: Upload package artifact
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: chiplet-${{ matrix.os }}-artifacts
@@ -89,10 +87,26 @@ jobs:
             build/*.deb
           if-no-files-found: warn
 
-      # Optionally always upload build directory (useful for debugging)
-      # - name: Upload build logs
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: chiplet-${{ matrix.os }}-build
-      #     path: build
+  create-release:
+    name: Create GitHub Release
+    needs: [build-test-and-package]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged artifacts from matrix
+        uses: actions/download-artifact@v4
+        with:
+          pattern: chiplet-*-artifacts
+          merge-multiple: true
+
+      - name: Create release and upload assets
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          name: chiplet ${{ github.ref_name }}
+          artifacts: "**/*.zip, **/*.deb"
+          artifactErrorsFailBuild: true
+          allowUpdates: true
+          generateReleaseNotes: true
