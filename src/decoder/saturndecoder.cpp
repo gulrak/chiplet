@@ -2,10 +2,11 @@
 
 #include <chiplet/decoder/saturndecoder.hpp>
 
-
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 
 #include <fmt/format.h>
 
