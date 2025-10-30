@@ -205,7 +205,7 @@ public:
 
         void prime_current() {
             if (_wi < N && _mask) {
-                auto tz = static_cast<unsigned>(std::countr_zero(_mask));
+                auto tz = static_cast<unsigned>(ghc::countr_zero(_mask));
                 _pos = (_wi << 6) + tz;
             } else {
                 _wi = N;
