@@ -207,11 +207,11 @@ constexpr typename std::enable_if_t<std::is_unsigned_v<T>, int> countl_zero(T x)
     return __builtin_clzll(static_cast<std::make_unsigned_t<T>>(x)) + std::numeric_limits<T>::digits - std::numeric_limits<unsigned long long>::digits;
 #elif defined _MSC_VER
     unsigned long index;
-    if constexpr (sizeof(T) <= 32) {
-        _BitScanReverse(&index, static_cast<std::make_unsigned<T>>(x));
+    if constexpr (sizeof(T) <= 4) {
+        _BitScanReverse(&index, static_cast<std::make_unsigned_t<T>>(x));
     }
     else {
-        _BitScanReverse(&index, static_cast<std::make_unsigned<T>>(x));
+        _BitScanReverse64(&index, static_cast<std::make_unsigned_t<T>>(x));
     }
     return static_cast<int>(std::numeric_limits<T>::digits - index);
 #else
