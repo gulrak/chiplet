@@ -193,7 +193,7 @@ template <class T>
 
 // 26.5.6, counting
 template <class T>
-constexpr typename std::enable_if_t<std::is_unsigned_v<T>, int> countl_zero(T x) noexcept
+typename std::enable_if_t<std::is_unsigned_v<T>, int> countl_zero(T x) noexcept
 {
     if (!x)
         return std::numeric_limits<T>::digits;
