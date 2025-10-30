@@ -104,6 +104,7 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(chip8::Varia
         case C8V::NONE: return {"", ""};
         //default: return {"", ""};
     }
+    return {"", ""};
 }
 
 

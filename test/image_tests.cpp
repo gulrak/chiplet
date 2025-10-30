@@ -10,6 +10,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <nothings/stb_image_write.h>
 
+#include <string>
+
 struct Image
 {
     int width;

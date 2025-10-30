@@ -115,7 +115,7 @@ std::string_view Chip8Compiler::breakpointForAddr(uint32_t addr) const
     if(addr <= _impl->_program->lastAddressUsed() && !_impl->_program->breakpointInfo(addr).empty()) {
         return _impl->_program->breakpointInfo(addr);
     }
-    return nullptr;
+    return "";
 }
 
 void Chip8Compiler::updateHash()

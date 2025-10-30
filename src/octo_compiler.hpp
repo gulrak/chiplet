@@ -272,7 +272,7 @@ public:
     std::string_view breakpointInfo(uint32_t addr) const
     {
         if (is_error || addr > rom.size())
-            return nullptr;
+            return "";
         auto iter = breakpoints.find(addr);
         return iter == breakpoints.end() ? "" : iter->second;
     }
