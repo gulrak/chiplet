@@ -58,7 +58,7 @@ FetchContent_MakeAvailable(GhcFilesystem)
 FetchContent_Declare(
     DocTest
     GIT_REPOSITORY "https://github.com/doctest/doctest.git"
-    GIT_TAG "v2.4.9"
+    GIT_TAG "v2.4.12"
     GIT_SHALLOW TRUE
     EXCLUDE_FROM_ALL
 )
