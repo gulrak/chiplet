@@ -7,6 +7,29 @@
 
 namespace emu {
 
+namespace saturn {
+enum VariableType {
+    vt_field,
+    vt_regpair4,
+    vt_regpair4rev,
+    vt_regpair8,
+    vt_regpair8split,
+    vt_regpair12,
+    vt_reg,
+    vt_mrpair,
+    vt_daregpair,
+    vt_daregpairrev,
+    vt_tempreg,
+    vt_maxtables,
+    vt_const = vt_maxtables,
+    vt_nzconst,
+    vt_varconst,
+    vt_pcofs,
+    vt_hwflags,
+    vt_none
+};
+}
+
 class SaturnDecoder {
 public:
     struct InstructionInfo {
@@ -215,12 +238,22 @@ public:
         Opc_Invalid
     };
 
+
+
     struct DecodeResult
     {
         OpcodeId oid;
         const InstructionInfo* info;
         uint32_t opcode;
         uint64_t varArg;
+    };
+
+    struct Symbol
+    {
+        enum Type { Code, Data, Comment };
+        Type type{ Data };
+        std::string name;
+        uint32_t value{};
     };
 
     SaturnDecoder() = default;
@@ -244,7 +277,28 @@ public:
         return result;
     }
     DecodeResult decode(uint32_t& address) const;
-    static std::string varToString(const DecodeResult& decoded, uint32_t startAddress, unsigned index);
+    template<typename T>
+    static T getParameter(const DecodeResult& decoded, uint32_t startAddress, unsigned index);
+    const std::array<const std::array<std::string_view,16>,11>& getVarTables() const;
+    static int64_t twosComplement(const uint64_t value, const unsigned bitSize)
+    {
+        if (value & (1ULL << (bitSize - 1))) {
+            return static_cast<int64_t>(value) - (1LL << bitSize);
+        }
+        return static_cast<int64_t>(value);
+    }
+    static uint64_t reverseNibbles(uint64_t value, int n) {
+        uint64_t result = 0;
+        for (int i = 0; i < n; i++) {
+            uint8_t nibble = (value >> (i * 4)) & 0xF;
+            result |= (uint64_t)nibble << ((n - 1 - i) * 4);
+        }
+        return result;
+    }
+    static size_t numInstructions();
+    static const InstructionInfo* getInstructionInfo(size_t index);
+protected:
+    //static constexpr std::array<InstructionInfo, 189> instructions;
 };
 
 }

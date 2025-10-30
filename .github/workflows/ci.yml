@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+  schedule:
+    # Nightly at 02:00 UTC
+    - cron: "0 2 * * *"
+
+jobs:
+  build-test-and-package:
+    name: ${{ matrix.os }} - Build & Test${{ github.event_name == 'schedule' && ' + Package' || '' }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cpack_generator: DEB
+          - os: macos-latest
+            cpack_generator: ZIP
+          - os: windows-latest
+            cpack_generator: ZIP
+            cmake_generator: "Visual Studio 17 2022"
+            cmake_arch: "x64"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- OS-specific prerequisites ---
+      - name: Install prerequisites (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          # build-essential for C/C++, ninja optional; fakeroot helps CPack create .deb packages
+          sudo apt-get install -y build-essential ninja-build fakeroot
+
+      - name: Install prerequisites (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          # macOS runners include CMake; if your project needs extras, add brew installs here.
+          cmake --version
+
+      - name: Configure (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: |
+          cmake -S . -B build -G "${{ matrix.cmake_generator }}" -A ${{ matrix.cmake_arch }} -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+
+      - name: Configure (*nix)
+        if: startsWith(matrix.os, 'ubuntu') || startsWith(matrix.os, 'macos')
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G "Ninja"
+        shell: bash
+
+      - name: Build
+        run: |
+          cmake --build build --config Release --parallel
+        shell: bash
+
+      - name: Run tests (CTest)
+        run: |
+          ctest --test-dir build --output-on-failure --no-tests=error ${{ startsWith(matrix.os, 'windows') && '--build-config Release' || '' }}
+        shell: bash
+
+      # --- Nightly packaging with CPack ---
+      - name: Package (CPack)
+        if: github.event_name == 'schedule'
+        run: |
+          # On multi-config generators (Windows), pass -C Release
+          if [[ "${{ startsWith(matrix.os, 'windows') }}" == "true" ]]; then
+            cpack -C Release -G "${{ matrix.cpack_generator }}" --config build/CPackConfig.cmake
+          else
+            cpack -C Release -G "${{ matrix.cpack_generator }}" --config build/CPackConfig.cmake
+          fi
+        shell: bash
+
+      - name: Upload package artifact
+        if: github.event_name == 'schedule'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chiplet-${{ matrix.os }}-artifacts
+          path: |
+            build/*.zip
+            build/*.deb
+          if-no-files-found: warn
+
+      # Optionally always upload build directory (useful for debugging)
+      # - name: Upload build logs
+      #   if: always()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: chiplet-${{ matrix.os }}-build
+      #     path: build

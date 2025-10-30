@@ -75,7 +75,7 @@ public:
         bool inSkip{};
     };
 
-    explicit Chip8Decompiler(std::span<const uint8_t> data, uint32_t offset, Chip8Variant variants = static_cast<Chip8Variant>(~uint64_t{0}))
+    explicit Chip8Decompiler(std::span<const uint8_t> data, uint32_t offset, chip8::VariantSet variants = chip8::ALL_VARIANTS)
     : _possibleVariants(variants)
     , _opcodeSet(variants, [this](uint32_t addr){ return labelOrAddress(addr); })
     , _chunks(data, offset)
@@ -85,22 +85,22 @@ public:
         }
     }
 
-    void setVariant(Chip8Variant variant, bool formatInvalidAsHex, bool force = false)
+    void setVariants(chip8::VariantSet variants, bool formatInvalidAsHex, bool force = false)
     {
-        if(force || _possibleVariants != variant) {
-            _possibleVariants = variant;
+        if(force || _possibleVariants != variants) {
+            _possibleVariants = variants;
             _opcodeSet = detail::OpcodeSet(_possibleVariants, [this](uint32_t addr){ return labelOrAddress(addr); });
             _opcodeSet.formatInvalidAsHex(formatInvalidAsHex);
         }
     }
 
-    static void updateOpcodeMapping(Chip8Variant variant = static_cast<Chip8Variant>(~uint64_t{0}))
+    static void updateOpcodeMapping(const chip8::VariantSet& variants = chip8::ALL_VARIANTS)
     {
         _mappedOpcodeInfo.resize(65536);
         for(uint32_t opcode = 0; opcode < 0x10000; ++opcode) {
             _mappedOpcodeInfo.clear();
             for(const auto& info : detail::opcodes) {
-                if((opcode & detail::opcodeMasks[info.type]) == info.opcode && (info.variants & variant) != Chip8Variant::NONE) {
+                if((opcode & detail::opcodeMasks[info.type]) == info.opcode && info.variants.containsAny(variants)) {
                     _mappedOpcodeInfo[opcode].push_back(&info);
                 }
             }
@@ -109,7 +109,7 @@ public:
         }
     }
 
-    static std::pair<std::string,std::string> chipVariantName(Chip8Variant cv);
+    static std::pair<std::string,std::string> chipVariantName(chip8::Variant cv);
 
     static uint16_t readOpcode(const uint8_t* ptr)
     {
@@ -295,9 +295,14 @@ public:
         return _opcodeSet.formatOpcode(opcode, next); //opcode2Str(opcode, next);
     }
 
-    bool supportsVariant(emu::Chip8Variant variant) const
+    bool supportsVariant(chip8::Variant variant) const
     {
-        return contained(_possibleVariants,  variant);
+        return _possibleVariants.contains(variant);
+    }
+
+    bool supportsAnyVariant(chip8::VariantSet variants) const
+    {
+        return _possibleVariants.containsAny(variants);
     }
 
     void disassembleChunk(const ChunkedMemory::Chunk& chunk, std::ostream& os)
@@ -338,7 +343,7 @@ public:
             auto labelIter = _label.find(addr);
             if (labelIter != _label.end()) {
                 os << fmt::format("\n: {}\n", labelOrAddress(addr));
-                inSpriteMode = (labelIter->second.type & UsageType::eSPRITE) && _possibleVariants != C8V::MEGA_CHIP;
+                inSpriteMode = (labelIter->second.type & UsageType::eSPRITE) && _possibleVariants != chip8::VariantSet{C8V::MEGA_CHIP};
             }
             if(inSpriteMode) {
                 os << "        " << fmt::format("0b{:08b}\n", *code);
@@ -544,7 +549,7 @@ public:
                 refLabel(nnn, UsageType::eREAD);
                 break;
             case 0xB:  // Bnnn - JP V0, addr
-                if(uint64_t(_possibleVariants & (Chip8Variant::CHIP_8X | Chip8Variant::CHIP_8X_TPD | Chip8Variant::HI_RES_CHIP_8X)) == 0) {
+                if(_possibleVariants.containsAny(chip8::Variant::CHIP_8X | chip8::Variant::CHIP_8X_TPD | chip8::Variant::HI_RES_CHIP_8X)) {
                     if (ec.rV[0] >= 0)
                         refLabel(nnn + ec.rV[0], UsageType::eJUMP);
                     else
@@ -650,7 +655,7 @@ public:
             if(ec.rPC & 1)
                 _oddPcAccess = true;
             auto opcode = readOpcode(code);
-            Chip8Variant mask = (Chip8Variant)0;
+            chip8::VariantSet mask{};
             for(auto info : _mappedOpcodeInfo[opcode]) {
                 if(info && info->opcode) {
                     //if(info->variants != Chip8Variant::MEGA_CHIP || opcode == 0x0011)
@@ -658,13 +663,13 @@ public:
                 }
             }
             //const OpcodeInfo* info = mappedOpcodeInfo[opcode].front();
-            if((uint64_t)mask) {
+            if(!mask.is_empty()) {
                 _possibleVariants &= mask;
                 //if (!(uint64_t)_possibleVariants)
                 //    std::cerr << "huuuu" << std::endl;
             }
             else {
-                _possibleVariants = static_cast<Chip8Variant>(0);
+                _possibleVariants = {};
             }
             //auto category = opcode >> 12;
             code += 2;
@@ -795,8 +800,12 @@ public:
             }
         } while(iterate);
 
-        if(!_megaChipEnabled)
-            _possibleVariants &= ~C8V::MEGA_CHIP;
+        if(!_megaChipEnabled) {
+            if(_possibleVariants.contains(C8V::MEGA_CHIP))
+                _possibleVariants = C8V::MEGA_CHIP;
+            else
+                _possibleVariants = {};
+        }
         for (auto& [chunkOffset, chunk] : _chunks) {
             // std::cout << fmt::format(":org {:04X} # size: {:04X}", chunkOffset, uint32_t(chunk.end - chunk.start)) << std::endl;
             generateInfoFromChunk(chunk);
@@ -809,36 +818,36 @@ public:
         else if(os) {
             renumerateLabels();
             *os << "# This is an automatically generated source, created by the Cadmium-Decompiler\n# ROM file used: " << filename << "\n\n";
-            if(containedAny(_possibleVariants, C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::MEGA_CHIP|C8V::XO_CHIP) && !contained(_possibleVariants, C8V::CHIP_8))
+            if(_possibleVariants.containsAny(C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::MEGA_CHIP|C8V::XO_CHIP) && !_possibleVariants.contains(C8V::CHIP_8))
                 *os << "#--------------------------------------------------------------\n";
-            if(contained(_possibleVariants, C8V::XO_CHIP) && _stats.contains(0xF000))
+            if(_possibleVariants.contains(C8V::XO_CHIP) && _stats.contains(0xF000))
                 *os << "# XO-CHIP support macros\n:macro i_long_labeled LABEL VALUE { 0xF0 0x00 : LABEL :pointer VALUE } # i := long NNNN\n";
 
-            if(contained(_possibleVariants, C8V::CHIP_8X) && !contained(_possibleVariants, C8V::CHIP_8)) {
+            if(_possibleVariants.contains(C8V::CHIP_8X) && !_possibleVariants.contains(C8V::CHIP_8)) {
                 *os << R"(# CHIP-8X support macros
 :macro cycle-bgcol { 0x02 0xa0 }
 :macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }
 :macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }
 )";
             }
-            if(contained(_possibleVariants, C8V::CHIP_8X_TPD) && !contained(_possibleVariants, C8V::CHIP_8)) {
+            if(_possibleVariants.contains(C8V::CHIP_8X_TPD) && !_possibleVariants.contains(C8V::CHIP_8)) {
                 *os << R"(# CHIP-8X support macros
 :macro clear-tpd { 0x02 0x30 }
 :macro cycle-bgcol-mp { 0x02 0xf0 }
 )";
-                if(!contained(_possibleVariants, C8V::CHIP_8X))
+                if(!_possibleVariants.contains(C8V::CHIP_8X))
                     *os << ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }\n";
             }
-            if(contained(_possibleVariants, C8V::HI_RES_CHIP_8X) && !contained(_possibleVariants, C8V::CHIP_8)) {
+            if(_possibleVariants.contains(C8V::HI_RES_CHIP_8X) && !_possibleVariants.contains(C8V::CHIP_8)) {
                 *os << R"(# CHIP-8X support macros
 :macro clear-fpd { 0x02 0x00 }
 )";
-                if(!containedAny(_possibleVariants, C8V::CHIP_8X|C8V::CHIP_8X_TPD)) {
+                if(!_possibleVariants.containsAny(C8V::CHIP_8X|C8V::CHIP_8X_TPD)) {
                     *os << ":macro cycle-bgcol-mp { 0x02 0xf0 }\n"
                         << ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }\n";
                 }
             }
-            if(contained(_possibleVariants, C8V::MEGA_CHIP) && !contained(_possibleVariants, C8V::CHIP_8)) {
+            if(_possibleVariants.contains(C8V::MEGA_CHIP) && !_possibleVariants.contains(C8V::CHIP_8)) {
                 *os << R"(# MegaChip support macros
 :macro megaoff { :byte 0x00  :byte 0x10 }
 :macro megaon { :byte 0x00 :byte 0x11 }
@@ -859,7 +868,7 @@ public:
 :macro ccol nn { :byte 0x09 :byte nn }
 )";
             }
-            if(containedAny(_possibleVariants, C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::MEGA_CHIP|C8V::XO_CHIP) && !contained(_possibleVariants, C8V::CHIP_8))
+            if(_possibleVariants.containsAny(C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::MEGA_CHIP|C8V::XO_CHIP) && !_possibleVariants.contains(C8V::CHIP_8))
                 *os << "#--------------------------------------------------------------\n\n";
             bool hasConsts = false;
             for(auto& [addr, info] : _label) {
@@ -869,7 +878,7 @@ public:
                 }
             }
             if(hasConsts && os) *os << "\n";
-            setVariant(_possibleVariants, true, true);
+            setVariants(_possibleVariants, true, true);
             *os << ": main" << std::endl;
             for (auto& [chunkOffset, chunk] : _chunks) {
                 //std::cout << fmt::format(":org {:04X} # size: {:04X}", chunkOffset, uint32_t(chunk.endData() - chunk.startData())) << ", " << (int)chunk.usageType() << std::endl;
@@ -911,7 +920,7 @@ public:
     }
 
     bool usesOddPcAddress() const { return _oddPcAccess; }
-    Chip8Variant possibleVariants() const { return _possibleVariants; }
+    const chip8::VariantSet& possibleVariants() const { return _possibleVariants; }
     const auto& fullStats() const { return _fullStats; }
     static const auto& totalStats() { return _totalStats; }
 
@@ -925,7 +934,7 @@ private:
     uint32_t _size{};
     bool _oddPcAccess{false};
     bool _megaChipEnabled{false};
-    Chip8Variant _possibleVariants{};
+    chip8::VariantSet _possibleVariants{};
     detail::OpcodeSet _opcodeSet;
     ChunkedMemory _chunks;
     //std::map<uint32_t, Chunk> _chunks;

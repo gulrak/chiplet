@@ -47,12 +47,13 @@ struct OpcodeInfo {
     int size;
     std::string mnemonic;
     std::string octo;
-    Chip8Variant variants;
+    chip8::VariantSet variants;
     std::string description;
 };
 
 namespace detail {
 // clang-format off
+using namespace chip8;
 inline static std::array<uint16_t, NUM_OPCODE_TYPES> opcodeMasks = { 0xFFFF, 0xFFF0, 0xFF00, 0xF000, 0xF00F, 0xF0FF, 0xF000, 0xF000, 0xFF0F };
 inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x0010, 2, "megaoff", "megaoff", C8V::MEGA_CHIP, "disable megachip mode" },
@@ -69,7 +70,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x00FD, 2, "exit", "exit", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::XO_CHIP|C8V::MEGA_CHIP|C8V::OCTO, "exit interpreter" },
     { OT_FFFF, 0x00FE, 2, "low", "lores", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to lores mode (64x32) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
     { OT_FFFF, 0x00FF, 2, "high", "hires", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to hires mode (128x64) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
-    { OT_FFFF, 0x00FF, 2, "dw #00ff", "nop", C8V::CHIP_8_ETI660|Chip8Variant::CHIP_8_ETI660_COL|Chip8Variant::CHIP_8_ETI660_HR, "nop (does nothing)" },
+    { OT_FFFF, 0x00FF, 2, "dw #00ff", "nop", C8V::CHIP_8_ETI660|C8V::CHIP_8_ETI660_COL|C8V::CHIP_8_ETI660_HR, "nop (does nothing)" },
     { OT_FFnn, 0x0100, 4, "ldhi i,NNNNNN", "ldhi NNNNNN", C8V::MEGA_CHIP, "set I to NNNNNN (24 bit)" },
     { OT_FFFF, 0x0151, 2, "dw #0151", "wait-dt", C8V::CHIP_8E, "halt execution until delay timer is 0"},
     { OT_FFFF, 0x0188, 2, "dw #0188", "skip-next", C8V::CHIP_8E, "skip next opcode (only 2 bytes)"},
@@ -83,7 +84,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x0700, 2, "stopsnd", "stopsnd", C8V::MEGA_CHIP, "stop digitized sound" },
     { OT_FFFn, 0x0800, 2, "bmode N", "bmode N", C8V::MEGA_CHIP, "set sprite blend mode (0=normal,1=25%,2=50%,3=75%,4=additive,5=multiply)" },
     { OT_FFnn, 0x0900, 2, "ccol NN", "ccol NN", C8V::MEGA_CHIP, "set collision color to index NN" },
-    { OT_Fnnn, 0x0000, 2, "dw #0NNN", ":pointer NNN", static_cast<Chip8Variant>((int64_t)C8V::MULTIPLE_NIM-1)|C8V::CHIP_8_D6800, "jump to native assembler subroutine at 0xNNN"},
+    { OT_Fnnn, 0x0000, 2, "dw #0NNN", ":pointer NNN", C8VG_COSMAC|C8V::CHIP_8_D6800, "jump to native assembler subroutine at 0xNNN"},
     { OT_Fnnn, 0x1000, 2, "jp NNN", "jump NNN", C8VG_BASE, "jump to address NNN" },
     { OT_Fnnn, 0x2000, 2, "call NNN", ":call NNN", C8VG_BASE, "push return address onto stack and call subroutine at address NNN" },
     { OT_Fxnn, 0x3000, 2, "se vX,NN", "if vX != NN then", C8VG_BASE, "skip next opcode if vX == NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
@@ -98,15 +99,15 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FxyF, 0x8000, 2, "ld vX,vY", "vX := vY", C8VG_BASE, "set vX to the value of vY" },
     { OT_FxyF, 0x8001, 2, "or vX,vY", "vX |= vY", C8VG_BASE, "set vX to the result of bitwise vX OR vY [Q: COSMAC based variants will reset VF]" },
     { OT_FxyF, 0x8002, 2, "and vX,vY", "vX &= vY", C8VG_BASE, "set vX to the result of bitwise vX AND vY [Q: COSMAC based variants will reset VF]" },
-    { OT_FxyF, 0x8003, 2, "xor vX,vY", "vX ^= vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to the result of bitwise vX XOR vY [Q: COSMAC based variants will reset VF]" },
+    { OT_FxyF, 0x8003, 2, "xor vX,vY", "vX ^= vY", C8VG_BASE - C8V::CHIP_8_D6800, "set vX to the result of bitwise vX XOR vY [Q: COSMAC based variants will reset VF]" },
     { OT_FxyF, 0x8004, 2, "add vX,vY", "vX += vY", C8VG_BASE, "add vY to vX, vF is set to 1 if an overflow happened, to 0 if not, even if X=F!" },
     { OT_FxyF, 0x8005, 2, "sub vX,vY", "vX -= vY", C8VG_BASE, "subtract vY from vX, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!" },
-    { OT_FxyF, 0x8006, 2, "shr vX{,vY}", "vX >>= vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to vY and shift vX one bit to the right, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX]" },
-    { OT_FxyF, 0x8007, 2, "subn vX,vY", "vX =- vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to the result of subtracting vX from vY, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!" },
-    { OT_FxyF, 0x800e, 2, "shl vX{,vY}", "vX <<= vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to vY and shift vX one bit to the left, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX]" },
+    { OT_FxyF, 0x8006, 2, "shr vX{,vY}", "vX >>= vY", C8VG_BASE - C8V::CHIP_8_D6800, "set vX to vY and shift vX one bit to the right, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX]" },
+    { OT_FxyF, 0x8007, 2, "subn vX,vY", "vX =- vY", C8VG_BASE - C8V::CHIP_8_D6800, "set vX to the result of subtracting vX from vY, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!" },
+    { OT_FxyF, 0x800e, 2, "shl vX{,vY}", "vX <<= vY", C8VG_BASE - C8V::CHIP_8_D6800, "set vX to vY and shift vX one bit to the left, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX]" },
     { OT_FxyF, 0x9000, 2, "sne vX,vY", "if vX == vY then", C8VG_BASE, "skip next opcode if vX != vY (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_Fnnn, 0xA000, 2, "ld i,NNN", "i := NNN", C8VG_BASE, "set I to NNN" },
-    { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE & ~(C8V::CHIP_8_I|C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIP_MODERN), "jump to address NNN + v0" },
+    { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE - C8V::CHIP_8_I - C8V::CHIP_8X - C8V::CHIP_8X_TPD - C8V::HI_RES_CHIP_8X - C8V::CHIP_48 - C8V::SCHIP_1_0 - C8V::SCHIP_1_1 - C8V::SCHIP_1_1_SCRUP - C8V::SCHIP_MODERN, "jump to address NNN + v0" },
     { OT_Fxnn, 0xB000, 2, "jp vX,NNN", "jump0 NNN + vX", C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIP_MODERN, "jump to address XNN + vX" },
     { OT_FFnn, 0xB000, 2, "dw #b0NN", "0xb0 0xNN", C8V::CHIP_8_I, "output NN to port"},
     { OT_FFnn, 0xBB00, 2, "dw #bbNN", "0xbb 0xNN", C8V::CHIP_8E, "jump backward to address of this instruction minus NN, bb00 is self-jump"},
@@ -179,19 +180,19 @@ class OpcodeSet
 {
 public:
     using SymbolResolver = std::function<std::string(uint32_t)>;
-    explicit OpcodeSet(Chip8Variant variant, SymbolResolver resolver = {})
-    : _variant(variant)
+    explicit OpcodeSet(VariantSet variants, SymbolResolver resolver = {})
+    : _variants(variants)
     , _labelOrAddress(std::move(resolver))
     , _mappedInfo(0x10000, 0xff)
     {
         for(const auto& info : opcodes) {
-            if(uint64_t(info.variants & variant) != 0) {
+            if(info.variants.containsAny(variants)) {
                 mapOpcode(opcodeMasks[info.type], info.opcode, &info - opcodes.data());
             }
         }
     }
     void formatInvalidAsHex(bool asHex) { _invalidAsHex = asHex; }
-    [[nodiscard]] Chip8Variant getVariant() const { return _variant; }
+    [[nodiscard]] VariantSet getVariants() const { return _variants; }
     [[nodiscard]] const OpcodeInfo* getOpcodeInfo(uint16_t opcode) const
     {
         auto index = _mappedInfo[opcode];
@@ -294,7 +295,7 @@ private:
             setIfEmpty(opcode, infoIndex);
         }
     }
-    Chip8Variant _variant;
+    VariantSet _variants;
     SymbolResolver _labelOrAddress;
     std::vector<uint8_t> _mappedInfo{};
     bool _invalidAsHex = false;

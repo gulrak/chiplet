@@ -31,6 +31,7 @@
 #include <initializer_list>
 #include <array>
 #include <string>
+#include <ghc/bit.hpp>
 
 namespace emu {
 
@@ -49,10 +50,30 @@ public:
             set(static_cast<std::size_t>(i));
         }
     }
-    constexpr bool contains(const EnumT e) {
+    constexpr bool contains(const EnumT e) const {
         auto idx = static_cast<size_t>(e);
         return _bits[idx>>6] & (1ull << (idx & 0x3f));
     }
+    constexpr bool containsAny(const EnumSet& e) const {
+        for(size_t i = 0; i < _bits.size(); ++i) {
+            if(_bits[i] & e._bits[i])
+                return true;
+        }
+        return false;
+    }
+
+    constexpr EnumT lowestVariant() const {
+        for (std::size_t i = 0; i < N; ++i) {
+            std::uint64_t w = _bits[i];
+            if (w != 0) {
+                return static_cast<EnumT>((i << 6) + ghc::countr_zero(w));
+            }
+        }
+        return static_cast<EnumT>(0);
+    }
+
+    constexpr auto operator<=>(const EnumSet& other) const = default;
+
     constexpr EnumSet& operator&=(const EnumSet& other) noexcept
     {
         for(auto [iter, oiter] = std::make_pair(_bits.begin(), other._bits.cbegin()); iter != _bits.end(); ++iter, ++oiter) {
@@ -83,6 +104,16 @@ public:
         set(static_cast<size_t>(other));
         return *this;
     }
+    friend constexpr EnumSet operator&(const EnumSet& e1, const EnumT e2) {
+        EnumSet result = e1;
+        result &= e2;
+        return result;
+    }
+    friend constexpr EnumSet operator|(const EnumSet& e1, const EnumT e2) {
+        EnumSet result = e1;
+        result |= e2;
+        return result;
+    }
     friend constexpr EnumSet operator&(const EnumT e1, const EnumT e2) {
         EnumSet result = e1;
         result &= e2;
@@ -91,6 +122,16 @@ public:
     friend constexpr EnumSet operator|(const EnumT e1, const EnumT e2) {
         EnumSet result = e1;
         result |= e2;
+        return result;
+    }
+    friend constexpr EnumSet operator&(const EnumSet& e1, const EnumSet& e2) {
+        EnumSet result = e1;
+        result &= e2;
+        return result;
+    }
+    constexpr EnumSet operator-(EnumT e) const noexcept {
+        EnumSet result = *this;
+        result.reset(static_cast<size_t>(e));
         return result;
     }
     constexpr bool is_empty() const {
@@ -111,6 +152,75 @@ public:
     constexpr uint64_t value() const {
         return _bits.front();
     }
+
+    class const_iterator {
+    public:
+        using value_type = EnumT;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::forward_iterator_tag;
+
+        const_iterator() = default;
+
+        const_iterator(const ArrayT* words, std::size_t i)
+            : _words(words), _wi(i)
+        {
+            if (_words) {
+                advance_to_next_nonzero();
+                prime_current();
+            }
+        }
+
+        value_type operator*() const { return static_cast<EnumT>(_pos); }
+
+        const_iterator& operator++() {
+            _mask &= (_mask - 1);
+            if (_mask) {
+                prime_current();
+            } else {
+                ++_wi;
+                advance_to_next_nonzero();
+                prime_current();
+            }
+            return *this;
+        }
+
+        const_iterator operator++(int) { auto tmp = *this; ++*this; return tmp; }
+
+        friend bool operator==(const const_iterator& a, const const_iterator& b) {
+            return a._words == b._words && a._wi == b._wi && a._mask == b._mask;
+        }
+        friend bool operator!=(const const_iterator& a, const const_iterator& b) {
+            return !(a == b);
+        }
+
+    private:
+        void advance_to_next_nonzero() {
+            while (_wi < N) {
+                _mask = (*_words)[_wi];
+                if (_mask) return;
+                ++_wi;
+            }
+            _mask = 0; // end
+        }
+
+        void prime_current() {
+            if (_wi < N && _mask) {
+                auto tz = static_cast<unsigned>(std::countr_zero(_mask));
+                _pos = (_wi << 6) + tz;
+            } else {
+                _wi = N;
+                _pos = std::numeric_limits<std::size_t>::max();
+            }
+        }
+
+        const ArrayT* _words = nullptr;
+        std::size_t _wi = N;
+        std::uint64_t _mask = 0;
+        std::size_t _pos = std::numeric_limits<std::size_t>::max();
+    };
+
+    const_iterator begin() const { return const_iterator(&_bits, 0); }
+    const_iterator end()   const { return const_iterator(&_bits, N); }
 private:
     constexpr void set(size_t idx, bool val = true) {
         if(val)
@@ -199,14 +309,16 @@ enum class Variant {
     CHIP_8_CL_COL = 0x36,      // CHIP-8 Classic / Color
     SCHIP_MODERN = 0x37,       // Modern SCHIP as defined by Octo
     SCHIP_1_0_BETA = 0x38,     // SUPER-CHIP 1.0 Beta (with the wrong big-font function)
+    CHIP_8_TPD_TS = 0x39,      // Two-page display for CHIP-8 modyfied by Tom Swan for "PIPS for VIPS"
+    COSMAC_VIP = 0x40,           // A pure COSMAC VIP without CHIP-8
+    CHIP_8_COSMAC_VIP = 0x41,    // CHIP-8 on emulated COSMAC VIP
+    CHIP_8_TPD_COSMAC_VIP = 0x42,// CHIP-8 Two Page Display on emulated COSMAC VIP
+    CHIP_8_TPD_TS_COSMAC_VIP = 0x43,// CHIP-8 Two Page Display on emulated COSMAC VIP
+    GENERIC_CHIP_8 = 0x7F,        // A universal program, don't switch current emulation
 
-    COSMAC_VIP = 0x3B,           // A pure COSMAC VIP without CHIP-8
-    CHIP_8_COSMAC_VIP = 0x3C,    // CHIP-8 on emulated COSMAC VIP
-    CHIP_8_TDP_COSMAC_VIP = 0x3C,// CHIP-8 Two Page Display on emulated COSMAC VIP
-    GENERIC_CHIP_8 = 0x3F        // A universal program, don't switch current emulation
 };
 
-using VariantSet = EnumSet<Variant>;
+using VariantSet = EnumSet<Variant, 128>;
 
 constexpr VariantSet operator&(const Variant e1, const Variant e2) {
     VariantSet vs = e1;
@@ -220,9 +332,72 @@ constexpr VariantSet operator|(const Variant e1, const Variant e2) {
 }
 
 static const VariantSet mix = Variant::CHIP_10 | Variant::CHIP_48;
+
+static constexpr VariantSet ALL_VARIANTS =
+    chip8::Variant::CHIP_8 | chip8::Variant::CHIP_8_1_2 | chip8::Variant::CHIP_8_I |
+    chip8::Variant::CHIP_8_II | chip8::Variant::CHIP_8_III | chip8::Variant::CHIP_8_TPD |
+    chip8::Variant::CHIP_8C | chip8::Variant::CHIP_10 | chip8::Variant::CHIP_8_SRV |
+    chip8::Variant::CHIP_8_SRV_I | chip8::Variant::CHIP_8_RB | chip8::Variant::CHIP_8_ARB |
+    chip8::Variant::CHIP_8_FSD | chip8::Variant::CHIP_8_IOPD | chip8::Variant::CHIP_8_8BMD |
+    chip8::Variant::HI_RES_CHIP_8 | chip8::Variant::HI_RES_CHIP_8_IO | chip8::Variant::HI_RES_CHIP_8_PS |
+    chip8::Variant::CHIP_8E | chip8::Variant::CHIP_8_IBNNN | chip8::Variant::CHIP_8_SCROLL |
+    chip8::Variant::CHIP_8X | chip8::Variant::CHIP_8X_TPD | chip8::Variant::HI_RES_CHIP_8X |
+    chip8::Variant::CHIP_8Y | chip8::Variant::CHIP_8_CtS | chip8::Variant::CHIP_BETA |
+    chip8::Variant::CHIP_8M | chip8::Variant::MULTIPLE_NIM | chip8::Variant::DOUBLE_ARRAY_MOD |
+    chip8::Variant::CHIP_8_D6800 | chip8::Variant::CHIP_8_D6800_LOP | chip8::Variant::CHIP_8_D6800_JOY |
+    chip8::Variant::C8_2K_CHIPOS_D6800 | chip8::Variant::CHIP_8_ETI660 | chip8::Variant::CHIP_8_ETI660_COL |
+    chip8::Variant::CHIP_8_ETI660_HR | chip8::Variant::CHIP_8_COSMAC_ELF | chip8::Variant::CHIP_8_ACE_VDU |
+    chip8::Variant::CHIP_8_AE | chip8::Variant::CHIP_8_DC_V2 | chip8::Variant::CHIP_8_AMIGA |
+    chip8::Variant::CHIP_48 | chip8::Variant::SCHIP_1_0 | chip8::Variant::SCHIP_1_1 |
+    chip8::Variant::GCHIP | chip8::Variant::SCHIPC | chip8::Variant::VIP2K_CHIP_8 |
+    chip8::Variant::SCHIP_1_1_SCRUP | chip8::Variant::CHIP8RUN | chip8::Variant::MEGA_CHIP |
+    chip8::Variant::XO_CHIP | chip8::Variant::OCTO | chip8::Variant::CHIP_8_CL_COL |
+    chip8::Variant::SCHIP_MODERN | chip8::Variant::SCHIP_1_0_BETA | chip8::Variant::CHIP_8_TPD_TS |
+    chip8::Variant::CHIP_8_TPD_TS_COSMAC_VIP | chip8::Variant::COSMAC_VIP | chip8::Variant::CHIP_8_COSMAC_VIP |
+    chip8::Variant::CHIP_8_TPD_COSMAC_VIP | chip8::Variant::GENERIC_CHIP_8;
+
+static constexpr VariantSet C8VG_COSMAC =
+    chip8::Variant::CHIP_8 | chip8::Variant::CHIP_8_1_2 | chip8::Variant::CHIP_8_I |
+    chip8::Variant::CHIP_8_II | chip8::Variant::CHIP_8_III | chip8::Variant::CHIP_8_TPD |
+    chip8::Variant::CHIP_8C | chip8::Variant::CHIP_10 | chip8::Variant::CHIP_8_SRV |
+    chip8::Variant::CHIP_8_SRV_I | chip8::Variant::CHIP_8_RB | chip8::Variant::CHIP_8_ARB |
+    chip8::Variant::CHIP_8_FSD | chip8::Variant::CHIP_8_IOPD | chip8::Variant::CHIP_8_8BMD |
+    chip8::Variant::HI_RES_CHIP_8 | chip8::Variant::HI_RES_CHIP_8_IO | chip8::Variant::HI_RES_CHIP_8_PS |
+    chip8::Variant::CHIP_8E | chip8::Variant::CHIP_8_IBNNN | chip8::Variant::CHIP_8_SCROLL |
+    chip8::Variant::CHIP_8X | chip8::Variant::CHIP_8X_TPD | chip8::Variant::HI_RES_CHIP_8X |
+    chip8::Variant::CHIP_8Y | chip8::Variant::CHIP_8_CtS | chip8::Variant::CHIP_BETA |
+    chip8::Variant::CHIP_8M | chip8::Variant::CHIP_8_TPD_TS |
+    chip8::Variant::CHIP_8_TPD_TS_COSMAC_VIP | chip8::Variant::COSMAC_VIP | chip8::Variant::CHIP_8_COSMAC_VIP |
+    chip8::Variant::CHIP_8_TPD_COSMAC_VIP;
+
+static constexpr VariantSet C8VG_BASE = ALL_VARIANTS - Variant::CHIP_8_1_2 - Variant::CHIP_8C - Variant::CHIP_8_SCROLL - Variant::MULTIPLE_NIM;
+static constexpr VariantSet C8VG_D6800 = Variant::CHIP_8_D6800 | Variant::CHIP_8_D6800_LOP | Variant::CHIP_8_D6800_JOY | Variant::C8_2K_CHIPOS_D6800;
+
 }
 
+using C8V = chip8::Variant;
 
+inline std::string romExtension(const chip8::Variant& variant)
+{
+    switch(variant) {
+        case chip8::Variant::CHIP_10: return ".ch10";
+        case chip8::Variant::CHIP_8E: return ".c8e";
+        case chip8::Variant::CHIP_8X: return ".c8x";
+        case chip8::Variant::CHIP_8_RB: return ".c8rb";
+        case chip8::Variant::CHIP_8_TPD: return ".c8tpd";
+        case chip8::Variant::HI_RES_CHIP_8: return ".c8fpd";
+        case chip8::Variant::CHIP_48: return ".ch48";
+        case chip8::Variant::SCHIP_1_0: return ".sc10";
+        case chip8::Variant::SCHIP_1_1: return ".sc11";
+        case chip8::Variant::SCHIPC: return ".scc";
+        case chip8::Variant::SCHIP_MODERN: return ".scm";
+        case chip8::Variant::MEGA_CHIP: return ".mc8";
+        case chip8::Variant::XO_CHIP: return ".xo8";
+        default: return ".ch8";
+    }
+}
+
+#if 0
 enum class Chip8Variant : uint64_t {
     NONE,
     CHIP_8 = 0x01,                      // CHIP-8
@@ -342,8 +517,8 @@ constexpr detail::EnableBitmask<Enum>& operator^=(Enum& X, Enum Y)
 
 using C8V = Chip8Variant;
 
-static constexpr Chip8Variant C8VG_BASE = static_cast<Chip8Variant>(0x7FFFFFFFFFFFFF) & ~(C8V::CHIP_8_1_2 | C8V::CHIP_8C | C8V::CHIP_8_SCROLL | C8V::MULTIPLE_NIM);
-static constexpr Chip8Variant C8VG_D6800 = C8V::CHIP_8_D6800 | C8V::CHIP_8_D6800_LOP | C8V::CHIP_8_D6800_JOY | C8V::CHIPOS_2K_D6800;
+//static constexpr Chip8Variant C8VG_BASE = static_cast<Chip8Variant>(0x7FFFFFFFFFFFFF) & ~(C8V::CHIP_8_1_2 | C8V::CHIP_8C | C8V::CHIP_8_SCROLL | C8V::MULTIPLE_NIM);
+//static constexpr Chip8Variant C8VG_D6800 = C8V::CHIP_8_D6800 | C8V::CHIP_8_D6800_LOP | C8V::CHIP_8_D6800_JOY | C8V::CHIPOS_2K_D6800;
 
 inline bool contained(Chip8Variant variants, Chip8Variant subset)
 {
@@ -355,24 +530,7 @@ inline bool containedAny(Chip8Variant variants, Chip8Variant subset)
     return uint64_t(variants & subset) != 0;
 }
 
-inline std::string romExtension(const chip8::Variant& variant)
-{
-    switch(variant) {
-        case chip8::Variant::CHIP_10: return ".ch10";
-        case chip8::Variant::CHIP_8E: return ".c8e";
-        case chip8::Variant::CHIP_8X: return ".c8x";
-        case chip8::Variant::CHIP_8_RB: return ".c8rb";
-        case chip8::Variant::CHIP_8_TPD: return ".c8tpd";
-        case chip8::Variant::HI_RES_CHIP_8: return ".c8fpd";
-        case chip8::Variant::CHIP_48: return ".ch48";
-        case chip8::Variant::SCHIP_1_0: return ".sc10";
-        case chip8::Variant::SCHIP_1_1: return ".sc11";
-        case chip8::Variant::SCHIPC: return ".scc";
-        case chip8::Variant::SCHIP_MODERN: return ".scm";
-        case chip8::Variant::MEGA_CHIP: return ".mc8";
-        case chip8::Variant::XO_CHIP: return ".xo8";
-        default: return ".ch8";
-    }
-}
+
+#endif
 
 } // namespace emu

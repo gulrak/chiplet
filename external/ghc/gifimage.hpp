@@ -53,6 +53,7 @@ namespace ghc {
 class GifImage
 {
 public:
+    struct Color { uint8_t r, g, b; };
     using ByteArray = std::vector<uint8_t>;
     using ByteView = std::span<const uint8_t>;
 
@@ -209,6 +210,14 @@ public:
     bool isEmpty() const { return _frames.empty(); }
     uint16_t width() const { return _width; }
     uint16_t height() const { return _height; }
+    void setPalette(std::vector<Color> palette)
+    {
+        _palette.clear();
+        for(auto& c : palette) {
+            _palette.push_back(c.r << 16 | c.g << 8 | c.b << 0);
+        }
+    }
+    void setPalette(std::span<uint32_t> palette) { _palette = std::vector<uint32_t>(palette.begin(), palette.end()); }
     bool addFrame(ByteView data, uint16_t delayTime_ms = 16);
     size_t numFrames() const { return _frames.size(); }
     const Frame& getFrame(size_t index) { return _frames[index]; }

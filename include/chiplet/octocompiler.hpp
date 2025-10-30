@@ -87,7 +87,7 @@ public:
         Value value;
     };
     struct Token {
-        enum Type { eNONE, eNUMBER, eSTRING, eDIRECTIVE, eIDENTIFIER, eOPERATOR, eKEYWORD, ePREPROCESSOR, eSPRITESIZE, eLCURLY, eRCURLY, eEOF };
+        enum Type { eNONE, eNUMBER, eSTRING, eDIRECTIVE, eIDENTIFIER, eOPERATOR, eKEYWORD, ePREPROCESSOR, eSPRITESIZE, eLCURLY, eRCURLY, eLSQUARE, eRSQUARE, eEOF };
         Type type{eNONE};
         double number{};
         std::string text;
@@ -162,7 +162,7 @@ public:
     const Sha1::Digest& sha1() const;
     std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
     uint32_t lineForAddr(uint32_t addr) const;
-    const char* breakpointForAddr(uint32_t addr) const;
+    std::string_view breakpointForAddr(uint32_t addr) const;
 
 private:
     inline Lexer& lexer()
@@ -179,6 +179,7 @@ private:
     bool isTrue(const std::string_view& name) const;
     static bool isImage(const std::string& filename);
     Token::Type includeImage(std::string filename);
+    Token::Type includeBinary(std::string filename);
     void write(const std::string_view& text);
     void writeGenerated(const std::string_view& text);
     void writePrefix();

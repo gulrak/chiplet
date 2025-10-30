@@ -1,8 +1,8 @@
 //---------------------------------------------------------------------------------------
-// src/emulation/chip8decompiler.hpp
+// cprint.hpp
 //---------------------------------------------------------------------------------------
 //
-// Copyright (c) 2022, Steffen Schümann <s.schuemann@pobox.com>
+// Copyright (c) 2025, Steffen Schümann <s.schuemann@pobox.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -24,38 +24,34 @@
 //
 //---------------------------------------------------------------------------------------
 #pragma once
+#include <iosfwd>
+#include <fmt/format.h>
 
-#include <string>
-#include <memory>
-#include "sha1.hpp"
+namespace ghc {
 
-namespace emu {
-
-class Chip8Compiler
-{
-public:
-    Chip8Compiler();
-    ~Chip8Compiler();
-
-    bool compile(std::string_view text, int startAddress = 0x200);
-    bool isError() const;
-    const std::string& errorMessage() const;
-    std::string rawErrorMessage() const;
-    int errorLine() const;
-    int errorCol() const;
-    size_t numSourceLines() const;
-    uint32_t codeSize() const;
-    const uint8_t* code() const;
-    const Sha1::Digest& sha1() const;
-    std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
-    uint32_t lineForAddr(uint32_t addr) const;
-    std::string_view breakpointForAddr(uint32_t addr) const;
-
-private:
-    void updateHash();
-    void updateLineCoverage();
-    class Private;
-    std::unique_ptr<Private> _impl;
+// Simple cross-platform color enum
+enum class Color {
+    DEFAULT,
+    RED,
+    GREEN,
+    YELLOW,
+    BLUE,
+    MAGENTA,
+    CYAN,
+    BOLD
 };
 
+namespace detail {
+// Implemented in the .cpp to keep system/OS headers out of the public surface.
+void emit_colored(std::ostream& os, Color color, std::string_view text);
+} // namespace detail
+
+// cprint: first parameter is the Color, then fmt-style format string + args.
+// Example: cprint::cprint(cprint::Color::GREEN, "Hello, {}!\n", "world");
+template <typename... Args>
+inline void cprint(Color color, fmt::format_string<Args...> fmt_str, Args&&... args) {
+    auto formatted = fmt::format(fmt_str, std::forward<Args>(args)...);
+    detail::emit_colored(std::cout, color, formatted);
 }
+
+} // namespace ghc

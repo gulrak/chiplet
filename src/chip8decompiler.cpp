@@ -35,7 +35,7 @@
 
 namespace emu {
 
-std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant cv)
+std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(chip8::Variant cv)
 {
     switch(cv)
     {
@@ -45,6 +45,7 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant
         case C8V::CHIP_8_II: return {"chip-8ii", "CHIP-8 II aka. Keyboard Kontrol"};
         case C8V::CHIP_8_III: return {"chip-8iii", "CHIP-8III"};
         case C8V::CHIP_8_TPD: return {"chip-8-tpd", "Two-page display for CHIP-8"};
+        case C8V::CHIP_8_TPD_TS: return {"chip-8-tpd-ts", "Two-page display for CHIP-8, modified by Tom Swan"};
         case C8V::CHIP_8C: return {"chip-8c", "CHIP-8C"};
         case C8V::CHIP_10: return {"chip-10", "CHIP-10"};
         case C8V::CHIP_8_SRV: return {"chip-8-srv", "CHIP-8 modification for saving and restoring variables"};
@@ -72,7 +73,7 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant
         case C8V::CHIP_8_D6800: return {"chip-8-d6800", "CHIP-8 for DREAM 6800 (CHIPOS)"};
         case C8V::CHIP_8_D6800_LOP: return {"chip-8-d6800-lop", "CHIP-8 with logical operators for DREAM 6800 (CHIPOSLO)"};
         case C8V::CHIP_8_D6800_JOY: return {"chip-8-d6800-joy", "CHIP-8 for DREAM 6800 with joystick"};
-        case C8V::CHIPOS_2K_D6800: return {"chipos-2k-d6800", "2K CHIPOS for DREAM 6800"};
+        case C8V::C8_2K_CHIPOS_D6800: return {"chipos-2k-d6800", "2K CHIPOS for DREAM 6800"};
         case C8V::CHIP_8_ETI660: return {"chip-8-eti660", "CHIP-8 for ETI-660"};
         case C8V::CHIP_8_ETI660_COL: return {"chip-8-eti660-col", "CHIP-8 with color support for ETI-660"};
         case C8V::CHIP_8_ETI660_HR: return {"chip-8-eti660-hr", "CHIP-8 for ETI-660 with high resolution"};
@@ -82,6 +83,7 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant
         case C8V::CHIP_8_DC_V2: return {"chip-8-dc-v2", "Dreamcards Extended CHIP-8 V2.0"};
         case C8V::CHIP_8_AMIGA: return {"chip-8-amiga", "Amiga CHIP-8 interpreter"};
         case C8V::CHIP_48: return {"chip-48", "CHIP-48"};
+        case C8V::SCHIP_1_0_BETA: return {"schip-1.0-beta", "SUPER-CHIP 1.0 Beta"};
         case C8V::SCHIP_1_0: return {"schip-1.0", "SUPER-CHIP 1.0"};
         case C8V::SCHIP_1_1: return {"schip-1.1", "SUPER-CHIP 1.1"};
         case C8V::GCHIP: return {"gchip", "GCHIP"};
@@ -94,7 +96,13 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(Chip8Variant
         case C8V::OCTO: return {"octo", "Octo"};
         case C8V::CHIP_8_CL_COL: return {"chip-8-cl-col", "CHIP-8 Classic / Color"};
         case C8V::SCHIP_MODERN: return {"schip-modern", "SUPER-CHIP Modern"};
-        default: return {"", ""};
+        case C8V::COSMAC_VIP: return {"vip-none", "COSMAC VIP"};
+        case C8V::CHIP_8_COSMAC_VIP: return {"chip-8-vip", "CHIP-8 on an emulated COSMAC VIP"};
+        case C8V::CHIP_8_TPD_COSMAC_VIP: return {"chip-8-tpd", "Two-page display for CHIP-8, modified by Tom Swan, on an emulated COSMAC VIP"};
+        case C8V::CHIP_8_TPD_TS_COSMAC_VIP: return {"chip-8-tpd", "Two-page display for CHIP-8, modified by Tom Swan, on an emulated COSMAC VIP"};
+        case C8V::GENERIC_CHIP_8: return {"generic-chip", "A generic universal binary, don't change variant"};
+        case C8V::NONE: return {"", ""};
+        //default: return {"", ""};
     }
 }
 

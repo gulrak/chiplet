@@ -25,6 +25,7 @@
 //---------------------------------------------------------------------------------------
 
 #include <ghc/fs_impl.hpp>
+#include <ghc/bit.hpp>
 
 #include <chiplet/octocompiler.hpp>
 #include <chiplet/chip8compiler.hpp>
@@ -43,33 +44,66 @@
 
 #include <nlohmann/json.hpp>
 
+#include "chiplet/imagehelper.hpp"
+#include "chiplet/utility.hpp"
+
 namespace {
 
-inline bool startsWith(const std::string& text, const std::string& prefix)
-{
-    return text.size() >= prefix.size() && 0 == text.compare(0, prefix.size(), prefix);
+namespace {
+constexpr int hexval(char c) noexcept {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
 }
 
-inline std::string toLower(std::string s)
-{
-    auto result = s;
-    std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c){ return std::tolower(c); });
-    return result;
-}
-
-template <typename OutIter>
-inline void split(const std::string &s, char delimiter, OutIter result) {
-    std::istringstream is(s);
-    std::string part;
-    while (std::getline(is, part, delimiter)) {
-        *result++ = part;
+std::optional<img::Color> parseHexColor(std::string_view s) {
+    if (!s.empty() && s.back() == ',') {
+        s.remove_suffix(1);
     }
+    if (s.empty()) return std::nullopt;
+    img::Color out{};
+    if (s.size() == 3) {
+        int r = hexval(s[0]);
+        int g = hexval(s[1]);
+        int b = hexval(s[2]);
+        if (r < 0 || g < 0 || b < 0) return std::nullopt;
+        out.r = static_cast<uint8_t>(r * 17);
+        out.g = static_cast<uint8_t>(g * 17);
+        out.b = static_cast<uint8_t>(b * 17);
+        return out;
+    }
+    if (s.size() == 6) {
+        int r1 = hexval(s[0]), r2 = hexval(s[1]);
+        int g1 = hexval(s[2]), g2 = hexval(s[3]);
+        int b1 = hexval(s[4]), b2 = hexval(s[5]);
+        if ((r1 | r2 | g1 | g2 | b1 | b2) < 0) return std::nullopt;
+        out.r = static_cast<uint8_t>((r1 << 4) | r2);
+        out.g = static_cast<uint8_t>((g1 << 4) | g2);
+        out.b = static_cast<uint8_t>((b1 << 4) | b2);
+        return out;
+    }
+    return std::nullopt;
 }
 
-inline std::vector<std::string> split(const std::string &s, char delimiter) {
-    std::vector<std::string> result;
-    split(s, delimiter, std::back_inserter(result));
+std::optional<std::pair<int, int>> parseDimension(std::string_view s)
+{
+    auto pos = s.find('x');
+    if (pos == std::string_view::npos) {
+        return std::nullopt;
+    }
+    std::pair<int, int> result;
+    auto [ptr1, ec1] = std::from_chars(s.data(), s.data() + pos, result.first);
+    if (ec1 != std::errc()) {
+        return std::nullopt;
+    }
+    auto [ptr2, ec2] = std::from_chars(s.data() + pos + 1, s.data() + s.size(), result.second);
+    if (ec2 != std::errc()) {
+        return std::nullopt;
+    }
     return result;
+}
+
 }
 
 inline std::string loadTextFile(const std::string& file)
@@ -116,7 +150,7 @@ void OctoCompiler::initializeTables()
 {
     if(_assemblerLookupTable.empty()) {
         for (const auto& info : detail::opcodes) {
-            auto tokens = split(info.octo, ' ');
+            auto tokens = ::split(info.octo, ' ');
             if (!startsWith(info.octo, "vX") && !startsWith(info.octo, "i ") && !startsWith(info.octo, "0x")) {
                 auto keywordSize = info.octo.find(' ');
                 if(keywordSize == std::string::npos)
@@ -407,9 +441,9 @@ uint32_t OctoCompiler::lineForAddr(uint32_t addr) const
     return _compiler ? _compiler->lineForAddr(addr) : 0xFFFFFFFF;
 }
 
-const char* OctoCompiler::breakpointForAddr(uint32_t addr) const
+std::string_view OctoCompiler::breakpointForAddr(uint32_t addr) const
 {
-    return _compiler ? _compiler->breakpointForAddr(addr) : nullptr;
+    return _compiler ? _compiler->breakpointForAddr(addr) : "";
 }
 
 void OctoCompiler::Lexer::setRange(const std::string& filename, const char* source, const char* end)
@@ -490,9 +524,9 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
                 if (*(start + 2) == 'b')
                     _token.number = -(double)std::strtol(start+3, &end, 2);
             }
-            else if((_token.number == 8 || _token.number == 16) && *end == 'x') {
+            /*else if((_token.number == 8 || _token.number == 16) && *end == 'x') {
                 return _token.type = Token::eSPRITESIZE;
-            }
+            }*/
         }
         else if(_mode == eRCA && *start == '#')
             _token.number = (double)std::strtol(start+1, &end, 16);
@@ -500,7 +534,7 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
             _token.number = (double)std::strtol(start+1, &end, 16);
         if (end == _srcPtr)
             return _token.type = Token::eNUMBER;
-        else if (std::isdigit(*start))
+        if (!preproc && std::isdigit(*start))
             error(fmt::format("The number could not be parsed: {}", _token.raw));
         if(*start == ':') {
             if (_directives.count(_token.text))
@@ -518,6 +552,10 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
             return _token.type = Token::eLCURLY;
         if(*start == '}')
             return _token.type = Token::eRCURLY;
+        if (*start == '[')
+            return _token.type = Token::eLSQUARE;
+        if (*start == ']')
+            return _token.type = Token::eRSQUARE;
         if(std::strchr("+-*/%@|<>^!.=:", *start))
             return _token.type = Token::eOPERATOR;
         if(_reserved.count(_token.text)) {
@@ -720,9 +758,12 @@ const CompileResult& OctoCompiler::preprocessFile(const std::string& inputFile, 
                         if (next != Token::eSTRING)
                             error("Expected string after ':include'.");
                         auto newFile = fs::absolute(inputFile).parent_path() / lex.token().text;
-                        auto extension = toLower(newFile.extension().string());
+                        auto extension = ::toLower(newFile.extension().string());
                         if (isImage(extension)) {
                             token = includeImage(newFile.string());
+                        }
+                        else if (extension == ".bin" || extension == ".ch8") {
+                            token = includeBinary(newFile.string());
                         }
                         else {
                             flushSegment();
@@ -966,21 +1007,41 @@ bool OctoCompiler::isImage(const std::string& extension)
     return extension == ".png" || extension == ".gif" || extension == ".bmp" || extension == ".jpg" || extension == ".jpeg" || extension == ".tga";
 }
 
+namespace {
+enum ImageFilterType { eNEAREST, eDITHER };
+std::vector<uint8_t> processImage(uint8_t* data, size_t width, size_t height, ImageFilterType filter, const std::vector<img::Color>& palette, bool megaChip)
+{
+    switch(filter) {
+        case eNEAREST:
+            return img::threshold(data, width, height, palette);
+        case eDITHER:
+            return img::dither(data, width, height, palette);
+    }
+}
+}
+
 OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
 {
+    std::vector<img::Color> palette{{0,0,0}, {255,255,255}};
     int width,height,numChannels;
     int widthHint = -1, heightHint = -1;
+    bool megaChip = false;
+    ImageFilterType filter = eNEAREST;
     bool genLabels = true;
     bool debug = false;
     auto& lex = lexer();
     auto token = lex.nextToken(true);
     while(true) {
-        if (token == Token::eSPRITESIZE) {
-            auto sizes = split(lex.token().text, 'x');
-            if(sizes.size() != 2)
-                error(fmt::format("Bad sprite size for image include: '{}'", lex.token().raw));
-            widthHint = std::stoi(sizes[0]);
-            heightHint = std::stoi(sizes[1]);
+        if (auto size = parseDimension(lex.token().raw); size) {
+            widthHint = size.value().first;
+            heightHint = size.value().second;
+            if (megaChip) {
+                if (widthHint == 0 || widthHint > 256 || heightHint == 0 || heightHint > 256)
+                    error("Invalid size for mega-chip image.");
+            }
+            else if (!(widthHint == 8 || widthHint == 16) || heightHint == 0 || heightHint > 64) {
+                error("Invalid size for 8xN or 16x16 image.");
+            }
         }
         else if(token == Token::eIDENTIFIER && lex.token().text == "no-labels")
         {
@@ -990,12 +1051,58 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
         {
             debug = true;
         }
+        else if(token == Token::eIDENTIFIER && lex.token().text == "dither")
+        {
+            filter = eDITHER;
+        }
+        else if(token == Token::eIDENTIFIER && lex.token().text == "megachip")
+        {
+            megaChip = true;
+        }
+        else if (token == Token::eLSQUARE) {
+            std::vector<img::Color> colors;
+            auto sv = lex.token().raw;
+            if (sv.length() > 1) {
+                sv.remove_prefix(1);
+                auto col = parseHexColor(sv);
+                if (!col)
+                    error(fmt::format("Bad color value for image include: '{}'", sv));
+                colors.push_back(*col);
+                while (true) {
+                    token = lex.nextToken(true);
+                    if (token == Token::eEOF)
+                        break;
+                    if (token == Token::eRSQUARE)
+                        break;
+                    if (endsWith(lex.token().raw, "]")) {
+                        auto sv = lex.token().raw;
+                        sv.remove_suffix(1);
+                        col = parseHexColor(sv);
+                        if (!col)
+                            error(fmt::format("Bad color value for image include: '{}'", sv));
+                        colors.push_back(*col);
+                        break;
+                    }
+                    auto sv = lex.token().raw;
+                    if (sv.length() > 1) {
+                        col = parseHexColor(sv);
+                        if (!col)
+                            error(fmt::format("Bad color value for image include: '{}'", sv));
+                        colors.push_back(*col);
+                    }
+                }
+            }
+            if (auto n = colors.size(); n != 0 && (n & (n - 1)) == 0 && n >= 2 && n <= 16)
+                palette = colors;
+            else
+                error(fmt::format("Invalid color palette for image include, must be power of two and between 2 and 16 entries"));
+        }
         else {
             break;
         }
         token = lex.nextToken(true);
     }
-    auto* data = stbi_load(filename.c_str(), &width, &height, &numChannels, 1);
+    auto* data = stbi_load(filename.c_str(), &width, &height, &numChannels, 4);
     if(!data) {
         error(fmt::format("Could not load image: '{}'", filename));
     }
@@ -1016,37 +1123,96 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
     auto name = fs::path(filename).filename().stem().string();
     if(width % spriteWidth != 0)
         error(fmt::format("Image needs to be divisible by {}.", spriteWidth));
+    auto processed = processImage(data, width, height, filter, palette, megaChip);
+    stbi_image_free(data);
     std::string debugStr;
+    bool asHex = true;
     if(debug && _progress) _progress(1, fmt::format("\nSprite dimension: {}x{}", spriteWidth, spriteHeight));
-    for (int y = 0; y < height; y += spriteHeight) {
-        for (int x = 0; x < width; x += spriteWidth) {
-            int index = y * width + x;
-            if(genLabels)
-                writeGenerated(fmt::format("\n: {}-{}-{}\n", name, x/8, y/spriteHeight));
-            if(debug && _progress) _progress(1, fmt::format("{} {},{}:", name, x/8, y/spriteHeight));
-            for (int rows = 0; rows < spriteHeight; rows++) {
-                writeGenerated(" ");
-                for (int cols = 0; cols < spriteWidth / 8; cols++) {
-                    uint8_t val = 0;
-                    for (uint8_t bit = 0x80, i = 0; bit > 0; bit >>= 1, ++i) {
-                        auto pixel = data[index + rows * width + cols * 8 + i];
-                        if(pixel > 128) {
-                            val |= bit;
-                        }
-                        if(debug && _progress) debugStr += pixel > 128 ? "██" : "░░";                        
+    if (!megaChip) {
+        auto bitPlanes = ghc::countr_zero(palette.size());
+        for (int y = 0; y < height; y += spriteHeight) {
+            for (int x = 0; x < width; x += spriteWidth) {
+                int index = y * width + x;
+                for (int plane = 0; plane < bitPlanes; ++plane) {
+                    size_t count = 0;
+                    if (bitPlanes == 1) {
+                        if(genLabels)
+                            writeGenerated(fmt::format(": {}-{}-{}", name, x/8, y/spriteHeight));
+                        if(debug && _progress) _progress(1, fmt::format("{} {},{}:", name, x/8, y/spriteHeight));
                     }
-                    writeGenerated(fmt::format(" 0b{:08b}", val));
+                    else {
+                        if(genLabels)
+                            writeGenerated(fmt::format(": {}-{}-{}-{}", name, plane, x/8, y/spriteHeight));
+                        if(debug && _progress) _progress(1, fmt::format("{} {},{},{}:", name, plane, x/8, y/spriteHeight));
+                    }
+                    for (int rows = 0; rows < spriteHeight; rows++) {
+                        //writeGenerated(" ");
+                        for (int cols = 0; cols < spriteWidth / 8; cols++) {
+                            uint8_t val = 0;
+                            for (uint8_t bit = 0x80, i = 0; bit > 0; bit >>= 1, ++i) {
+                                auto pixel = processed[index + rows * width + cols * 8 + i];
+                                if (pixel & (1 << plane))
+                                    val |= bit;
+                                if(debug && _progress) debugStr += (pixel & (1 << plane)) ? "██" : "░░";
+                            }
+                            if (asHex) {
+                                if (count++ % 16 == 0) {
+                                    writeGenerated("\n ");
+                                }
+                                writeGenerated(fmt::format(" 0x{:02x}", val));
+                            }
+                            else
+                                writeGenerated(fmt::format(" 0b{:08b}", val));
+                        }
+                        if(debug && _progress) {
+                            _progress(1, debugStr);
+                            debugStr.clear();
+                        }
+                        if (!asHex)
+                            writeGenerated("\n");
+                    }
+                    if (asHex)
+                        writeGenerated("\n");
                 }
-                if(debug && _progress) {
-                    _progress(1, debugStr);
-                    debugStr.clear();
-                }
-                writeGenerated("\n");
             }
         }
     }
-    stbi_image_free(data);
+    else {
+        // MegaChip sprites
+        for (int y = 0; y < height; y += spriteHeight) {
+            for (int x = 0; x < width; x += spriteWidth) {
+                int index = y * width + x;
+                if(genLabels)
+                    writeGenerated(fmt::format(": {}-{}-{}", name, x/spriteWidth, y/spriteHeight));
+                if(debug && _progress) _progress(1, fmt::format("{} {},{}:", name, x/spriteWidth, y/spriteHeight));
+                size_t count = 0;
+                for (int rows = 0; rows < spriteHeight; rows++) {
+                    for (int cols = 0; cols < spriteWidth; cols++) {
+                        auto pixel = processed[index + rows * width + cols];
+                        if (count++ % 16 == 0) {
+                            writeGenerated("\n ");
+                        }
+                        writeGenerated(fmt::format(" 0x{:02x}", pixel));
+                    }
+                }
+            }
+        }
+    }
     return token;
+}
+
+OctoCompiler::Token::Type OctoCompiler::includeBinary(std::string filename)
+{
+    auto data = loadFile(filename);
+    size_t count = 0;
+    for (auto& byte : data) {
+        if (count % 16 == 0)
+            writeGenerated("   ");
+        writeGenerated(fmt::format(" 0x{:02x}", byte));
+        if (++count % 16 == 0)
+            writeGenerated("\n");
+    }
+    return lexer().nextToken(true);;
 }
 
 static int whitespaceLinesAtEnd(const std::string& text)

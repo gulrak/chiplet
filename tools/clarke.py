@@ -766,6 +766,60 @@ private:
 
             f.write("};\n\n}\n")
 
+    def generate_decode_tree_v2(self):
+        byte_table = dict()
+        for instr in self.instructions:
+            if instr['opcode'][0] in string.hexdigits:
+                if instr['opcode'][1] not in string.hexdigits:
+                    nibble = instr['opcode'][1]
+                    print(f"Issue: {instr['identifier']}")
+                    for var in instr['variables']:
+                        if var.startswith(nibble):
+                            var_name, operand_type = re.split('[=#]', var)
+                            offset = 0
+                            if '+' in operand_type:
+                                operand_type, offset = operand_type.split('+', 1)
+                                offset = int(offset)
+                            if operand_type in self.operand_tables:
+                                for key, value in self.operand_tables[operand_type].items():
+                                    print(f"    {value+offset:x}")
+                                    key = instr['opcode'][0] + f"{value+offset:x}"
+                                    if key not in byte_table:
+                                        byte_table[key] = [instr]
+                                    else:
+                                        byte_table[key].append(instr)
+                            elif operand_type == 'const(4)' or operand_type == 'hwflags()':
+                                print(f"expanding rule...")
+                                for value in range(16):
+                                    print(f"{value:x}")
+                                    key = instr['opcode'][0] + f"{value:x}"
+                                    if key not in byte_table:
+                                        byte_table[key] = [instr]
+                                    else:
+                                        byte_table[key].append(instr)
+                            elif operand_type.startswith('pcofs('):
+                                for value in range(16):
+                                    key = instr['opcode'][0] + f"{value:x}"
+                                    if key not in byte_table:
+                                        byte_table[key] = [instr]
+                                    else:
+                                        byte_table[key].append(instr)
+                                #print(f"expanding rule...")
+                                #for value in range(16):
+                                #    if value != 0 and instr['opcode'][:len(var_name)] != var_name:
+                                #        self.insert_instruction_into_tree(path, tree, instr, f'{value:x}', nibble_index)
+                                #return
+                else:
+                    key = instr['opcode'][:2]
+                    if key not in byte_table:
+                        byte_table[key] = [instr]
+                    else:
+                        byte_table[key].append(instr)
+        for key in sorted(byte_table):
+            if len(byte_table[key]) > 1 and len(max(byte_table[key], key=lambda d: len(d.get('opcode', ''))).get('opcode', '')) > 3:
+                mark = "" if any(d.get('opcode', '')[-1] in string.hexdigits for d in byte_table.get(key, [])) else ""
+                mark2 = "#" if any('pcofs' in d.get('operands', '') for d in byte_table.get(key, [])) else ""
+                print(f"{key}{mark}{mark2}: {len(byte_table[key])} {byte_table[key]}")
 
 def main():
     parser = argparse.ArgumentParser(description='Parse Saturn instruction set definition file')
@@ -778,6 +832,8 @@ def main():
 
     saturn_parser = SaturnParser(args.filename)
     saturn_parser.parse()
+
+    saturn_parser.generate_decode_tree_v2()
 
     if args.dump:
         print("\nOperand Tables:")

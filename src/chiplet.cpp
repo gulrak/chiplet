@@ -135,13 +135,10 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
         case eANALYSE:
             std::cout << "    " << fileOrPath(file);
             dec.decompile(file, startAddress, &std::cout, true);
-            if((uint64_t)dec.possibleVariants()) {
-                auto mask = static_cast<uint64_t>(dec.possibleVariants() & allowedVariants);
+            if(!dec.possibleVariants().is_empty()) {
                 bool first = true;
-                while(mask) {
-                    auto cv = static_cast<emu::Chip8Variant>(mask & -mask);
-                    mask &= mask - 1;
-                    std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(cv).first;
+                for (auto variant : dec.possibleVariants()) {
+                    std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(variant).first;
                     first = false;
                 }
                 std::cout << std::endl;
@@ -185,23 +182,20 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
         case eDEEP_ANALYSE: {
             if(data.size() > 4096 - startAddress) {
                 if(data.size() <= 65536 - startAddress) {
-                    dec.setVariant(emu::Chip8Variant::XO_CHIP | emu::Chip8Variant::MEGA_CHIP, true, true);
+                    dec.setVariants(emu::chip8::Variant::XO_CHIP | emu::chip8::Variant::MEGA_CHIP, true, true);
                 }
                 else {
-                    dec.setVariant(emu::Chip8Variant::MEGA_CHIP, true, true);
+                    dec.setVariants(emu::chip8::Variant::MEGA_CHIP, true, true);
                 }
             }
             std::ostringstream msg;
             dec.decompile(file, startAddress, &msg, true);
-            if((uint64_t)dec.possibleVariants()) {
-                auto mask = static_cast<uint64_t>(dec.possibleVariants() & allowedVariants);
+            if(!dec.possibleVariants().is_empty()) {
+                auto possibleVariants = dec.possibleVariants() & allowedVariants;
                 bool first = true;
                 if(!isChipRom(fs::path(file).extension().string())) {
-                    std::cout << "    " << fileOrPath(file);
-                    while(mask) {
-                        auto cv = static_cast<emu::Chip8Variant>(mask & -mask);
-                        mask &= mask - 1;
-                        std::cout << (first ? ", possible variants: " : ", ") << emu::Chip8Decompiler::chipVariantName(cv).first;
+                    for (auto variant : possibleVariants) {
+                        std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(variant).first;
                         first = false;
                     }
                     extensionsDetected.emplace(fs::path(file).extension().string());
@@ -481,31 +475,36 @@ int main(int argc, char* argv[])
                         std::cerr << "ERROR: No output filename given for cartridge output (use -o/--output)." << std::endl;
                         return 1;
                     }
-                    emu::OctoCartridge cart(outputFile);
-                    if(!cartridgeOptions.empty()) {
-                        if(!fs::exists(cartridgeOptions) || fs::is_directory(cartridgeOptions)) {
-                            std::cerr << "ERROR: Couldn't find JSON file '" << cartridgeOptions << "' with cartridge options." << std::endl;
-                            return 1;
-                        }
-                        else {
-                            auto optionsStr = loadTextFile(cartridgeOptions);
-                            try {
-                                auto json = nlohmann::json::parse(optionsStr);
-                                cart.setOptions(json);
-                            }
-                            catch(...) {
-                                std::cerr << "ERROR: Couldn't parse cartridge option file '" << cartridgeOptions << "'." << std::endl;
+                    if (cartridgeBuild) {
+                        emu::OctoCartridge cart(outputFile);
+                        if(!cartridgeOptions.empty()) {
+                            if(!fs::exists(cartridgeOptions) || fs::is_directory(cartridgeOptions)) {
+                                std::cerr << "ERROR: Couldn't find JSON file '" << cartridgeOptions << "' with cartridge options." << std::endl;
                                 return 1;
                             }
+                            else {
+                                auto optionsStr = loadTextFile(cartridgeOptions);
+                                try {
+                                    auto json = nlohmann::json::parse(optionsStr);
+                                    cart.setOptions(json);
+                                }
+                                catch(...) {
+                                    std::cerr << "ERROR: Couldn't parse cartridge option file '" << cartridgeOptions << "'." << std::endl;
+                                    return 1;
+                                }
+                            }
                         }
-                    }
-                    else if(!cartridgeVariant.empty()) {
+                        else if(!cartridgeVariant.empty()) {
 
+                        }
+                        else if(result.config) {
+                            cart.setOptions(result.config->at("options"));
+                        }
+                        cart.saveCartridge(os.str(), cartridgeLabel, {});
+                        // TODO: Finish cartridge generation
+                        return -1;
                     }
-                    else if(result.config) {
-                        cart.setOptions(result.config->at("options"));
-                    }
-                    cart.saveCartridge(os.str(), cartridgeLabel, {});
+                    return 0;
                 }
             }
             else {

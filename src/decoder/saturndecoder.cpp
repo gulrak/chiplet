@@ -590,18 +590,18 @@ static constexpr int16_t decodingTable[] = {
     123, 123, 123, 123, 123, 0, 0, 0, 125, 125, 125, 125, 125, 0, 0, 0,
 };
 
-static constexpr std::string_view field[] = {"p","wp","xs","x","s","m","b","w",};
-static constexpr std::string_view regpair4[] = {"a,b","b,c","c,a","d,c",};
-static constexpr std::string_view regpair4rev[] = {"b,a","c,b","a,c","c,d",};
-static constexpr std::string_view regpair8[] = {"b,a","c,b","a,c","c,d","a,b","b,c","c,a","d,c",};
-static constexpr std::string_view regpair8split[] = {"b,a","c,b","a,c","c,d","???","???","???","???","a,b","b,c","c,a","d,c",};
-static constexpr std::string_view regpair12[] = {"b,a","c,b","a,c","c,d","a,a","b,b","c,c","d,d","a,b","b,c","c,a","d,c",};
-static constexpr std::string_view reg[] = {"a","b","c","d",};
-static constexpr std::string_view mrpair[] = {"a,@d0","a,@d1","@d0,a","@d1,a","c,@d0","c,@d1","@d0,c","@d1,c",};
-static constexpr std::string_view daregpair[] = {"a,d0","a,d1","???","???","c,d0","c,d1",};
-static constexpr std::string_view daregpairrev[] = {"d0,a","d1,a","???","???","d0,c","d1,c",};
-static constexpr std::string_view tempreg[] = {"r0","r1","r2","r3","r4",};
-static constexpr const std::string_view* varTables[] = {
+static constexpr std::array<std::string_view,16> field{"p","wp","xs","x","s","m","b","w",};
+static constexpr std::array<std::string_view,16> regpair4{"a,b","b,c","c,a","d,c",};
+static constexpr std::array<std::string_view,16> regpair4rev{"b,a","c,b","a,c","c,d",};
+static constexpr std::array<std::string_view,16> regpair8{"b,a","c,b","a,c","c,d","a,b","b,c","c,a","d,c",};
+static constexpr std::array<std::string_view,16> regpair8split{"b,a","c,b","a,c","c,d",{},{},{},{},"a,b","b,c","c,a","d,c",};
+static constexpr std::array<std::string_view,16> regpair12{"b,a","c,b","a,c","c,d","a,a","b,b","c,c","d,d","a,b","b,c","c,a","d,c",};
+static constexpr std::array<std::string_view,16> reg{"a","b","c","d",};
+static constexpr std::array<std::string_view,16> mrpair{"a,@d0","a,@d1","@d0,a","@d1,a","c,@d0","c,@d1","@d0,c","@d1,c",};
+static constexpr std::array<std::string_view,16> daregpair{"a,d0","a,d1",{},{},"c,d0","c,d1",};
+static constexpr std::array<std::string_view,16> daregpairrev{"d0,a","d1,a",{},{},"d0,c","d1,c",};
+static constexpr std::array<std::string_view,16> tempreg{"r0","r1","r2","r3","r4",};
+static constexpr std::array<const std::array<std::string_view,16>,11> varTables{
     field,
     regpair4,
     regpair4rev,
@@ -615,28 +615,7 @@ static constexpr const std::string_view* varTables[] = {
     tempreg,
 };
 
-enum VariableType {
-    vt_field,
-    vt_regpair4,
-    vt_regpair4rev,
-    vt_regpair8,
-    vt_regpair8split,
-    vt_regpair12,
-    vt_reg,
-    vt_mrpair,
-    vt_daregpair,
-    vt_daregpairrev,
-    vt_tempreg,
-    vt_maxtables,
-    vt_const = vt_maxtables,
-    vt_nzconst,
-    vt_varconst,
-    vt_pcofs,
-    vt_hwflags,
-    vt_none
-};
-
-
+using namespace saturn;
 static constexpr SaturnDecoder::InstructionInfo instructions[] = {
     { "add.a p+1,c", 0x809, 3, 0, {0,0,0},{0,0,0}, {vt_none, vt_none, vt_none}, {0, 0, 0} },
     { "add.a {0}", 0xc0, 2, 1, {1,0,0},{1,0,0}, {vt_regpair12, vt_none, vt_none}, {0, 0, 0} },
@@ -853,7 +832,7 @@ SaturnDecoder::DecodeResult SaturnDecoder::decode(uint32_t& address) const
         nibble = readNibble(address++);
         opcode = (opcode << 4) | nibble;
         for (unsigned i = 0; i <= nibble; i++) {
-            varArg = (varArg << 4) | readNibble(address++);
+            varArg |= static_cast<uint64_t>(readNibble(address++)) << (i * 4);
         }
     }
     else {
@@ -867,53 +846,60 @@ SaturnDecoder::DecodeResult SaturnDecoder::decode(uint32_t& address) const
     return {static_cast<OpcodeId>(instructionIndex), &info, opcode, varArg};
 }
 
-static int64_t twosComplement(const uint64_t value, const unsigned bitSize)
+const std::array<const std::array<std::string_view,16>,11>& SaturnDecoder::getVarTables() const
 {
-    if (value & (1ULL << (bitSize - 1))) {
-        return static_cast<int64_t>(value) - (1LL << bitSize);
-    }
-    return static_cast<int64_t>(value);
+    return varTables;
 }
 
-static uint64_t reverseNibbles(uint64_t value, int n) {
-    uint64_t result = 0;
-    for (int i = 0; i < n; i++) {
-        uint8_t nibble = (value >> (i * 4)) & 0xF;
-        result |= (uint64_t)nibble << ((n - 1 - i) * 4);
-    }
-    return result;
-}
-
-std::string SaturnDecoder::varToString(const DecodeResult& decoded, uint32_t startAddress, unsigned index)
+template <typename T>
+T SaturnDecoder::getParameter(const DecodeResult& decoded, uint32_t startAddress, unsigned index)
 {
+    T result;
     const auto& info = *decoded.info;
     if (info.varTypes[index] == vt_none) {
         return {};
     }
     if (info.opcodeSize < 0) {
         auto varSize = (decoded.opcode & 0xF) + 1;
-        return index ? fmt::format("{}", varSize) : fmt::format("#{:0{}x}", decoded.varArg, varSize);
+        return index ? decoded.varArg : varSize;
     }
     auto varSize = info.varSizes[index]*4;
     auto val = varSize ? (decoded.opcode >> (info.opcodeSize*4 - (info.varOffsets[index]*4 + varSize))) & ((1ULL << varSize) - 1) : 0;
     val = reverseNibbles(val, info.varSizes[index]);
     if (info.varTypes[index] < vt_maxtables) {
-        return std::string(varTables[info.varTypes[index]][val - info.varArgs[index]]);
+        return val - info.varArgs[index];
     }
     switch (info.varTypes[index]) {
         case vt_const:
-            return val < 10 ? fmt::format("{}", val) : fmt::format("#{:0{}x}", val, varSize>>2);
+            return val;
         case vt_nzconst:
-            return fmt::format("{}", val+1);
+            return val+1;
         case vt_pcofs: {
             auto distance = twosComplement(val, varSize);
-            return fmt::format("#{:05x}", startAddress + distance + info.varArgs[index]);
+            return startAddress + distance + info.varArgs[index];
         }
+        case vt_varconst:
+            return decoded.varArg;
         case vt_hwflags:
-            return "hwflags???";
+            return val;
         default:
-            return "???";
+            return 0;
     }
+}
+
+template uint64_t SaturnDecoder::getParameter<uint64_t>(const DecodeResult& decoded, uint32_t startAddress, unsigned index);
+template unsigned SaturnDecoder::getParameter<unsigned>(const DecodeResult& decoded, uint32_t startAddress, unsigned index);
+
+size_t SaturnDecoder::numInstructions()
+{
+    return std::size(instructions);
+}
+const SaturnDecoder::InstructionInfo* SaturnDecoder::getInstructionInfo(size_t index)
+{
+    if (index >= std::size(instructions)) {
+        return nullptr;
+    }
+    return &instructions[index];
 }
 
 }

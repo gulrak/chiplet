@@ -38,8 +38,34 @@ Token::Token(const Token& other)
         num_value = other.num_value;
     }
     else {
-        str_value = other.str_value;
+        if (!other.str_container.empty() && other.str_value.data() == other.str_container.data()) {
+            str_container = other.str_container;
+            str_value = str_container;
+        }
+        else {
+            str_value = other.str_value;
+        }
     }
+}
+Token& Token::operator=(const Token& other)
+{
+    type = other.type;
+    tid = other.tid;
+    line = other.line;
+    pos = other.pos;
+    if (type == Type::NUMBER) {
+        num_value = other.num_value;
+    }
+    else {
+        if (!other.str_container.empty() && other.str_value.data() == other.str_container.data()) {
+            str_container = other.str_container;
+            str_value = str_container;
+        }
+        else {
+            str_value = other.str_value;
+        }
+    }
+    return *this;
 }
 
 char* Token::formatValue(char* d) const
@@ -338,26 +364,26 @@ std::string_view Program::string()
 {
     if (is_error)
         return "";
-    auto t = next();
-    if (t.type != Token::Type::STRING) {
-        is_error = 1, error = fmt::format("Expected a string, got {}.", (int)t.num_value);
+    stringToken = next();
+    if (stringToken.type != Token::Type::STRING) {
+        is_error = 1, error = fmt::format("Expected a string, got {}.", (int)stringToken.num_value);
         return "";
     }
-    return t.str_value;
+    return stringToken.str_value;
 }
 
 std::string_view Program::identifier(const char* kind)
 {
     if (is_error)
         return "";
-    auto t = next();
-    if (t.type != Token::Type::STRING) {
-        is_error = 1, error = fmt::format("Expected a name for a {}, got {}.", kind, (int)t.num_value);
+    stringToken = next();
+    if (stringToken.type != Token::Type::STRING) {
+        is_error = 1, error = fmt::format("Expected a name for a {}, got {}.", kind, (int)stringToken.num_value);
         return "";
     }
-    if (!check_name(t.str_value, kind))
+    if (!check_name(stringToken.str_value, kind))
         return "";
-    return t.str_value;
+    return stringToken.str_value;
 }
 
 void Program::expect(std::string_view name)
@@ -1383,7 +1409,7 @@ void Program::compile_statement()
             }
             case TokenId::BREAKPOINT:
                 eat();
-                breakpoints[here] = string().data();
+                breakpoints[here] = string();
                 break;
             case TokenId::MONITOR: {
                 eat();
@@ -1466,7 +1492,12 @@ void Program::compile_statement()
             }
             case TokenId::ORG: {
                 eat();
-                here = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value_16bit(0, 0));
+                int new_address = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value_16bit(0, 0));
+                if (new_address < here && used[here-1] && new_address != 0x200) {
+                    is_error = 1;
+                    error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - new_address, here);
+                }
+                here = new_address;
                 break;
             }
             case TokenId::CALL: {

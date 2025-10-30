@@ -110,9 +110,9 @@ uint32_t Chip8Compiler::lineForAddr(uint32_t addr) const
     return _impl->_program->lineForAddress(addr);
 }
 
-const char* Chip8Compiler::breakpointForAddr(uint32_t addr) const
+std::string_view Chip8Compiler::breakpointForAddr(uint32_t addr) const
 {
-    if(addr <= _impl->_program->lastAddressUsed() && _impl->_program->breakpointInfo(addr)) {
+    if(addr <= _impl->_program->lastAddressUsed() && !_impl->_program->breakpointInfo(addr).empty()) {
         return _impl->_program->breakpointInfo(addr);
     }
     return nullptr;
@@ -125,8 +125,8 @@ void Chip8Compiler::updateHash()
     Sha1 sum;
     sum.add(code(), codeSize());
     for(uint32_t addr = 0; addr <= _impl->_program->lastAddressUsed(); ++addr) {
-        if(_impl->_program->breakpointInfo(addr)) {
-            auto l = std::snprintf(bpName, 1023, "%04x:%s", addr, _impl->_program->breakpointInfo(addr));
+        if(!_impl->_program->breakpointInfo(addr).empty()) {
+            auto l = fmt::format_to_n(bpName, 1023, "{:04x}:{}", addr, _impl->_program->breakpointInfo(addr)).size;
             sum.add(bpName, l);
         }
     }

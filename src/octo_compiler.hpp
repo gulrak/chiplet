@@ -172,8 +172,8 @@ public:
     Token(int line, int pos);
     explicit Token(int n);
     Token(const Token& other);
+    Token& operator=(const Token& other);
     char* formatValue(char* d) const;
-
     Type type;
     TokenId tid{TokenId::TOK_UNKNOWN};
     int line;
@@ -269,12 +269,12 @@ public:
     int romStartAddress() const { return startAddress; }
     const uint8_t* data() const { return rom.data() + startAddress; }
     int numSourceLines() const { return source_line; }
-    const char* breakpointInfo(uint32_t addr) const
+    std::string_view breakpointInfo(uint32_t addr) const
     {
         if (is_error || addr > rom.size())
             return nullptr;
         auto iter = breakpoints.find(addr);
-        return iter == breakpoints.end() ? nullptr : iter->second;
+        return iter == breakpoints.end() ? "" : iter->second;
     }
     uint32_t lineForAddress(uint32_t addr) const { return !is_error && addr < romLineMap.size() ? romLineMap[addr] : 0xFFFFFFFF; }
 
@@ -344,9 +344,10 @@ private:
     std::stack<FlowControl> loops{};
     std::stack<FlowControl> branches{};
     std::stack<FlowControl> whiles{}; // value=-1 indicates a marker
+    Token stringToken{0,0};
 
     // debugging
-    std::unordered_map<uint32_t, const char*> breakpoints{};
+    std::unordered_map<uint32_t, std::string_view> breakpoints{};
     std::unordered_map<std::string_view, Monitor> monitors{};
 
 };

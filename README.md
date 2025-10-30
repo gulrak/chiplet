@@ -1,4 +1,4 @@
-# Chiplet
+# Chiplet v2
 
 _A commandline multitool for CHIP-8 variant development_
 
@@ -226,6 +226,46 @@ variant of the opcode (`F000`) else the normal opcode will be used.
 The `:unless` directive has the inverted logic, emitting the following
 code if the option is not set.
 
+
+### Segments and Code Layout Management
+
+XO-CHIP architecture imposes a memory constraint where executable
+code must reside within the first 3.5KB of memory space, while the
+remaining 60KB can be allocated for data storage. This limitation
+exists because while XO-CHIP provides the `i := long <label>`
+instruction for loading 16-bit addresses into the index register,
+it lacks corresponding instructions for jumping to or calling 16-bit
+memory locations.
+
+During development, it's often more intuitive and maintainable to
+organize related code and data elements together in the same source 
+files. Chiplet addresses this challenge through intelligent 
+automatic code reorganization using segment annotations.
+
+By marking sections of your code with `:segment code` and `:segment data`
+directives, Chiplet can automatically restructure your program to
+meet XO-CHIP's memory layout requirements. The assembler ensures
+that all executable instructions are placed in the lower memory region while data elements are relocated to the extended memory space.
+
+Note: Files are implicitly treated as starting with :segment code, so this annotation can be omitted when your file begins with executable instructions.
+
+Example:
+```
+i := long lookup_table
+load v4
+# Process the loaded data...
+
+:segment data
+
+: lookup_table
+0 1 2 3 4
+```
+
+In this example, the executable code will be placed in the restricted
+memory area, while the lookup_table data will be automatically 
+moved to the extended memory region, maintaining proper program
+functionality while adhering to XO-CHIP's architectural constraints.
+
 ### Inclusion of Files
 
 To organize a complex project it is often useful to split the
@@ -251,7 +291,8 @@ is:
 Where `<path-to-image-file>` is the image file to import (valid image
 formats/extension are `.png`, `.gif`, `.bmp`, `.jpg`, `.jpeg` and `.tga`),
 valid sizes are `8x1`, `8x2`, `8x3`, `8x4`. `8x5`, `8x6`, `8x7`, `8x8`,
-`8x9`, `8x10`, `8x11`, `8x12`, `8x13`, `8x14`, `8x15` or `16x16`.
+`8x9`, `8x10`, `8x11`, `8x12`, `8x13`, `8x14`, `8x15`, `8x16` or `16x16`.<br/>
+_Note: Be aware that 8x16 and 16x16 images can only be drawn by specific variants._
 
 The generated sprite data blocks are predixed by a label of the form:
 
