@@ -193,7 +193,7 @@ template <class T>
 
 // 26.5.6, counting
 template <class T>
-typename std::enable_if_t<std::is_unsigned_v<T>, int> countl_zero(T x) noexcept
+constexpr typename std::enable_if_t<std::is_unsigned_v<T>, int> countl_zero(T x) noexcept
 {
     if (!x)
         return std::numeric_limits<T>::digits;
@@ -205,7 +205,7 @@ typename std::enable_if_t<std::is_unsigned_v<T>, int> countl_zero(T x) noexcept
     if constexpr (sizeof(T) == sizeof(unsigned long long))
         return __builtin_clzll(x);
     return __builtin_clzll(static_cast<std::make_unsigned_t<T>>(x)) + std::numeric_limits<T>::digits - std::numeric_limits<unsigned long long>::digits;
-#elif defined _MSC_VER
+#elif defined _MSC_VER_DISABLED
     unsigned long index;
     if constexpr (sizeof(T) <= 4) {
         _BitScanReverse(&index, static_cast<std::make_unsigned_t<T>>(x));
