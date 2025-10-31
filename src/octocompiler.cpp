@@ -1062,6 +1062,10 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
         }
         else if (token == Token::eLSQUARE) {
             std::vector<img::Color> colors;
+            if (megaChip) {
+                colors.reserve(256);
+                colors.push_back({0,0,0,0});
+            }
             auto sv = lex.token().raw;
             if (sv.length() > 1) {
                 sv.remove_prefix(1);
@@ -1093,7 +1097,7 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
                     }
                 }
             }
-            if (auto n = colors.size(); n != 0 && (n & (n - 1)) == 0 && n >= 2 && n <= 16)
+            if (auto n = colors.size(); (megaChip && n > 2 && n < 256) || (n != 0 && (n & (n - 1)) == 0 && n >= 2 && n <= 16))
                 palette = colors;
             else
                 error(fmt::format("Invalid color palette for image include, must be power of two and between 2 and 16 entries"));
@@ -1196,6 +1200,7 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
                         writeGenerated(fmt::format(" 0x{:02x}", pixel));
                     }
                 }
+                writeGenerated("\n");
             }
         }
     }
