@@ -24,6 +24,12 @@
 //
 //---------------------------------------------------------------------------------------
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include <chiplet/octocompiler.hpp>
 #include <chiplet/chip8decompiler.hpp>
 
@@ -40,12 +46,6 @@
 #include <chrono>
 #include <set>
 #include <stdexcept>
-
-#ifdef _WIN32
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
 
 enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH, eDEEP_ANALYSE };
 static std::unordered_map<std::string, std::string> fileMap;
