@@ -266,7 +266,8 @@ std::string_view getNextInstruction(std::string_view source, std::string_view::c
 int main()
 {
     constexpr std::string_view magic = "HPHP48-";
-    auto data = loadFile("/Users/schuemann/Development/c8/cadmium/schip11");
+    auto file = loadFile("/Users/schuemann/Development/c8/cadmium/schip11");
+    auto data = file.value_or(Bytes{});
     if (!std::equal(magic.begin(), magic.end(), data.begin(), [](char a, uint8_t b) { return static_cast<uint8_t>(a) == b; })) {
         std::cerr << "Not a hp object file!" << std::endl;
         exit(1);
