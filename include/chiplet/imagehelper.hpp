@@ -37,6 +37,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <ghc/fs_fwd.hpp>
@@ -249,7 +250,7 @@ inline std::uint32_t readU32LE(const std::uint8_t* p)
 }
 }  // namespace detail
 
-inline Palette extract_png_palette(std::span<const std::uint8_t> bytes)
+inline Palette extractPngPalette(std::span<const std::uint8_t> bytes)
 {
     using namespace detail;
 
@@ -314,14 +315,14 @@ inline Palette extract_png_palette(std::span<const std::uint8_t> bytes)
     return out;
 }
 
-inline Palette extract_png_palette(const std::filesystem::path& path)
+inline Palette extractPngPalette(const ghc::filesystem::path& path)
 {
-    std::ifstream f(path, std::ios::binary);
+    ghc::filesystem::ifstream f(path, std::ios::binary);
     detail::ensure(!!f, "Failed to open file: " + path.string());
-    std::vector<std::uint8_t> buf(std::filesystem::file_size(path));
+    std::vector<std::uint8_t> buf(ghc::filesystem::file_size(path));
     if (!f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(buf.size())))
         throw std::runtime_error("Failed to read file: " + path.string());
-    return extract_png_palette(std::span<const std::uint8_t>(buf.data(), buf.size()));
+    return extractPngPalette(std::span<const std::uint8_t>(buf.data(), buf.size()));
 }
 
 struct BmpPalette
@@ -335,7 +336,7 @@ struct BmpPalette
     std::uint32_t colors_used = 0;  // from DIB (may be 0)
 };
 
-inline Palette extract_bmp_palette(std::span<const std::uint8_t> bytes)
+inline Palette extractBmpPalette(std::span<const std::uint8_t> bytes)
 {
     using namespace detail;
     if (bytes.size() < 14)
@@ -453,17 +454,17 @@ inline Palette extract_bmp_palette(std::span<const std::uint8_t> bytes)
     return result;
 }
 
-inline Palette extract_bmp_palette(const std::filesystem::path& path)
+inline Palette extractBmpPalette(const ghc::filesystem::path& path)
 {
-    std::ifstream f(path, std::ios::binary);
+    ghc::filesystem::ifstream f(path, std::ios::binary);
     if (!f)
         throw std::runtime_error("Failed to open file: " + path.string());
-    const auto sz = std::filesystem::file_size(path);
+    const auto sz = ghc::filesystem::file_size(path);
     std::vector<std::uint8_t> buf(static_cast<std::size_t>(sz));
     if (!f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(buf.size())))
         throw std::runtime_error("Failed to read file: " + path.string());
     detail::ensure(f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(buf.size())), "Failed to read file: " + path.string());
-    return extract_bmp_palette(std::span<const std::uint8_t>(buf.data(), buf.size()));
+    return extractBmpPalette(std::span<const std::uint8_t>(buf.data(), buf.size()));
 }
 
 // Pack/unpack RGBA as 0xAABBGGRR (or any consistent order)
