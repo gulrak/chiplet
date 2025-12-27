@@ -75,6 +75,7 @@ public:
         std::function<bool()> condition;
         int64_t minVal{std::numeric_limits<int64_t>::min()};
         int64_t maxVal{std::numeric_limits<int64_t>::max()};
+        bool _noNo{false};
         Info& dependsOn(std::function<bool()> dependCondition)
         {
             condition = std::move(dependCondition);
@@ -141,6 +142,12 @@ public:
         auto& val = std::get<T>(callbackArgs.back());
         return option(names, val, description, [callback,&val](std::string name){ callback(name, val); });
     }
+    Info& optionEnable(const std::vector<std::string>& names, bool& destVal, std::string description = {})
+    {
+        auto& info = option(names, destVal, std::move(description));
+        info._noNo = true;
+        return info;
+    }
     void positional(std::vector<std::string>& dest, std::string description = std::string())
     {
         positionalArgs = &dest;
@@ -174,11 +181,14 @@ public:
             for(const auto& [names, info] : handler) {
                 if(info.category == category) {
                     std::string delimiter = "  ";
+                    auto isBool = std::holds_alternative<bool*>(info.valPtr);
                     for(const auto& name : names) {
-                        out << delimiter << name;
-                        if(info.valPtr.index()) {
+                        if (isBool && !info._noNo && name.starts_with("--"))
+                            out << delimiter << "--[no-]" << name.substr(2);
+                        else
+                            out << delimiter << name;
+                        if(!isBool)
                             out << " <arg>";
-                        }
                         delimiter = ", ";
                     }
                     out << std::endl << "    " << info.help << "\n" << std::endl;
@@ -208,25 +218,30 @@ private:
             exit(1);
         }
         conditionFailed = false;
+        auto isNegatedBool = iter->starts_with("--no-");
         for(const auto& [names, info] : handler) {
             for(const auto& name : names) {
-                if(name == *iter) {
+                // name matches or the option is bool, the given argumnt starts with "--no-" and the remaining name matches, so it's a negated bool option
+                if(name == *iter || (isNegatedBool && name.size() > 2 && std::holds_alternative<bool*>(info.valPtr) && std::string_view(name).substr(2) == std::string_view(*iter).substr(5) )) {
                     if(info.condition && !info.condition()) {
                         conditionFailed = true;
                         continue;
                     }
                     ++iter;
-                    if(info.valPtr.index()) {
+                    if(!std::holds_alternative<bool*>(info.valPtr)) {
                         if(iter == argList.end()) {
                             throw std::runtime_error("Missing argument to option " + name);
                         }
                         info.converter(name, *iter++, info);
                     }
-                    else if(iter != argList.end() && boolKeys.count(*iter)) {
+                    else if(iter != argList.end() && boolKeys.contains(*iter)) {
                         *std::get<bool*>(info.valPtr) = boolKeys.at(*iter++);
                     }
                     else {
-                        *std::get<bool*>(info.valPtr) = true;
+                        if (info._noNo)
+                            *std::get<bool*>(info.valPtr) = true;
+                        else
+                            *std::get<bool*>(info.valPtr) = !name.starts_with("--no-");
                     }
                     if(info.triggerCallback)
                         info.triggerCallback(name);

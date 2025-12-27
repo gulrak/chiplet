@@ -34,7 +34,7 @@
 #include <fmt/format.h>
 
 //#define STB_IMAGE_IMPLEMENTATION
-#include <chiplet/stb_image.h>
+#include <nothings/stb_image.h>
 
 #include <algorithm>
 #include <charconv>
@@ -46,10 +46,10 @@
 
 #include "chiplet/imagehelper.hpp"
 #include "chiplet/utility.hpp"
+#include "chiplet/wavfile.hpp"
 
 namespace {
 
-namespace {
 constexpr int hexval(char c) noexcept {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
@@ -102,8 +102,6 @@ std::optional<std::pair<int, int>> parseDimension(std::string_view s)
         return std::nullopt;
     }
     return result;
-}
-
 }
 
 inline std::string loadTextFile(const std::string& file)
@@ -1029,6 +1027,7 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
     bool megaChip = false;
     ImageFilterType filter = eNEAREST;
     bool genLabels = true;
+    bool genPalette = false;
     bool debug = false;
     auto& lex = lexer();
     auto token = lex.nextToken(true);
@@ -1044,21 +1043,20 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
                 error("Invalid size for 8xN or 16x16 image.");
             }
         }
-        else if(token == Token::eIDENTIFIER && lex.token().text == "no-labels")
-        {
+        else if (token == Token::eIDENTIFIER && lex.token().text == "no-labels") {
             genLabels = false;
         }
-        else if(token == Token::eIDENTIFIER && lex.token().text == "debug")
-        {
+        else if (token == Token::eIDENTIFIER && lex.token().text == "debug") {
             debug = true;
         }
-        else if(token == Token::eIDENTIFIER && lex.token().text == "dither")
-        {
+        else if(token == Token::eIDENTIFIER && lex.token().text == "dither") {
             filter = eDITHER;
         }
-        else if(token == Token::eIDENTIFIER && lex.token().text == "megachip")
-        {
+        else if(token == Token::eIDENTIFIER && lex.token().text == "megachip") {
             megaChip = true;
+        }
+        else if (token == Token::eIDENTIFIER && lex.token().text == "palette") {
+            genPalette = true;
         }
         else if (token == Token::eLSQUARE) {
             std::vector<img::Color> colors;
@@ -1210,15 +1208,61 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
 OctoCompiler::Token::Type OctoCompiler::includeBinary(std::string filename)
 {
     auto data = loadFile(filename);
-    size_t count = 0;
-    for (auto& byte : data) {
-        if (count % 16 == 0)
-            writeGenerated("   ");
-        writeGenerated(fmt::format(" 0x{:02x}", byte));
-        if (++count % 16 == 0)
-            writeGenerated("\n");
+    if(!data) {
+        error(fmt::format("Could not load binary file: '{}'", to_string(data.error())));
     }
-    return lexer().nextToken(true);;
+    bool genLabels = true;
+    auto& lex = lexer();
+    auto token = lex.nextToken(true);
+    while(true) {
+        if(token == Token::eIDENTIFIER && lex.token().text == "no-labels")
+        {
+            genLabels = false;
+        }
+        else {
+            break;
+        }
+        token = lex.nextToken(true);
+    }
+    auto name = fs::path(filename).filename().stem().string();
+    if(genLabels)
+        writeGenerated(fmt::format(": {}", name));
+    DataBlockFormatter formatter{[this](std::string_view sv){writeGenerated(sv);}};
+    for (auto byte : *data) {
+        formatter.write(fmt::format(" 0x{:02x}", byte));
+    }
+    return lexer().nextToken(true);
+}
+
+OctoCompiler::Token::Type OctoCompiler::includeWav(std::string filename)
+{
+    auto& lex = lexer();
+    auto token = lex.nextToken(true);
+    std::optional<uint32_t> frequencyOverride{};
+    while(true) {
+        if(token == Token::eNUMBER)
+        {
+            if (lex.token().number <= 0 || lex.token().number > 96000)
+                error(fmt::format("Invalid frequency value for audio include: '{}'.", lex.token().raw));
+            frequencyOverride = lex.token().number;
+        }
+        else {
+            break;
+        }
+        token = lex.nextToken(true);
+    }
+    try {
+        WavFile<uint8_t> wav(filename, frequencyOverride);
+        DataBlockFormatter formatter{[this](std::string_view sv){writeGenerated(sv);}};
+        const auto& samples = wav.samples();
+        for (auto sample : samples) {
+            formatter.write(fmt::format(" 0x{:02x}", sample));
+        }
+    }
+    catch(std::exception& ex) {
+        error(fmt::format("Couldn't read audio file '{}': {}", filename, ex.what()));
+    }
+    return lexer().nextToken(true);
 }
 
 static int whitespaceLinesAtEnd(const std::string& text)

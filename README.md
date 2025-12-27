@@ -285,19 +285,55 @@ that are converted into 1-bit sprite data. The general syntax
 is:
 
 ```
-:include "<path-to-image-file>" [<width>x<height>] [no-labels] [debug]
+:include "<path-to-image-file>" <modifiers>
 ```
 
 Where `<path-to-image-file>` is the image file to import (valid image
-formats/extension are `.png`, `.gif`, `.bmp`, `.jpg`, `.jpeg` and `.tga`),
-valid sizes are `8x1`, `8x2`, `8x3`, `8x4`. `8x5`, `8x6`, `8x7`, `8x8`,
-`8x9`, `8x10`, `8x11`, `8x12`, `8x13`, `8x14`, `8x15`, `8x16` or `16x16`.<br/>
-_Note: Be aware that 8x16 and 16x16 images can only be drawn by specific variants._
+formats/extension are `.png`, `.gif`, `.bmp`, `.jpg`, `.jpeg` and `.tga`).
 
-The generated sprite data blocks are predixed by a label of the form:
+While Octopus supports TIFF import, Chiplet does not, and while it supports TGA,
+Octopus does not support TGA import. Also note that due to the way JPEG works,
+the resulting images of Chiplet and Octopus are not bit identical, due to
+math rounding differences in the used JPEG readers. For modern development
+of CHIP-8 variant games I simply recommend to stick to PNG.
+
+#### Image Inclusion Modifiers
+
+To influence behavior of the image importer, the following modifiers can
+be used:
+
+* `megachip` - The image will ge seed as a max. 255 color palette based image.
+  A palette needs to be given somewhere after the `megachip` modifier, and the
+  image will be converted into fitting that palette, defaulting to nearest color
+  matching.
+* `<width>x<height>` - The image will be split into sprites of the given size.
+  The size must be a valid integer divisor of the image size. If no size is given,
+  the image will be split into 8 pixels wide chunks that are even dividers of the
+  image size and at most 15 pixels high.
+* `[<color> ...]` - A palette to be used by theimporter. The colors must be given
+  as hex values in the way used in e.g. CSS, so either `RRGGBB` or `RGB`, and the
+  latter gets expanded by doubling the nibbles as in CSS. For XO-CHIP like color
+  support the number of colors needs to be a power of two from 2 to 16. For
+  `megachip` any non empty number of colors up to 255 is allowed. In that mode
+  the palette is internally prefixed with a transparent black, and all transparent
+  pixels are mapped to that in import.
+* `dither` - The image will be Floyd-Steinberg dithered when reducing it to the
+  palette.
+* `no-labels` - The image will be split into sprites, but no labels are generated.
+* `debug` - the generated sprite data will be annotated with ASCII art.
+
+If `no-labels` is not used, the generated sprite data blocks are prefixed by a
+label of the form:
 
 ```
 <file-basename>-<column>-<row>
+```
+
+If a palette of more than two colors is used, an additional label section is
+added and the form becomes:
+
+```
+<file-basename>-<plane>-<column>-<row>
 ```
 
 If no labels should be generated, the optional argument `no-labels` can
@@ -318,6 +354,8 @@ The image will be cut into sprites automatically, but with the additional
 sprite-size parameter a different splitting can be triggered. The
 sizes must be valid integer divisors of the image size or an error will
 be reported.
+
+### Inclusion of External Files
 
 ---
 
@@ -387,3 +425,8 @@ cmake --build build-w64dev
 * [stb_image](https://github.com/nothings/stb/blob/master/stb_image.h) - An image
   format loader from Sean Barrets great `nothings` collection, used to support
   image import
+* [libresample](https://github.com/minorninth/libresample) - A fast resampler
+  library for audio data by Dominic Mazzoni, based on resample-1.7 by by Julius
+  O. Smith III
+* [tl::expected](https://github.com/TartanLlama/expected) - A lightweight
+  implementation of the C++23 std::expected type for error handling by TartanLlama.

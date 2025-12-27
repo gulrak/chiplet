@@ -81,8 +81,18 @@ FetchContent_Declare(
     fast_float
     GIT_REPOSITORY https://github.com/fastfloat/fast_float.git
     GIT_TAG tags/v6.1.0
-    GIT_SHALLOW TRUE)
+    GIT_SHALLOW TRUE
+)
 FetchContent_MakeAvailable(fast_float)
+
+# tl::expected options (avoid building tests/packaging)
+set(EXPECTED_BUILD_TESTS   OFF CACHE BOOL "Disable tl::expected tests" FORCE)
+set(EXPECTED_BUILD_PACKAGE OFF CACHE BOOL "Disable tl::expected packaging" FORCE)
+FetchContent_Declare(tl_expected
+        GIT_REPOSITORY https://github.com/TartanLlama/expected.git
+        GIT_TAG        v1.3.1
+)
+FetchContent_MakeAvailable(tl_expected)
 
 find_package(Git)
 if(GIT_FOUND)

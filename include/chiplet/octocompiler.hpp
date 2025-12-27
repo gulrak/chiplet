@@ -1,8 +1,8 @@
 //---------------------------------------------------------------------------------------
-// src/emulation/octocompiler.hpp
+// chiplet/octocompiler.hpp
 //---------------------------------------------------------------------------------------
 //
-// Copyright (c) 2015, Steffen Schümann <s.schuemann@pobox.com>
+// Copyright (c) 2024, Steffen Schümann <s.schuemann@pobox.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -180,6 +180,7 @@ private:
     static bool isImage(const std::string& filename);
     Token::Type includeImage(std::string filename);
     Token::Type includeBinary(std::string filename);
+    Token::Type includeWav(std::string filename);
     void write(const std::string_view& text);
     void writeGenerated(const std::string_view& text);
     void writePrefix();

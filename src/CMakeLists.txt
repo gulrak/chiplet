@@ -24,7 +24,7 @@ if (WIN32)
     target_compile_definitions(chiplet-lib PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
 endif()
 target_include_directories(chiplet-lib PUBLIC ${PROJECT_SOURCE_DIR}/include/)
-target_link_libraries(chiplet-lib PUBLIC ghc_filesystem fmt::fmt fast_float)
+target_link_libraries(chiplet-lib PUBLIC ghc_filesystem fmt::fmt fast_float libresample tl::expected)
 #target_link_options(chiplet-lib
 #        BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address
 #)

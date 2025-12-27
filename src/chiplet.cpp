@@ -32,7 +32,7 @@
 #include <chiplet/octocartridge.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include <chiplet/stb_image.h>
+#include <../external/nothings/stb_image.h>
 
 #include <ghc/cli.hpp>
 #include <nlohmann/json.hpp>
@@ -102,7 +102,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                         writeFile(fs::path(file).filename().string().c_str(), comp.code(), comp.codeSize());
                         ++errors;
                     }
-                    else if(comp.sha1() != calculateSha1(data.data(), data.size())) {
+                    else if(comp.sha1() != calculateSha1(data)) {
                         std::cerr << "    " << fileOrPath(file) << ": Compiled code doesn't match! (" << data.size() << " bytes)" << std::endl;
                         workFile(eANALYSE, file, data);
                         writeFile(fs::path(file).filename().string().c_str(), comp.code(), comp.codeSize());
@@ -247,7 +247,7 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
             for(const auto& de : fs::recursive_directory_iterator(input, fs::directory_options::skip_permission_denied)) {
                 if(de.is_regular_file() && (deepscan || isChipRom(de.path().extension().string()))) {
                     auto file = loadFile(de.path().string());
-                    auto [isDouble, firstName] = checkDouble(de.path().string(), file);
+                    auto [isDouble, firstName] = checkDouble(de.path().string(), file.value_or(Bytes{}));
                     if(isDouble) {
                         ++doubles;
                         if(dumpDoubles)
@@ -255,14 +255,14 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
                     }
                     else {
                         ++files;
-                        workFile(mode, de.path().string(), file);
+                        workFile(mode, de.path().string(), *file);
                     }
                 }
             }
         }
         else if(fs::is_regular_file(input) && (deepscan || isChipRom(fs::path(input).extension().string()))) {
             auto file = loadFile(input);
-            auto [isDouble, firstName] = checkDouble(input, file);
+            auto [isDouble, firstName] = checkDouble(input, file.value_or(Bytes{}));
             if(isDouble) {
                 ++doubles;
                 if(dumpDoubles)
@@ -270,7 +270,7 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
             }
             else {
                 ++files;
-                workFile(mode, input, file);
+                workFile(mode, input, file.value_or(Bytes{}));
             }
         }
     }
@@ -310,6 +310,10 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
 
 int main(int argc, char* argv[])
 {
+    ghc::filesystem::u8arguments args(argc, argv);
+#ifdef GHC_OS_WINDOWS
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     using namespace std::chrono;
     using namespace std::chrono_literals;
     ghc::CLI cli(argc, argv);
