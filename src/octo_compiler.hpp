@@ -192,7 +192,7 @@ struct Constant
 struct ProtoRef
 {
     int value;
-    char size;
+    int8_t size;
 };
 
 struct Prototype
