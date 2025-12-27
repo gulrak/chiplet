@@ -316,7 +316,7 @@ public:
             }
             else if (!prev) {
                 result.push_back(*code);
-                prev = first = *code;
+                prev = first = static_cast<uint8_t>(*code);
             }
             else {
                 auto sequence = _dict.resequence(first, prev, code);
