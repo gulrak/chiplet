@@ -25,6 +25,7 @@
 //---------------------------------------------------------------------------------------
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
@@ -98,7 +99,7 @@ public:
     {
         auto prevCat = currentCategory;
         currentCategory = std::move(cat);
-        if (std::find(categories.begin(), categories.end(), currentCategory) == categories.end()) {
+        if (std::ranges::find(categories, currentCategory) == categories.end()) {
             categories.push_back(currentCategory);
         }
         return prevCat;
