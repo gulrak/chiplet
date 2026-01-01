@@ -664,9 +664,11 @@ public:
             }
             //const OpcodeInfo* info = mappedOpcodeInfo[opcode].front();
             if(!mask.is_empty()) {
+                auto prev = _possibleVariants;
                 _possibleVariants &= mask;
-                //if (!(uint64_t)_possibleVariants)
-                //    std::cerr << "huuuu" << std::endl;
+                // if (_possibleVariants.is_empty()) {
+                //     std::cerr << "No more variants left!" << std::endl;
+                // }
             }
             else {
                 _possibleVariants = {};
@@ -800,7 +802,7 @@ public:
             }
         } while(iterate);
 
-        if(!_megaChipEnabled) {
+        if(_megaChipEnabled) {
             if(_possibleVariants.contains(C8V::MEGA_CHIP))
                 _possibleVariants = C8V::MEGA_CHIP;
             else
