@@ -7,6 +7,45 @@
 namespace octo
 {
 
+namespace detail {
+
+inline MonitorField::Type typeFromLen(unsigned len) {
+    switch (len) {
+        case 1: return MonitorField::UINT8;
+        case 2: return MonitorField::UINT16;
+        case 3: return MonitorField::UINT24;
+        case 4: return MonitorField::UINT32;
+        default: throw std::invalid_argument("format directive length must be 1..4 bytes");
+    }
+}
+
+inline MonitorField::Base baseFromSpec(char spec) {
+    switch (spec) {
+        case 'b': return MonitorField::BINARY;
+        case 'i': return MonitorField::DECIMAL;
+        case 'x': return MonitorField::HEXADECIMAL;
+        case 'c': return MonitorField::CHAR;
+        default:  throw std::invalid_argument("unknown format directive specifier (expected b/i/x/c)");
+    }
+}
+
+inline void pushLiteral(std::vector<MonitorField>& out,
+                         std::string_view fmt,
+                         std::size_t begin,
+                         std::size_t end,
+                         uint8_t offset) {
+    if (end > begin) {
+        out.push_back(MonitorField{
+          .type   = MonitorField::STRING,
+          .base   = MonitorField::DECIMAL,   // unused for STRING
+          .offset = offset,
+          .text   = fmt.substr(begin, end - begin),
+        });
+    }
+}
+
+} // namespace detail
+
 std::unordered_map<std::string_view, TokenId> lexerTokenMap = {
 #define TEXT_TOKEN_MAP(NAME, TEXT) {TEXT, TokenId::NAME},
     TOKEN_LIST(TEXT_TOKEN_MAP)
@@ -100,7 +139,7 @@ Lexer::Lexer(std::string_view text)
     error_pos = 0;
 }
 
-char Lexer::next_char()
+char Lexer::nextChar()
 {
     if(source >= sourceEnd)
         return 0;
@@ -113,27 +152,27 @@ char Lexer::next_char()
     return c;
 }
 
-char Lexer::peek_char() const
+char Lexer::peekChar() const
 {
     return source >= sourceEnd ? '\0' : source[0];
 }
 
-void Lexer::skip_whitespace()
+void Lexer::skipWhitespace()
 {
     while (true) {
-        char c = peek_char();
+        char c = peekChar();
         if (c == '#') {  // line comments
-            next_char();
+            nextChar();
             while (true) {
-                char cc = peek_char();
+                char cc = peekChar();
                 if (cc == '\0' || cc == '\n')
                     break;
-                next_char();
+                nextChar();
             }
         }
         else if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
             break;
-        next_char();
+        nextChar();
     }
 }
 
@@ -144,9 +183,9 @@ void Lexer::scanNextToken(octo::Token& t)
     const auto* start = source;
     size_t index = 0;
     if (source[0] == '"') {
-        next_char();
+        nextChar();
         while (true) {
-            char c = next_char();
+            char c = nextChar();
             if (c == '\0') {
                 is_error = 1;
                 error = "Missing a closing \" in a string literal.";
@@ -154,12 +193,12 @@ void Lexer::scanNextToken(octo::Token& t)
                 return;
             }
             if (c == '"') {
-                next_char();
+                nextChar();
                 break;
             }
             if (c == '\\') {
                 start = nullptr;
-                char ec = next_char();
+                char ec = nextChar();
                 if (ec == '\0') {
                     is_error = 1;
                     error = "Missing a closing \" in a string literal.";
@@ -204,7 +243,7 @@ void Lexer::scanNextToken(octo::Token& t)
     else {
         // string or number
         while (true) {
-            char c = next_char();
+            char c = nextChar();
             if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '#' || c == '\0')
                 break;
             ++index;
@@ -254,7 +293,7 @@ void Lexer::scanNextToken(octo::Token& t)
         // if (t->type==Token::Type::STRING) printf("RAW TOKEN: %p %s\n", (void*)t->str_value, t->str_value);
         // if (t->type==Token::Type::NUMBER) printf("RAW TOKEN: %f\n", t->num_value);
     }
-    skip_whitespace();
+    skipWhitespace();
 }
 
 Program::~Program()
@@ -269,9 +308,14 @@ std::string_view Program::safeStringStringView(std::string&& name)
     return *stringTable.emplace(std::move(name)).first;
 }
 
+std::string_view Program::safeStringStringView(std::string_view name)
+{
+    return safeStringStringView(std::string(name));
+}
+
 std::string_view Program::safeStringStringView(char* name)
 {
-    return safeStringStringView({name, std::strlen(name)});
+    return safeStringStringView(std::string{name, std::strlen(name)});
 }
 
 int Program::is_end() const
@@ -344,7 +388,7 @@ void Program::eat()
  **/
 
 
-bool Program::is_reserved(std::string_view name)
+bool Program::isReserved(std::string_view name)
 {
     return lexerTokenMap.count(name);
 }
@@ -353,7 +397,7 @@ bool Program::check_name(std::string_view name, const char* kind)
 {
     if (is_error)
         return false;
-    if (strncmp("OCTO_", name.data(), 5) == 0 || is_reserved(name)) {
+    if (strncmp("OCTO_", name.data(), 5) == 0 || isReserved(name)) {
         is_error = 1, error = fmt::format("The name '{}' is reserved and cannot be used for a {}.", name, kind);
         return false;
     }
@@ -397,7 +441,7 @@ void Program::expect(std::string_view name)
     }
 }
 
-bool Program::is_register(std::string_view name)
+bool Program::isRegister(std::string_view name)
 {
     if (aliases.count(name))
         return true;
@@ -408,18 +452,18 @@ bool Program::is_register(std::string_view name)
     return isxdigit(name[1]);
 }
 
-bool Program::peek_is_register()
+bool Program::peekIsRegister()
 {
     auto t = peek();
-    return t.type == Token::Type::STRING && is_register(t.str_value);
+    return t.type == Token::Type::STRING && isRegister(t.str_value);
 }
 
-int Program::register_or_alias()
+int Program::registerOrAlias()
 {
     if (is_error)
         return 0;
     auto t = next();
-    if (t.type != Token::Type::STRING || !is_register(t.str_value)) {
+    if (t.type != Token::Type::STRING || !isRegister(t.str_value)) {
         char d[256];
         is_error = 1, error = fmt::format("Expected register, got {}.", t.formatValue(d));
         return 0;
@@ -431,7 +475,7 @@ int Program::register_or_alias()
     return isdigit(c) ? c - '0' : 10 + (c - 'a');
 }
 
-int Program::value_range(int n, int mask)
+int Program::valueRange(int n, int mask)
 {
     if (mask == 0xF && (n < 0 || n > mask))
         is_error = 1, error = fmt::format("Argument {} does not fit in 4 bits- must be in range [0,15].", n);
@@ -446,62 +490,62 @@ int Program::value_range(int n, int mask)
     return n & mask;
 }
 
-void Program::value_fail(const std::string_view& w, const std::string_view& n, bool undef)
+void Program::valueFail(const std::string_view& w, const std::string_view& n, bool undef)
 {
     if (is_error)
         return;
-    if (is_register(n))
+    if (isRegister(n))
         is_error = 1, error = fmt::format("Expected {} value, but found the register {}.", w, n);
-    else if (is_reserved(n))
+    else if (isReserved(n))
         is_error = 1, error = fmt::format("Expected {} value, but found the keyword '{}'. Missing a token?", w, n);
     else if (undef)
         is_error = 1, error = fmt::format("Expected {} value, but found the undefined name '{}'.", w, n);
 }
 
-int Program::value_4bit()
+int Program::value4bit()
 {
     if (is_error)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return value_range((int)t.num_value, 0xF);
+        return valueRange((int)t.num_value, 0xF);
     }
     auto& n = t.str_value;
     auto iter = constants.find(n);
     if (iter != constants.end())
-        return value_range((int)iter->second.value, 0xF);
-    return value_fail("a 4-bit", n, true), 0;
+        return valueRange((int)iter->second.value, 0xF);
+    return valueFail("a 4-bit", n, true), 0;
 }
 
-int Program::value_8bit()
+int Program::value8bit()
 {
     if (is_error)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return value_range((int)t.num_value, 0xFF);
+        return valueRange((int)t.num_value, 0xFF);
     }
     auto& n = t.str_value;
     auto iter = constants.find(t.str_value);
     if (iter != constants.end())
-        return value_range((int)iter->second.value, 0xFF);
-    return value_fail("an 8-bit", t.str_value, true), 0;
+        return valueRange((int)iter->second.value, 0xFF);
+    return valueFail("an 8-bit", t.str_value, true), 0;
 }
 
-int Program::value_12bit()
+int Program::value12bit()
 {
     if (is_error)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return value_range((int)t.num_value, 0xFFF);
+        return valueRange((int)t.num_value, 0xFFF);
     }
     auto& n = t.str_value;
     int proto_line = t.line, proto_pos = t.pos;
     auto iter = constants.find(n);
     if (iter != constants.end())
-        return value_range((int)iter->second.value, 0xFFF);
-    value_fail("a 12-bit", n, false);
+        return valueRange((int)iter->second.value, 0xFFF);
+    valueFail("a 12-bit", n, false);
     if (is_error)
         return 0;
     if (!check_name(n, "label"))
@@ -510,20 +554,20 @@ int Program::value_12bit()
     return 0;
 }
 
-int Program::value_16bit(int can_forward_ref, int offset)
+int Program::value16bit(int can_forward_ref, int offset)
 {
     if (is_error)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return value_range((int)t.num_value, 0xFFFF);
+        return valueRange((int)t.num_value, 0xFFFF);
     }
     auto& n = t.str_value;
     int proto_line = t.line, proto_pos = t.pos;
     auto iter = constants.find(n);
     if (iter != constants.end())
-        return value_range((int)iter->second.value, 0xFFFF);
-    value_fail("a 16-bit", n, false);
+        return valueRange((int)iter->second.value, 0xFFFF);
+    valueFail("a 16-bit", n, false);
     if (is_error)
         return 0;
     if (!check_name(n, "label"))
@@ -536,20 +580,20 @@ int Program::value_16bit(int can_forward_ref, int offset)
     return 0;
 }
 
-int Program::value_24bit(int can_forward_ref, int offset)
+int Program::value24bit(int can_forward_ref, int offset)
 {
     if (is_error)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return value_range((int)t.num_value, 0xFFFFFF);
+        return valueRange((int)t.num_value, 0xFFFFFF);
     }
     auto& n = t.str_value;
     int proto_line = t.line, proto_pos = t.pos;
     auto iter = constants.find(n);
     if (iter != constants.end())
-        return value_range((int)iter->second.value, 0xFFFFFF);
-    value_fail("a 24-bit", n, false);
+        return valueRange((int)iter->second.value, 0xFFFFFF);
+    valueFail("a 24-bit", n, false);
     if (is_error)
         return 0;
     if (!check_name(n, "label"))
@@ -571,7 +615,7 @@ void Program::addProtoRef(std::string_view name, int line, int pos, int where, i
     iter->second.addrs.push_back({where, size});
 }
 
-Constant Program::value_constant()
+Constant Program::valueConstant()
 {
     auto t = next();
     if (is_error)
@@ -585,11 +629,11 @@ Constant Program::value_constant()
         return {iter->second.value, false};
     if (protos.count(n))
         is_error = 1, error = fmt::format("A constant reference to '{}' may not be forward-declared.", n);
-    value_fail("a constant", n, true);
+    valueFail("a constant", n, true);
     return {0, false};
 }
 
-void Program::macro_body(const std::string_view& desc, const std::string_view& name, Macro& m)
+void Program::macroBody(const std::string_view& desc, const std::string_view& name, Macro& m)
 {
     if (is_error)
         return;
@@ -618,11 +662,11 @@ void Program::macro_body(const std::string_view& desc, const std::string_view& n
 // Compile-time Calculation
 //-----------------------------------------------------------
 
-double Program::calc_terminal(std::string_view name)
+double Program::calcTerminal(std::string_view name)
 {
     // NUMBER | CONSTANT | LABEL | VREGISTER | '(' expression ')'
-    if (peek_is_register())
-        return register_or_alias();
+    if (peekIsRegister())
+        return registerOrAlias();
     if (match("PI"))
         return 3.141592653589793;
     if (match("E"))
@@ -646,87 +690,87 @@ double Program::calc_terminal(std::string_view name)
         is_error = 1, error = fmt::format("Found undefined name '{}' when calculating constant '{}'.", n, name);
         return 0;
     }
-    double r = calc_expr(name);
+    double r = calcExpr(name);
     expect(")");
     return r;
 }
 
-double Program::calc_expr(std::string_view name)
+double Program::calcExpr(std::string_view name)
 {
     // UNARY expression
     if (match("strlen"))
         return (double)string().length();
     if (match("-"))
-        return -calc_expr(name);
+        return -calcExpr(name);
     if (match("~"))
-        return ~((int)calc_expr(name));
+        return ~((int)calcExpr(name));
     if (match("!"))
-        return !((int)calc_expr(name));
+        return !((int)calcExpr(name));
     if (match("sin"))
-        return sin(calc_expr(name));
+        return sin(calcExpr(name));
     if (match("cos"))
-        return cos(calc_expr(name));
+        return cos(calcExpr(name));
     if (match("tan"))
-        return tan(calc_expr(name));
+        return tan(calcExpr(name));
     if (match("exp"))
-        return exp(calc_expr(name));
+        return exp(calcExpr(name));
     if (match("log"))
-        return log(calc_expr(name));
+        return log(calcExpr(name));
     if (match("abs"))
-        return fabs(calc_expr(name));
+        return fabs(calcExpr(name));
     if (match("sqrt"))
-        return sqrt(calc_expr(name));
+        return sqrt(calcExpr(name));
     if (match("sign"))
-        return sign(calc_expr(name));
+        return sign(calcExpr(name));
     if (match("ceil"))
-        return ceil(calc_expr(name));
+        return ceil(calcExpr(name));
     if (match("floor"))
-        return floor(calc_expr(name));
+        return floor(calcExpr(name));
     if (match("@")) {
-        auto addr = (int)calc_expr(name);
+        auto addr = (int)calcExpr(name);
         return addr >= 0 && addr < rom.size() ? 0xFF & rom[addr] : 0;
     }
 
     // expression BINARY expression
-    double r = calc_terminal(name);
+    double r = calcTerminal(name);
     if (match("-"))
-        return r - calc_expr(name);
+        return r - calcExpr(name);
     if (match("+"))
-        return r + calc_expr(name);
+        return r + calcExpr(name);
     if (match("*"))
-        return r * calc_expr(name);
+        return r * calcExpr(name);
     if (match("/"))
-        return r / calc_expr(name);
+        return r / calcExpr(name);
     if (match("%"))
-        return ((int)r) % ((int)calc_expr(name));
+        return ((int)r) % ((int)calcExpr(name));
     if (match("&"))
-        return ((int)r) & ((int)calc_expr(name));
+        return ((int)r) & ((int)calcExpr(name));
     if (match("|"))
-        return ((int)r) | ((int)calc_expr(name));
+        return ((int)r) | ((int)calcExpr(name));
     if (match("^"))
-        return ((int)r) ^ ((int)calc_expr(name));
+        return ((int)r) ^ ((int)calcExpr(name));
     if (match("<<"))
-        return ((int)r) << ((int)calc_expr(name));
+        return ((int)r) << ((int)calcExpr(name));
     if (match(">>"))
-        return ((int)r) >> ((int)calc_expr(name));
+        return ((int)r) >> ((int)calcExpr(name));
     if (match("pow"))
-        return pow(r, calc_expr(name));
+        return pow(r, calcExpr(name));
     if (match("min"))
-        return min(r, calc_expr(name));
+        return min(r, calcExpr(name));
     if (match("max"))
-        return max(r, calc_expr(name));
+        return max(r, calcExpr(name));
     if (match("<"))
-        return r < calc_expr(name);
+        return r < calcExpr(name);
     if (match(">"))
-        return r > calc_expr(name);
+        return r > calcExpr(name);
     if (match("<="))
-        return r <= calc_expr(name);
+        return r <= calcExpr(name);
     if (match(">="))
-        return r >= calc_expr(name);
+        return r >= calcExpr(name);
     if (match("=="))
-        return r == calc_expr(name);
+        return r == calcExpr(name);
     if (match("!="))
-        return r != calc_expr(name);
+        return r != calcExpr(name);
     // terminal
     return r;
 }
@@ -734,7 +778,7 @@ double Program::calc_expr(std::string_view name)
 double Program::calculated(std::string_view name)
 {
     expect("{");
-    double r = calc_expr(name);
+    double r = calcExpr(name);
     expect("}");
     return r;
 }
@@ -802,19 +846,19 @@ void Program::jump(int addr, int dest)
 //  The Compiler proper
 //-----------------------------------------------------------
 
-void Program::pseudo_conditional(int reg, int sub, int comp)
+void Program::pseudoConditional(int reg, int sub, int comp)
 {
-    if (peek_is_register())
-        instruction(0x8F, register_or_alias() << 4);
+    if (peekIsRegister())
+        instruction(0x8F, registerOrAlias() << 4);
     else
-        instruction(0x6F, value_8bit());
+        instruction(0x6F, value8bit());
     instruction(0x8F, (reg << 4) | sub);
     instruction(comp, 0);
 }
 
 void Program::conditional(int negated)
 {
-    int reg = register_or_alias();
+    int reg = registerOrAlias();
     auto t = peek();
     char d[256];
     t.formatValue(d);
@@ -825,35 +869,35 @@ void Program::conditional(int negated)
 #define octo_ca(pos, neg) (n == (negated ? (neg) : (pos)))
 
     if (octo_ca("==", "!=")) {
-        if (peek_is_register())
-            instruction(0x90 | reg, register_or_alias() << 4);
+        if (peekIsRegister())
+            instruction(0x90 | reg, registerOrAlias() << 4);
         else
-            instruction(0x40 | reg, value_8bit());
+            instruction(0x40 | reg, value8bit());
     }
     else if (octo_ca("!=", "==")) {
-        if (peek_is_register())
-            instruction(0x50 | reg, register_or_alias() << 4);
+        if (peekIsRegister())
+            instruction(0x50 | reg, registerOrAlias() << 4);
         else
-            instruction(0x30 | reg, value_8bit());
+            instruction(0x30 | reg, value8bit());
     }
     else if (octo_ca("key", "-key"))
         instruction(0xE0 | reg, 0xA1);
     else if (octo_ca("-key", "key"))
         instruction(0xE0 | reg, 0x9E);
     else if (octo_ca(">", "<="))
-        pseudo_conditional(reg, 0x5, 0x4F);
+        pseudoConditional(reg, 0x5, 0x4F);
     else if (octo_ca("<", ">="))
-        pseudo_conditional(reg, 0x7, 0x4F);
+        pseudoConditional(reg, 0x7, 0x4F);
     else if (octo_ca(">=", "<"))
-        pseudo_conditional(reg, 0x7, 0x3F);
+        pseudoConditional(reg, 0x7, 0x3F);
     else if (octo_ca("<=", ">"))
-        pseudo_conditional(reg, 0x5, 0x3F);
+        pseudoConditional(reg, 0x5, 0x3F);
     else {
         is_error = 1, error = fmt::format("Expected conditional operator, got {}.", d);
     }
 }
 
-void Program::resolve_label(int offset)
+void Program::resolveLabel(int offset)
 {
     int target = (here) + offset;
     auto n = identifier("label");
@@ -1327,49 +1371,118 @@ void Program::compile_statement()
     }
 }
 #else
-void Program::compile_statement()
+
+// Parses directives of the form: %<len?>[bixc]
+// - len omitted => 1
+// - len must be 1..4
+// - 'c' must have len == 1 (7-bit ASCII char stored in one byte)
+// Returns a sequence of literal and directive fields.
+// NOTE: Returned string_views reference `fmt`; keep it alive.
+inline std::vector<MonitorField> parseMonitorFormat(std::string_view fmt) {
+  std::vector<MonitorField> out;
+  std::size_t litBegin = 0;
+
+  unsigned offset = 0; // will be range-checked to uint8_t at each push
+
+  auto checkedOffset = [&]() -> uint8_t {
+    if (offset > std::numeric_limits<uint8_t>::max())
+      throw std::invalid_argument("total directive byte offset exceeds 255");
+    return static_cast<uint8_t>(offset);
+  };
+
+  for (std::size_t i = 0; i < fmt.size(); ++i) {
+    if (fmt[i] != '%') continue;
+
+    // Flush preceding literal text [lit_begin, i)
+    detail::pushLiteral(out, fmt, litBegin, i, checkedOffset());
+
+    // Parse directive starting at i
+    std::size_t j = i + 1;
+    if (j >= fmt.size())
+      throw std::invalid_argument("dangling '%' at end of format string");
+
+    unsigned len = 0;
+    while (j < fmt.size() && std::isdigit(static_cast<unsigned char>(fmt[j]))) {
+      len = len * 10u + static_cast<unsigned>(fmt[j] - '0');
+      if (len > 999u) break; // arbitrary guard; we validate 1..4 below anyway
+      ++j;
+    }
+    if (len == 0) len = 1; // optional length omitted => 1
+
+    if (j >= fmt.size())
+      throw std::invalid_argument("format directive missing type specifier after length");
+
+    const char spec = fmt[j];
+    (void)detail::baseFromSpec(spec); // validates spec
+
+    if (spec == 'c' && len != 1)
+      throw std::invalid_argument("'%c' must have length 1 (a single 7-bit ASCII byte)");
+
+    const auto type = detail::typeFromLen(len);
+    const auto base = detail::baseFromSpec(spec);
+
+    out.push_back(MonitorField{
+      .type   = type,
+      .base   = base,
+      .offset = checkedOffset(),
+      .text   = fmt.substr(i, (j + 1) - i), // store the directive slice, e.g. "%2x"
+    });
+
+    offset += len;
+
+    // Continue after this directive
+    i = j;
+    litBegin = i + 1;
+  }
+
+  // Trailing literal
+  detail::pushLiteral(out, fmt, litBegin, fmt.size(), checkedOffset());
+  return out;
+}
+
+void Program::compileStatement()
 {
     if (is_error)
         return;
     int peek_line = peek().line, peek_pos = peek().pos;
-    if (peek_is_register()) {
-        int r = register_or_alias();
+    if (peekIsRegister()) {
+        int r = registerOrAlias();
         if (match(":=")) {
-            if (peek_is_register())
-                instruction(0x80 | r, (register_or_alias() << 4) | 0x0);
+            if (peekIsRegister())
+                instruction(0x80 | r, (registerOrAlias() << 4) | 0x0);
             else if (match("random"))
-                instruction(0xC0 | r, value_8bit());
+                instruction(0xC0 | r, value8bit());
             else if (match("key"))
                 instruction(0xF0 | r, 0x0A);
             else if (match("delay"))
                 instruction(0xF0 | r, 0x07);
             else
-                instruction(0x60 | r, value_8bit());
+                instruction(0x60 | r, value8bit());
         }
         else if (match("+=")) {
-            if (peek_is_register())
-                instruction(0x80 | r, (register_or_alias() << 4) | 0x4);
+            if (peekIsRegister())
+                instruction(0x80 | r, (registerOrAlias() << 4) | 0x4);
             else
-                instruction(0x70 | r, value_8bit());
+                instruction(0x70 | r, value8bit());
         }
         else if (match("-=")) {
-            if (peek_is_register())
-                instruction(0x80 | r, (register_or_alias() << 4) | 0x5);
+            if (peekIsRegister())
+                instruction(0x80 | r, (registerOrAlias() << 4) | 0x5);
             else
-                instruction(0x70 | r, 1 + ~value_8bit());
+                instruction(0x70 | r, 1 + ~value8bit());
         }
         else if (match("|="))
-            instruction(0x80 | r, (register_or_alias() << 4) | 0x1);
+            instruction(0x80 | r, (registerOrAlias() << 4) | 0x1);
         else if (match("&="))
-            instruction(0x80 | r, (register_or_alias() << 4) | 0x2);
+            instruction(0x80 | r, (registerOrAlias() << 4) | 0x2);
         else if (match("^="))
-            instruction(0x80 | r, (register_or_alias() << 4) | 0x3);
+            instruction(0x80 | r, (registerOrAlias() << 4) | 0x3);
         else if (match("=-"))
-            instruction(0x80 | r, (register_or_alias() << 4) | 0x7);
+            instruction(0x80 | r, (registerOrAlias() << 4) | 0x7);
         else if (match(">>="))
-            instruction(0x80 | r, (register_or_alias() << 4) | 0x6);
+            instruction(0x80 | r, (registerOrAlias() << 4) | 0x6);
         else if (match("<<="))
-            instruction(0x80 | r, (register_or_alias() << 4) | 0xE);
+            instruction(0x80 | r, (registerOrAlias() << 4) | 0xE);
         else {
             auto t = next();
             char d[256];
@@ -1385,21 +1498,21 @@ void Program::compile_statement()
         switch (tokens.front().tid) {
             case TokenId::COLON:
                 eat();
-                resolve_label(0);
+                resolveLabel(0);
                 break;
             case TokenId::NEXT:
                 eat();
-                resolve_label(1);
+                resolveLabel(1);
                 break;
             case TokenId::UNPACK: {
                 eat();
                 int a = 0;
                 if (match("long")) {
-                    a = value_16bit(1, 0);
+                    a = value16bit(1, 0);
                 }
                 else {
-                    int v = value_4bit();
-                    a = (v << 12) | value_12bit();
+                    int v = value4bit();
+                    a = (v << 12) | value12bit();
                 }
                 auto rh = aliases["unpack-hi"];
                 auto rl = aliases["unpack-lo"];
@@ -1417,26 +1530,26 @@ void Program::compile_statement()
                 int type, base, len;
                 std::string format;
                 peek().formatValue(n);
-                if (peek_is_register()) {
+                if (peekIsRegister()) {
                     type = 0;  // register monitor
-                    base = register_or_alias();
+                    base = registerOrAlias();
                     if (peek().type == Token::Type::NUMBER)
-                        len = value_4bit();
+                        len = value4bit();
                     else
                         len = -1, format = string();
                 }
                 else {
                     type = 1;  // memory monitor
-                    base = value_16bit(0, 0);
+                    base = value16bit(0, 0);
                     if (peek().type == Token::Type::NUMBER)
-                        len = value_16bit(0, 0);
+                        len = value16bit(0, 0);
                     else
                         len = -1, format = string();
                 }
                 if (n[strlen(n) - 1] == '\'')
                     n[strlen(n) - 1] = '\0';
                 auto nn = safeStringStringView(n[0] == '\'' ? n + 1 : n);
-                monitors.insert_or_assign(nn, Monitor{type, base, len, format});
+                monitors.insert_or_assign(nn, Monitor{type, base, len, parseMonitorFormat(safeStringStringView(format))});
                 break;
             }
             case TokenId::ASSERT: {
@@ -1462,7 +1575,7 @@ void Program::compile_statement()
                     is_error = 1, error = fmt::format("The name '{}' is already used by a constant.", n);
                     return;
                 }
-                int v = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)register_or_alias();
+                int v = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)registerOrAlias();
                 if (v < 0 || v > 15) {
                     is_error = 1;
                     error = "Register index must be in the range [0,F].";
@@ -1473,26 +1586,26 @@ void Program::compile_statement()
             }
             case TokenId::BYTE: {
                 eat();
-                append(peek_match("{", 0) ? (int)calculated("ANONYMOUS") : value_8bit());
+                append(peek_match("{", 0) ? (int)calculated("ANONYMOUS") : value8bit());
                 break;
             }
             case TokenId::POINTER:
             case TokenId::POINTER16: {
                 eat();
-                int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value_16bit(1, 0);
+                int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value16bit(1, 0);
                 instruction(a >> 8, a);
                 break;
             }
             case TokenId::POINTER24: {
                 eat();
-                int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value_24bit(1, 0);
+                int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value24bit(1, 0);
                 append(a >> 16);
                 instruction(a >> 8, a);
                 break;
             }
             case TokenId::ORG: {
                 eat();
-                int new_address = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value_16bit(0, 0));
+                int new_address = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value16bit(0, 0));
                 if (new_address < here && used[here-1] && new_address != 0x200) {
                     is_error = 1;
                     error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - new_address, here);
@@ -1502,7 +1615,7 @@ void Program::compile_statement()
             }
             case TokenId::CALL: {
                 eat();
-                immediate(0x20, peek_match("{", 0) ? 0xFFF & (int)calculated("ANONYMOUS") : value_12bit());
+                immediate(0x20, peek_match("{", 0) ? 0xFFF & (int)calculated("ANONYMOUS") : value12bit());
                 break;
             }
             case TokenId::CONST: {
@@ -1513,7 +1626,7 @@ void Program::compile_statement()
                     error = fmt::format("The name '{}' has already been defined.", n);
                     return;
                 }
-                constants.insert_or_assign(n, value_constant());
+                constants.insert_or_assign(n, valueConstant());
                 break;
             }
             case TokenId::CALC: {
@@ -1535,34 +1648,34 @@ void Program::compile_statement()
                 eat(), instruction(0x00, 0xE0);
                 break;
             case TokenId::BCD:
-                eat(), instruction(0xF0 | register_or_alias(), 0x33);
+                eat(), instruction(0xF0 | registerOrAlias(), 0x33);
                 break;
             case TokenId::DELAY:
-                eat(), expect(":="), instruction(0xF0 | register_or_alias(), 0x15);
+                eat(), expect(":="), instruction(0xF0 | registerOrAlias(), 0x15);
                 break;
             case TokenId::BUZZER:
-                eat(), expect(":="), instruction(0xF0 | register_or_alias(), 0x18);
+                eat(), expect(":="), instruction(0xF0 | registerOrAlias(), 0x18);
                 break;
             case TokenId::PITCH:
-                eat(), expect(":="), instruction(0xF0 | register_or_alias(), 0x3A);
+                eat(), expect(":="), instruction(0xF0 | registerOrAlias(), 0x3A);
                 break;
             case TokenId::JUMP0:
-                eat(), immediate(0xB0, value_12bit());
+                eat(), immediate(0xB0, value12bit());
                 break;
             case TokenId::JUMP:
-                eat(), immediate(0x10, value_12bit());
+                eat(), immediate(0x10, value12bit());
                 break;
             case TokenId::NATIVE:
-                eat(), immediate(0x00, value_12bit());
+                eat(), immediate(0x00, value12bit());
                 break;
             case TokenId::AUDIO:
                 eat(), instruction(0xF0, 0x02);
                 break;
             case TokenId::SCROLL_DOWN:
-                eat(), instruction(0x00, 0xC0 | value_4bit());
+                eat(), instruction(0x00, 0xC0 | value4bit());
                 break;
             case TokenId::SCROLL_UP:
-                eat(), instruction(0x00, 0xD0 | value_4bit());
+                eat(), instruction(0x00, 0xD0 | value4bit());
                 break;
             case TokenId::SCROLL_RIGHT:
                 eat(), instruction(0x00, 0xFB);
@@ -1581,38 +1694,38 @@ void Program::compile_statement()
                 break;
             case TokenId::SPRITE: {
                 eat();
-                int x = register_or_alias(), y = register_or_alias();
-                instruction(0xD0 | x, (y << 4) | value_4bit());
+                int x = registerOrAlias(), y = registerOrAlias();
+                instruction(0xD0 | x, (y << 4) | value4bit());
                 break;
             }
             case TokenId::PLANE: {
                 eat();
-                int n = value_4bit();
+                int n = value4bit();
                 if (n > 15)
                     is_error = 1, error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
                 instruction(0xF0 | n, 0x01);
                 break;
             }
             case TokenId::SAVEFLAGS:
-                eat(), instruction(0xF0 | register_or_alias(), 0x75);
+                eat(), instruction(0xF0 | registerOrAlias(), 0x75);
                 break;
             case TokenId::LOADFLAGS:
-                eat(), instruction(0xF0 | register_or_alias(), 0x85);
+                eat(), instruction(0xF0 | registerOrAlias(), 0x85);
                 break;
             case TokenId::SAVE: {
                 eat();
-                int r = register_or_alias();
+                int r = registerOrAlias();
                 if (match("-"))
-                    instruction(0x50 | r, (register_or_alias() << 4) | 0x02);
+                    instruction(0x50 | r, (registerOrAlias() << 4) | 0x02);
                 else
                     instruction(0xF0 | r, 0x55);
                 break;
             }
             case TokenId::LOAD: {
                 eat();
-                int r = register_or_alias();
+                int r = registerOrAlias();
                 if (match("-"))
-                    instruction(0x50 | r, (register_or_alias() << 4) | 0x03);
+                    instruction(0x50 | r, (registerOrAlias() << 4) | 0x03);
                 else
                     instruction(0xF0 | r, 0x65);
                 break;
@@ -1621,19 +1734,19 @@ void Program::compile_statement()
                 eat();
                 if (match(":=")) {
                     if (match("long")) {
-                        int a = value_16bit(1, 2);
+                        int a = value16bit(1, 2);
                         instruction(0xF0, 0x00);
                         instruction((a >> 8), a);
                     }
                     else if (match("hex"))
-                        instruction(0xF0 | register_or_alias(), 0x29);
+                        instruction(0xF0 | registerOrAlias(), 0x29);
                     else if (match("bighex"))
-                        instruction(0xF0 | register_or_alias(), 0x30);
+                        instruction(0xF0 | registerOrAlias(), 0x30);
                     else
-                        immediate(0xA0, value_12bit());
+                        immediate(0xA0, value12bit());
                 }
                 else if (match("+="))
-                    instruction(0xF0 | register_or_alias(), 0x1E);
+                    instruction(0xF0 | registerOrAlias(), 0x1E);
                 else {
                     auto t = next();
                     char d[256];
@@ -1734,7 +1847,7 @@ void Program::compile_statement()
                 auto& m = macros.emplace(n, Macro()).first->second;
                 while (!is_error && !is_end() && !peek_match("{", 0))
                     m.args.push_back(identifier("macro argument"));
-                macro_body("macro", n, m);
+                macroBody("macro", n, m);
                 break;
             }
             case TokenId::STRINGMODE: {
@@ -1743,10 +1856,10 @@ void Program::compile_statement()
                 if (is_error)
                     return;
                 auto& s = stringModes.try_emplace(n, StringMode()).first->second;
-                int alpha_base = source_pos, alpha_quote = peek_char() == '"';
+                int alpha_base = source_pos, alpha_quote = peekChar() == '"';
                 auto alphabet = string();
                 Macro m;  // every stringmode needs its own copy of this
-                macro_body("string mode", n, m);
+                macroBody("string mode", n, m);
                 for (int z = 0; z < alphabet.length(); z++) {
                     int c = 0xFF & alphabet[z];
                     if (s.modes[c]) {
@@ -1798,7 +1911,7 @@ void Program::compile_statement()
                 else if (auto iter = stringModes.find(n); iter != stringModes.end()) {
                     next();
                     auto& s = iter->second;
-                    int text_base = source_pos, text_quote = peek_char() == '"';
+                    int text_base = source_pos, text_quote = peekChar() == '"';
                     auto text = string();
                     int splice_index = 0;
                     for (int tz = 0; tz < text.length(); tz++) {
@@ -1821,7 +1934,7 @@ void Program::compile_statement()
                     }
                 }
                 else
-                    immediate(0x20, value_12bit());
+                    immediate(0x20, value12bit());
             }
         }
     }
@@ -1841,7 +1954,7 @@ Program::Program(std::string_view text, int startAddress)
 
     if ((unsigned char)source[0] == 0xEF && (unsigned char)source[1] == 0xBB && (unsigned char)source[2] == 0xBF)
         source += 3;  // UTF-8 BOM
-    skip_whitespace();
+    skipWhitespace();
 
 #define octo_kc(l, n) constants.emplace(("OCTO_KEY_" l), Constant{n, 0})
     octo_kc("1", 0x1), octo_kc("2", 0x2), octo_kc("3", 0x3), octo_kc("4", 0xC), octo_kc("Q", 0x4), octo_kc("W", 0x5), octo_kc("E", 0x6), octo_kc("R", 0xD), octo_kc("A", 0x7), octo_kc("S", 0x8), octo_kc("D", 0x9), octo_kc("F", 0xE), octo_kc("Z", 0xA),
@@ -1857,7 +1970,7 @@ bool Program::compile()
     while (!is_end() && !is_error) {
         error_line = source_line;
         error_pos = source_pos;
-        compile_statement();
+        compileStatement();
     }
     if (is_error)
         return false;

@@ -221,10 +221,17 @@ struct FlowControl
     const char* type;
 };
 
+struct MonitorField {
+    enum Type { STRING, UINT8, UINT16, UINT24, UINT32 } type;
+    enum Base { CHAR, BINARY, DECIMAL, HEXADECIMAL } base;
+    uint8_t offset;
+    std::string_view text;
+};
+
 struct Monitor
 {
     int type, base, len;
-    std::string format;
+    std::vector<MonitorField> format;
 };
 
 class Lexer
@@ -232,9 +239,9 @@ class Lexer
 public:
     Lexer() = delete;
     explicit Lexer(std::string_view text);
-    char next_char();
-    char peek_char() const;
-    void skip_whitespace();
+    char nextChar();
+    char peekChar() const;
+    void skipWhitespace();
     void scanNextToken(Token& t);
 
 protected:
@@ -283,6 +290,7 @@ private:
     static double max(double x, double y) { return x < y ? y : x; }
     static double min(double x, double y) { return x < y ? x : y; }
     std::string_view safeStringStringView(std::string&& name);
+    std::string_view safeStringStringView(std::string_view name);
     std::string_view safeStringStringView(char* name);
     int is_end() const;
     void fetchToken();
@@ -295,32 +303,32 @@ private:
     std::string_view string();
     std::string_view identifier(const char* kind);
     void expect(std::string_view name);
-    bool is_register(std::string_view name);
-    bool peek_is_register();
-    int register_or_alias();
-    int value_range(int n, int mask);
-    void value_fail(const std::string_view& w, const std::string_view& n, bool undef);
-    int value_4bit();
-    int value_8bit();
-    int value_12bit();
-    int value_16bit(int can_forward_ref, int offset);
-    int value_24bit(int can_forward_ref, int offset);
+    bool isRegister(std::string_view name);
+    bool peekIsRegister();
+    int registerOrAlias();
+    int valueRange(int n, int mask);
+    void valueFail(const std::string_view& w, const std::string_view& n, bool undef);
+    int value4bit();
+    int value8bit();
+    int value12bit();
+    int value16bit(int can_forward_ref, int offset);
+    int value24bit(int can_forward_ref, int offset);
     void addProtoRef(std::string_view name, int line, int pos, int where, int8_t size);
-    Constant value_constant();
-    void macro_body(const std::string_view& desc, const std::string_view& name, Macro& m);
-    double calc_expr(std::string_view name);
-    double calc_terminal(std::string_view name);
+    Constant valueConstant();
+    void macroBody(const std::string_view& desc, const std::string_view& name, Macro& m);
+    double calcExpr(std::string_view name);
+    double calcTerminal(std::string_view name);
     double calculated(std::string_view name);
     void append(uint8_t byte);
     void instruction(uint8_t a, uint8_t b);
     void immediate(uint8_t op, int nnn);
     void jump(int addr, int dest);
-    void pseudo_conditional(int reg, int sub, int comp);
+    void pseudoConditional(int reg, int sub, int comp);
     void conditional(int negated);
-    void resolve_label(int offset);
-    void compile_statement();
+    void resolveLabel(int offset);
+    void compileStatement();
 
-    static bool is_reserved(std::string_view name);
+    static bool isReserved(std::string_view name);
 
     // string interning table
     std::unordered_set<std::string> stringTable;
