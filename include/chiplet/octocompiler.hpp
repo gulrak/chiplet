@@ -37,6 +37,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <span>
 
 #include <ghc/fs_fwd.hpp>
 #include <nlohmann/json_fwd.hpp>
@@ -141,7 +142,7 @@ public:
     static void initializeTables();
     void reset();
     bool setStartAddress(int startAddress) { if(_startAddress != startAddress) { _startAddress = startAddress; return true; } return false; }
-    const CompileResult& compile(const fs::path& filename, const char* source, const char* end, bool needsPreprocess = true);
+    const CompileResult& compile(const fs::path& filename, std::span<const char> source, bool needsPreprocess = true);
     const CompileResult& compile(const fs::path& filename);
     const CompileResult& compile(const std::vector<std::string>& files);
     const CompileResult& preprocessFile(const std::string& inputFile, const char* source, const char* end);

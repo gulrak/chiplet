@@ -1,8 +1,71 @@
+//---------------------------------------------------------------------------------------
 //
-// Created by schuemann on 21.02.24.
+//  octo_compiler.cpp
 //
+//  A compiler for Octo CHIP-8 assembly language, suitable for embedding in other
+//  tools and environments. Compared to its original form it depends heavily on C++20
+//  standard library. It's for sure not as lightweight as the original, but it is
+//  quite a bit faster and hopefully easier to extend and due to no more use of any
+//  static arrays it has none of the original limitations.
+//
+//---------------------------------------------------------------------------------------
+//
+//  C++ Octo Assembler Version with Extensions:
+//
+//  The MIT License (MIT)
+//
+//  Copyright (c) 2024, Steffen Schümann
+//
+//  Permission is hereby granted, free of charge, to any person obtaining a copy
+//  of this software and associated documentation files (the "Software"), to deal
+//  in the Software without restriction, including without limitation the rights
+//  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//  copies of the Software, and to permit persons to whom the Software is
+//  furnished to do so, subject to the following conditions:
+//
+//  The above copyright notice and this permission notice shall be included in
+//  all copies or substantial portions of the Software.
+//
+//  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+//  THE SOFTWARE.
+//
+//---------------------------------------------------------------------------------------
+//
+//  Based on original code from 'octo_compiler.h' in C-Octo by John Earnest:
+//
+//  The MIT License (MIT)
+//
+//  Copyright (c) 2020, John Earnest
+//
+//  Permission is hereby granted, free of charge, to any person obtaining a copy
+//  of this software and associated documentation files (the "Software"), to deal
+//  in the Software without restriction, including without limitation the rights
+//  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//  copies of the Software, and to permit persons to whom the Software is
+//  furnished to do so, subject to the following conditions:
+//
+//  The above copyright notice and this permission notice shall be included in
+//  all copies or substantial portions of the Software.
+//
+//  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+//  THE SOFTWARE.
+//
+//---------------------------------------------------------------------------------------
 
 #include "octo_compiler.hpp"
+
+#include <iostream>
+#include <ostream>
 
 namespace octo
 {
@@ -42,6 +105,18 @@ inline void pushLiteral(std::vector<MonitorField>& out,
           .text   = fmt.substr(begin, end - begin),
         });
     }
+}
+
+inline uint8_t toUint8JS(double x) {
+    if (!std::isfinite(x) || x == 0.0)
+        return 0;
+    return static_cast<uint8_t>(x);
+}
+
+inline int toIntJS(double x) {
+    if (!std::isfinite(x) || x == 0.0)
+        return 0;
+    return static_cast<int>(x);
 }
 
 } // namespace detail
@@ -1586,7 +1661,7 @@ void Program::compileStatement()
             }
             case TokenId::BYTE: {
                 eat();
-                append(peek_match("{", 0) ? (int)calculated("ANONYMOUS") : value8bit());
+                append(peek_match("{", 0) ? detail::toUint8JS(calculated("ANONYMOUS")) : value8bit());
                 break;
             }
             case TokenId::POINTER:
@@ -1606,7 +1681,7 @@ void Program::compileStatement()
             case TokenId::ORG: {
                 eat();
                 int new_address = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value16bit(0, 0));
-                if (new_address < here && used[here-1] && new_address != 0x200) {
+                if (new_address < here && used[new_address] && new_address != 0x200) {
                     is_error = 1;
                     error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - new_address, here);
                 }

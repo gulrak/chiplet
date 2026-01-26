@@ -201,20 +201,22 @@ static FilePos extractFilePos(std::string_view info)
     return {std::string(result.ptr + 1, (info.data() + info.size()) - result.ptr - 1), depth, line};
 }
 
-const CompileResult& OctoCompiler::compile(const fs::path& filename, const char* source, const char* end, bool needsPreprocess)
+const CompileResult& OctoCompiler::compile(const fs::path& filename, std::span<const char> source, bool needsPreprocess)
 {
     std::string preprocessed;
+    auto* start = source.data();
+    auto* end = source.data() + source.size() + 1;
     if(needsPreprocess) {
-        preprocessFile(filename.string(), source, end);
+        preprocessFile(filename.string(), start, end);
         if(_compileResult.resultType != CompileResult::eOK)
             return _compileResult;
         std::ostringstream preprocessedStream;
         dumpSegments(preprocessedStream);
         preprocessed = preprocessedStream.str();
-        source = preprocessed.data();
+        start = preprocessed.data();
         end = preprocessed.data() + preprocessed.size();
     }
-    return doCompileOcto(filename.string(), source, end);
+    return doCompileOcto(filename.string(), start, end);
 }
 
 const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files)
@@ -230,7 +232,7 @@ const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files
         dumpSegments(preprocessedStream);
         preprocessed = preprocessedStream.str();
     }
-    return compile(fs::absolute(files.front()).string(), preprocessed.data(), preprocessed.data() + preprocessed.size(), false);
+    return compile(fs::absolute(files.front()).string(), preprocessed, false);
 }
 
 const CompileResult& OctoCompiler::doCompileChiplet(const std::string& filename, const char* source, const char* end)
