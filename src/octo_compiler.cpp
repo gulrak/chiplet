@@ -358,6 +358,11 @@ void Lexer::scanNextToken(octo::Token& t)
             }
         }
         else {
+            if (!index) {
+                t.type = Token::Type::END_OF_FILE;
+                t.tid = TokenId::TOK_UNKNOWN;
+                return;
+            }
             t.type = Token::Type::STRING;
             t.str_value = {start, index};
             auto iter = lexerTokenMap.find(t.str_value);
@@ -2008,8 +2013,12 @@ void Program::compileStatement()
                         }
                     }
                 }
-                else
+                else if (t.tid != TokenId::TOK_UNKNOWN && !t.str_value.empty())
                     immediate(0x20, value12bit());
+                else {
+                    // Just drop it, this is the end.
+                    next();
+                }
             }
         }
     }
