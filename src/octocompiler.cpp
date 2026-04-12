@@ -1033,7 +1033,7 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
     bool debug = false;
     auto& lex = lexer();
     auto token = lex.nextToken(true);
-    while(true) {
+    while(token != Token::eEOF) {
         if (auto size = parseDimension(lex.token().raw); size) {
             widthHint = size.value().first;
             heightHint = size.value().second;
@@ -1216,7 +1216,7 @@ OctoCompiler::Token::Type OctoCompiler::includeBinary(std::string filename)
     bool genLabels = true;
     auto& lex = lexer();
     auto token = lex.nextToken(true);
-    while(true) {
+    while(token != Token::eEOF) {
         if(token == Token::eIDENTIFIER && lex.token().text == "no-labels")
         {
             genLabels = false;
@@ -1241,7 +1241,7 @@ OctoCompiler::Token::Type OctoCompiler::includeWav(std::string filename)
     auto& lex = lexer();
     auto token = lex.nextToken(true);
     std::optional<uint32_t> frequencyOverride{};
-    while(true) {
+    while(token != Token::eEOF) {
         if(token == Token::eNUMBER)
         {
             if (lex.token().number <= 0 || lex.token().number > 96000)

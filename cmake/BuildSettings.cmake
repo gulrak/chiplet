@@ -94,6 +94,14 @@ FetchContent_Declare(tl_expected
 )
 FetchContent_MakeAvailable(tl_expected)
 
+FetchContent_Declare(
+        Chip8TestSuite
+        GIT_REPOSITORY "https://github.com/Timendus/chip8-test-suite.git"
+        GIT_TAG "v4.2"
+        GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(Chip8TestSuite)
+
 find_package(Git)
 if(GIT_FOUND)
     execute_process(
