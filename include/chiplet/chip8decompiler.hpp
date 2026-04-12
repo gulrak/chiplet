@@ -367,6 +367,7 @@ public:
         //ec.rPC = (ec.rPC + 2);
         bool inSkip = false;
         bool endsChunk = false;
+        bool toHires = false;
         switch (opcode >> 12) {
             case 0:
                 if ((opcode & 0xFF00) == 0x0100) {
@@ -666,9 +667,9 @@ public:
             if(!mask.is_empty()) {
                 auto prev = _possibleVariants;
                 _possibleVariants &= mask;
-                // if (_possibleVariants.is_empty()) {
-                //     std::cerr << "No more variants left!" << std::endl;
-                // }
+                if (_possibleVariants.is_empty()) {
+                   // std::cerr << "No more variants left!" << std::endl;
+                }
             }
             else {
                 _possibleVariants = {};
@@ -684,6 +685,9 @@ public:
             }
             else if(opcode == 0x0011 && supportsVariant(C8V::MEGA_CHIP))
                 _megaChipEnabled = true;
+            if (opcode == 0x00FF && readOpcode(code + 2) == 0x00E0) {
+                //std::cout << "Combined 00FF/00E0" << std::endl;
+            }
             if(preCallback)
                 preCallback(ec, opcode, next);
             if(executeSpeculative(ec, opcode, next)) {
@@ -767,7 +771,7 @@ public:
         //_chunks[offset] = {offset, code, code + size, eJUMP};
         auto chunk = _chunks.chunkWithAddress(entry);
         auto chunkSize = analyseCodeChunk(*chunk, entry);
-        auto [codeChunk,suffixChunk] = _chunks.splitChunkAt(*chunk, _chunks.offset() + chunkSize);
+        auto [codeChunk,suffixChunk] = chunkSize == _size ? std::pair{*chunk, ChunkedMemory::Chunk{}} : _chunks.splitChunkAt(*chunk, _chunks.offset() + chunkSize);
         decltype(codeChunk) prefixChunk;
         codeChunk.setUsageType(ChunkedMemory::eJUMP);
         //_chunks.dumpChunks(std::clog);

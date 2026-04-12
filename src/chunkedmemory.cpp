@@ -72,7 +72,10 @@ void ChunkedMemory::setChunkType(uint32_t offset, UsageType usageType)
 
 std::pair<ChunkedMemory::Chunk, ChunkedMemory::Chunk> ChunkedMemory::splitChunkAt(Chunk chunk, uint32_t address)
 {
-    assert(address > chunk.startAddr() && address < chunk.endAddr());
+    assert(address > chunk.startAddr());
+    if (address == chunk.endAddr()) {
+        return {chunk, {}};
+    }
     uint32_t splitOffset = address - chunk._offset;
     const uint8_t* splitPtr = chunk._start + splitOffset;
     auto originalUsageType = chunk._usageType;

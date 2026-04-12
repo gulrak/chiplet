@@ -144,7 +144,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
             if(!dec.possibleVariants().is_empty()) {
                 bool first = true;
                 for (auto variant : dec.possibleVariants()) {
-                    std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(variant).first;
+                    //std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(variant).first;
                     first = false;
                 }
                 std::cout << std::endl;

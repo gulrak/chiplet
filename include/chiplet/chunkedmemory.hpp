@@ -59,6 +59,7 @@ public:
         const uint8_t* startData() const { return _start; }
         const uint8_t* endData() const { return _end; }
         uint32_t size() const { return static_cast<uint32_t>(_end - _start); }
+        bool empty() const { return _start == _end; }
         UsageType usageType() const { return _usageType; }
         void setUsageType(UsageType type) { _usageType = type; if(_parent) _parent->setChunkType(_offset, type); }
     private:
