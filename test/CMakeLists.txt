@@ -37,6 +37,7 @@ github_fetch_file(
 
 include(FindPython3)
 add_test(NAME assembler-test-py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/assembler-test.py $<TARGET_FILE:chiplet> ${CMAKE_CURRENT_SOURCE_DIR}/c-octo-tests WORKING_DIRECTORY ${EXECUTABLE_OUTPUT_PATH} )
+add_test(NAME test-suite-tests.py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-suite-tests.py --assembler $<TARGET_FILE:chiplet> --tests-dir "${chip8testsuite_SOURCE_DIR}/src/tests" --bin-dir "${chip8testsuite_SOURCE_DIR}/bin" --work-dir c8ts-asm)
 
 add_executable(chiplet-tests main.cpp assembler_tests.cpp chunkedmemory_test.cpp utility_tests.cpp image_tests.cpp)
 target_compile_definitions(chiplet-tests PUBLIC IMAGES_PATH="${CMAKE_BINARY_DIR}/test/images")

@@ -352,9 +352,13 @@ void Lexer::scanNextToken(octo::Token& t)
                     t.type = Token::Type::NUMBER, t.num_value = -static_cast<double>(temp);
             }
             if(t.type != Token::Type::NUMBER) {
-                is_error = true;
-                error = fmt::format("Expected a valid number, but found '{}'.", std::string_view(start, index));
-                error_line = source_line, error_pos = static_cast<int>(source_pos - index);
+                t.type = Token::Type::STRING;
+                t.str_value = {start, index};
+                t.tid = TokenId::TOK_UNKNOWN;
+                // TODO: Make a strict mode!
+                //is_error = true;
+                //error = fmt::format("Expected a valid number, but found '{}'.", std::string_view(start, index));
+                //error_line = source_line, error_pos = static_cast<int>(source_pos - index);
             }
         }
         else {
@@ -725,6 +729,8 @@ void Program::macroBody(const std::string_view& desc, const std::string_view& na
     int depth = 1;
     while (!is_end()) {
         auto t = peek();
+        if (t.type == Token::Type::END_OF_FILE)
+            break;
         if (t.type == Token::Type::STRING && t.str_value == "{")
             depth++;
         if (t.type == Token::Type::STRING && t.str_value == "}")
@@ -2013,7 +2019,7 @@ void Program::compileStatement()
                         }
                     }
                 }
-                else if (t.tid != TokenId::TOK_UNKNOWN && !t.str_value.empty())
+                else if (!t.str_value.empty())
                     immediate(0x20, value12bit());
                 else {
                     // Just drop it, this is the end.

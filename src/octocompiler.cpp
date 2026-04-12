@@ -534,8 +534,11 @@ OctoCompiler::Token::Type OctoCompiler::Lexer::nextToken(bool preproc)
             _token.number = (double)std::strtol(start+1, &end, 16);
         if (end == _srcPtr)
             return _token.type = Token::eNUMBER;
-        if (!preproc && std::isdigit(*start))
-            error(fmt::format("The number could not be parsed: {}", _token.raw));
+        //if (!preproc && std::isdigit(*start))
+        //    error(fmt::format("The number could not be parsed: {}", _token.raw));
+        if (std::isdigit(*start)) {
+
+        }
         if(*start == ':') {
             if (_directives.count(_token.text))
                 return _token.type = Token::eDIRECTIVE;
@@ -1155,7 +1158,8 @@ OctoCompiler::Token::Type OctoCompiler::includeImage(std::string filename)
                         for (int cols = 0; cols < spriteWidth / 8; cols++) {
                             uint8_t val = 0;
                             for (uint8_t bit = 0x80, i = 0; bit > 0; bit >>= 1, ++i) {
-                                auto pixel = processed[index + rows * width + cols * 8 + i];
+                                bool inside = x + cols < width && y + rows < height;
+                                auto pixel = inside ? processed[index + rows * width + cols * 8 + i] : 0;
                                 if (pixel & (1 << plane))
                                     val |= bit;
                                 if(debug && _progress) debugStr += (pixel & (1 << plane)) ? "██" : "░░";

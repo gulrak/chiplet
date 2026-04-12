@@ -348,7 +348,7 @@ int main(int argc, char* argv[])
     cli.option({"-D", "--define"}, defineList, "add a defined option to the preprocessor");
     cli.option({"-o", "--output"}, outputFile, "name of output file, default stdout for preprocessor, a.out.ch8 for binary");
     cli.option({"--start-address"}, startAddress, "the address the program will be loaded to, the ': main' label address, default is 512");
-    cli.option({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
+    cli.optionEnable({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
     cli.option({"--cartridge-label"}, cartridgeLabel, "generate an Octo compatible cartridge gif with the given text label");
     cli.option({"--cartridge-image"}, cartridgeImage, "generate an Octo compatible cartridge gif with the given image as label");
     cli.option({"--cartridge-options"}, cartridgeOptions, "specifies a JSON file that contains the options to use for the cartridge");
