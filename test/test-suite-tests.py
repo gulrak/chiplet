@@ -36,20 +36,37 @@ def normalize_preprocessed_text(text: str) -> list[str]:
     return [line for line in text.split("\n") if line.strip() != ""]
 
 
-def format_text_diff(expected_file: pathlib.Path, actual_file: pathlib.Path) -> str | None:
+def format_text_diff(
+        expected_file: pathlib.Path,
+        actual_file: pathlib.Path,
+        normalize: bool,
+) -> str | None:
     expected_text = expected_file.read_text(encoding="utf-8", errors="replace")
     actual_text = actual_file.read_text(encoding="utf-8", errors="replace")
 
-    expected_lines = normalize_preprocessed_text(expected_text)
-    actual_lines = normalize_preprocessed_text(actual_text)
+    if normalize:
+        expected_lines = normalize_preprocessed_text(expected_text)
+        actual_lines = normalize_preprocessed_text(actual_text)
+        diff_description = "normalized text"
+    else:
+        expected_lines = expected_text.splitlines(keepends=True)
+        actual_lines = actual_text.splitlines(keepends=True)
+        diff_description = "text"
 
     if expected_lines == actual_lines:
         return None
 
+    if normalize:
+        expected_diff_lines = [line + "\n" for line in expected_lines]
+        actual_diff_lines = [line + "\n" for line in actual_lines]
+    else:
+        expected_diff_lines = expected_lines
+        actual_diff_lines = actual_lines
+
     diff_lines = list(
         difflib.unified_diff(
-            [line + "\n" for line in expected_lines],
-            [line + "\n" for line in actual_lines],
+            expected_diff_lines,
+            actual_diff_lines,
             fromfile=str(expected_file),
             tofile=str(actual_file),
             n=3,
@@ -57,18 +74,20 @@ def format_text_diff(expected_file: pathlib.Path, actual_file: pathlib.Path) -> 
     )
 
     if not diff_lines:
-        return "normalized text differs, but no unified diff could be produced"
+        return f"{diff_description} differs, but no unified diff could be produced"
 
     max_diff_lines = 200
     if len(diff_lines) > max_diff_lines:
         shown = "".join(diff_lines[:max_diff_lines])
         return (
-            f"unified diff of normalized text (truncated to {max_diff_lines} lines):\n"
+            f"unified diff of {diff_description} "
+            f"(truncated to {max_diff_lines} lines):\n"
             f"{shown}\n"
             f"... diff truncated ..."
         )
 
-    return "unified diff of normalized text:\n" + "".join(diff_lines)
+    return f"unified diff of {diff_description}:\n" + "".join(diff_lines)
+
 
 def format_binary_diff(expected_file: pathlib.Path, actual_file: pathlib.Path) -> str | None:
     expected_bytes = expected_file.read_bytes()
@@ -105,9 +124,14 @@ def format_binary_diff(expected_file: pathlib.Path, actual_file: pathlib.Path) -
     )
 
 
-def format_diff(expected_file: pathlib.Path, actual_file: pathlib.Path, kind: str) -> str | None:
+def format_diff(
+        expected_file: pathlib.Path,
+        actual_file: pathlib.Path,
+        kind: str,
+        normalize: bool,
+) -> str | None:
     if kind == "text":
-        return format_text_diff(expected_file, actual_file)
+        return format_text_diff(expected_file, actual_file, normalize)
     if kind == "binary":
         return format_binary_diff(expected_file, actual_file)
     raise ValueError(f"unknown comparison kind: {kind}")
@@ -123,6 +147,7 @@ def run_check(
         expected_file: pathlib.Path,
         work_dir: pathlib.Path,
         check: CheckSpec,
+        normalize: bool,
 ) -> str | None:
     if not expected_file.exists():
         return f"[{check.name}] missing expected output: {expected_file}"
@@ -163,7 +188,7 @@ def run_check(
             f"cwd: {work_dir}"
         )
 
-    diff = format_diff(expected_file, actual_file, check.kind)
+    diff = format_diff(expected_file, actual_file, check.kind, normalize)
     if diff is not None:
         return (
             f"[{check.name}] output mismatch for {source_file.name}\n"
@@ -181,6 +206,11 @@ def main() -> int:
     ap.add_argument("--tests-dir", required=True)
     ap.add_argument("--bin-dir", required=True)
     ap.add_argument("--work-dir", required=True)
+    ap.add_argument(
+        "--normalize",
+        action="store_true",
+        help="normalize preprocessor text output before comparing",
+    )
     args = ap.parse_args()
 
     assembler = pathlib.Path(args.assembler)
@@ -225,6 +255,7 @@ def main() -> int:
                 expected_file=expected_file,
                 work_dir=work_dir,
                 check=check,
+                normalize=args.normalize,
             )
             executed += 1
 
