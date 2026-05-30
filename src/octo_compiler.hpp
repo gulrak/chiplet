@@ -114,47 +114,48 @@ namespace octo {
     decl(CONST, ":const") \
     decl(ORG, ":org") \
     decl(SEMICOLON, ";") \
-    decl(RETURN, "return") \
-    decl(CLEAR, "clear") \
+    decl(AGAIN, "again") \
+    decl(AUDIO, "audio") \
     decl(BCD, "bcd") \
-    decl(SAVE, "save") \
-    decl(LOAD, "load") \
-    decl(BUZZER, "buzzer") \
-    decl(IF, "if") \
-    decl(THEN, "then") \
     decl(BEGIN, "begin") \
+    decl(BUZZER, "buzzer") \
+    decl(CLEAR, "clear") \
     decl(ELSE, "else") \
     decl(END, "end") \
     decl(EXIT, "exit") \
+    decl(HIRES, "hires") \
+    decl(IF, "if") \
+    decl(I_REG, "i") \
     decl(JUMP, "jump") \
     decl(JUMP0, "jump0") \
-    decl(NATIVE, "native") \
-    decl(SPRITE, "sprite") \
-    decl(LOOP, "loop") \
-    decl(WHILE, "while") \
-    decl(AGAIN, "again") \
-    decl(SCROLL_DOWN, "scroll-down") \
-    decl(SCROLL_UP, "scroll-up") \
-    decl(SCROLL_RIGHT, "scroll-right") \
-    decl(SCROLL_LEFT, "scroll-left") \
-    decl(LORES, "lores") \
-    decl(HIRES, "hires") \
+    decl(LOAD, "load") \
     decl(LOADFLAGS, "loadflags") \
-    decl(SAVEFLAGS, "saveflags") \
-    decl(I_REG, "i") \
-    decl(AUDIO, "audio") \
+    decl(LOOP, "loop") \
+    decl(LORES, "lores") \
+    decl(NATIVE, "native") \
+    decl(PITCH, "pitch") \
     decl(PLANE, "plane") \
-    decl(MACRO, ":macro") \
-    decl(CALC, ":calc") \
-    decl(BYTE, ":byte") \
-    decl(CALL, ":call") \
-    decl(STRINGMODE, ":stringmode") \
+    decl(RETURN, "return") \
+    decl(SAVE, "save") \
+    decl(SAVEFLAGS, "saveflags") \
+    decl(SCROLL_DOWN, "scroll-down") \
+    decl(SCROLL_LEFT, "scroll-left") \
+    decl(SCROLL_RIGHT, "scroll-right") \
+    decl(SCROLL_UP, "scroll-up") \
+    decl(SPRITE, "sprite") \
+    decl(THEN, "then") \
+    decl(WHILE, "while") \
     decl(ASSERT, ":assert") \
+    decl(BYTE, ":byte") \
+    decl(CALC, ":calc") \
+    decl(CALL, ":call") \
+    decl(MACRO, ":macro") \
     decl(MONITOR, ":monitor") \
     decl(POINTER, ":pointer") \
     decl(POINTER16, ":pointer16") \
     decl(POINTER24, ":pointer24") \
-    decl(PITCH, "pitch")
+    decl(STRINGMODE, ":stringmode") \
+
 
 enum class TokenId {
     TOK_UNKNOWN,
@@ -167,7 +168,7 @@ enum class TokenId {
 class Token
 {
 public:
-    enum class Type { STRING, NUMBER, END_OF_FILE};
+    enum class Type { STRING, NUMBER, PREPROCESSOR, END_OF_FILE};
     Token() = delete;
     Token(int line, int pos);
     explicit Token(int n);
