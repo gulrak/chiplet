@@ -53,8 +53,8 @@ def main() -> int:
         print(f"stderr:\n{result.stderr}", file=sys.stderr)
         return result.returncode
 
-    expected_text = reference.read_text(encoding="utf-8")
-    actual_text = normalize_paths(actual.read_text(encoding="utf-8"), tests_dir)
+    expected_text = reference.read_text(encoding="utf-8").replace("\r\n", "\n")
+    actual_text = normalize_paths(actual.read_text(encoding="utf-8"), tests_dir).replace("\r\n", "\n")
 
     if actual_text == expected_text:
         print("Preprocessor line-info output matches reference.")
