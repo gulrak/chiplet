@@ -8,6 +8,7 @@ import sys
 
 
 def normalize_paths(text: str, tests_dir: pathlib.Path) -> str:
+    text = text.replace("\\", "/")
     tests_dir_text = tests_dir.as_posix()
     utils_text = (tests_dir / "../utils").as_posix()
     text = text.replace(utils_text, "<chip8testsuite>/src/tests/../utils")
