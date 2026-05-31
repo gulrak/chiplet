@@ -3,8 +3,15 @@
 import argparse
 import difflib
 import pathlib
+import re
 import subprocess
 import sys
+
+
+def read_normalized_text(path: pathlib.Path) -> str:
+    data = path.read_bytes()
+    data = re.sub(rb"\r+\n?", b"\n", data)
+    return data.decode("utf-8")
 
 
 def normalize_paths(text: str, tests_dir: pathlib.Path) -> str:
@@ -54,8 +61,8 @@ def main() -> int:
         print(f"stderr:\n{result.stderr}", file=sys.stderr)
         return result.returncode
 
-    expected_text = reference.read_text(encoding="utf-8").replace("\r\n", "\n")
-    actual_text = normalize_paths(actual.read_text(encoding="utf-8"), tests_dir).replace("\r\n", "\n")
+    expected_text = read_normalized_text(reference)
+    actual_text = normalize_paths(read_normalized_text(actual), tests_dir)
 
     if actual_text == expected_text:
         print("Preprocessor line-info output matches reference.")
