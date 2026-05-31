@@ -100,7 +100,7 @@ namespace octo {
     decl(BREAKPOINT, ":breakpoint", DIRECTIVE) \
     decl(PROTO, ":proto", DIRECTIVE) \
     decl(ALIAS, ":alias", DIRECTIVE) \
-    decl(CONST, ":const", DIRECTIVE) \
+    decl(CONST_DIRECTIVE, ":const", DIRECTIVE) \
     decl(ORG, ":org", DIRECTIVE) \
     decl(SEMICOLON, ";", OPERATOR) \
     decl(AGAIN, "again", KEYWORD) \

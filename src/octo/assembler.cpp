@@ -1437,7 +1437,7 @@ void Assembler::compileStatement()
                 immediate(0x20, peek_match("{", 0) ? 0xFFF & (int)calculated("ANONYMOUS") : value12bit());
                 break;
             }
-            case TokenId::CONST: {
+            case TokenId::CONST_DIRECTIVE: {
                 eat();
                 auto n = identifier("constant");
                 if (constants.count(n)) {
