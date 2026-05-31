@@ -1,15 +1,20 @@
 set(CHIPLET_LIBRARY_SOURCE
-    ../include/chiplet/chip8compiler.hpp
     ../include/chiplet/chip8decompiler.hpp
     ../include/chiplet/chip8meta.hpp
     ../include/chiplet/chip8variants.hpp
+    ../include/chiplet/compileresult.hpp
     ../include/chiplet/octocompiler.hpp
     ../include/chiplet/octocartridge.hpp
     ../include/chiplet/chunkedmemory.hpp
     ../include/chiplet/decoder/saturndecoder.hpp
 
-    octo_compiler.cpp
-    chip8compiler.cpp
+    octo/lexer.cpp
+    octo/lexer.hpp
+    octo/preprocessor.cpp
+    octo/preprocessor.hpp
+    octo/assembler.cpp
+    octo/assembly_session.hpp
+    octo/assembly_session.cpp
     chip8decompiler.cpp
     octocompiler.cpp
     octocartridge.cpp

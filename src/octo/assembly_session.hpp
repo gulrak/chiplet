@@ -1,5 +1,5 @@
 //---------------------------------------------------------------------------------------
-// src/emulation/chip8decompiler.hpp
+// src/octo/assembly_session.hpp
 //---------------------------------------------------------------------------------------
 //
 // Copyright (c) 2022, Steffen Schümann <s.schuemann@pobox.com>
@@ -27,15 +27,16 @@
 
 #include <string>
 #include <memory>
-#include "sha1.hpp"
 
-namespace emu {
+#include "chiplet/sha1.hpp"
 
-class Chip8Compiler
+namespace octo {
+
+class AssemblySession
 {
 public:
-    Chip8Compiler();
-    ~Chip8Compiler();
+    AssemblySession();
+    ~AssemblySession();
 
     bool compile(std::string_view text, int startAddress = 0x200);
     bool isError() const;

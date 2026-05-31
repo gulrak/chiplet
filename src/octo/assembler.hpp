@@ -1,10 +1,10 @@
 //---------------------------------------------------------------------------------------
 //
-//  octo_compiler.hpp
+//  octo/assembler.hpp
 //
-//  A compiler for Octo CHIP-8 assembly language, suitable for embedding in other
+//  An assembler for Octo CHIP-8 assembly language, suitable for embedding in other
 //  tools and environments. Compared to its original form it depends heavily on C++20
-//  standard library. It's for sure not as lightweight as the original, but it is
+//  standard library. It's for sure not as lightweight as the original assembler, but it is
 //  quite a bit faster and hopefully easier to extend and due to no more use of any
 //  static arrays it has none of the original limitations.
 //
@@ -62,13 +62,7 @@
 //
 //---------------------------------------------------------------------------------------
 
-#include <algorithm>
-#include <cctype>
-#include <charconv>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <array>
 #include <deque>
 #include <unordered_map>
@@ -77,112 +71,11 @@
 #include <string_view>
 #include <vector>
 #include <fmt/format.h>
-#include <fast_float/fast_float.h>
 
+#include "lexer.hpp"
 
 
 namespace octo {
-
-#define TOKEN_LIST(decl) \
-    decl(ASSIGN, ":=") \
-    decl(ASSIGN_OR, "|=") \
-    decl(ASSIGN_END, "&=") \
-    decl(ASSIGN_XOR, "^=") \
-    decl(ASSIGN_SUB, "-=") \
-    decl(ASSIGN_RSUB, "=-") \
-    decl(ASSIGN_ADD, "+=") \
-    decl(ASSIGN_SHR, ">>=") \
-    decl(ASSIGN_SHL, "<<=") \
-    decl(EQUAL, "==") \
-    decl(UNEQUAL, "!=") \
-    decl(LESS, "<") \
-    decl(GREATER, ">") \
-    decl(LESS_EQUAL, "<=") \
-    decl(GREATER_EQUAL, ">=") \
-    decl(KEY, "key") \
-    decl(NOT_KEY, "-key") \
-    decl(HEX, "hex") \
-    decl(BIGHEX, "bighex") \
-    decl(RANDOM, "random") \
-    decl(DELAY, "delay") \
-    decl(COLON, ":") \
-    decl(NEXT, ":next") \
-    decl(UNPACK, ":unpack") \
-    decl(BREAKPOINT, ":breakpoint") \
-    decl(PROTO, ":proto") \
-    decl(ALIAS, ":alias") \
-    decl(CONST, ":const") \
-    decl(ORG, ":org") \
-    decl(SEMICOLON, ";") \
-    decl(AGAIN, "again") \
-    decl(AUDIO, "audio") \
-    decl(BCD, "bcd") \
-    decl(BEGIN, "begin") \
-    decl(BUZZER, "buzzer") \
-    decl(CLEAR, "clear") \
-    decl(ELSE, "else") \
-    decl(END, "end") \
-    decl(EXIT, "exit") \
-    decl(HIRES, "hires") \
-    decl(IF, "if") \
-    decl(I_REG, "i") \
-    decl(JUMP, "jump") \
-    decl(JUMP0, "jump0") \
-    decl(LOAD, "load") \
-    decl(LOADFLAGS, "loadflags") \
-    decl(LOOP, "loop") \
-    decl(LORES, "lores") \
-    decl(NATIVE, "native") \
-    decl(PITCH, "pitch") \
-    decl(PLANE, "plane") \
-    decl(RETURN, "return") \
-    decl(SAVE, "save") \
-    decl(SAVEFLAGS, "saveflags") \
-    decl(SCROLL_DOWN, "scroll-down") \
-    decl(SCROLL_LEFT, "scroll-left") \
-    decl(SCROLL_RIGHT, "scroll-right") \
-    decl(SCROLL_UP, "scroll-up") \
-    decl(SPRITE, "sprite") \
-    decl(THEN, "then") \
-    decl(WHILE, "while") \
-    decl(ASSERT, ":assert") \
-    decl(BYTE, ":byte") \
-    decl(CALC, ":calc") \
-    decl(CALL, ":call") \
-    decl(MACRO, ":macro") \
-    decl(MONITOR, ":monitor") \
-    decl(POINTER, ":pointer") \
-    decl(POINTER16, ":pointer16") \
-    decl(POINTER24, ":pointer24") \
-    decl(STRINGMODE, ":stringmode") \
-
-
-enum class TokenId {
-    TOK_UNKNOWN,
-    STRING_LITERAL,
-#define ENUM_ENTRY(NAME, TEXT) NAME,
-    TOKEN_LIST(ENUM_ENTRY)
-#undef ENUM_ENTRY
-};
-
-class Token
-{
-public:
-    enum class Type { STRING, NUMBER, PREPROCESSOR, END_OF_FILE};
-    Token() = delete;
-    Token(int line, int pos);
-    explicit Token(int n);
-    Token(const Token& other);
-    Token& operator=(const Token& other);
-    char* formatValue(char* d) const;
-    Type type;
-    TokenId tid{TokenId::TOK_UNKNOWN};
-    int line;
-    int pos;
-    std::string_view str_value{};
-    std::string str_container;
-    double num_value{};
-};
 
 struct Constant
 {
@@ -235,56 +128,33 @@ struct Monitor
     std::vector<MonitorField> format;
 };
 
-class Lexer
-{
-public:
-    Lexer() = delete;
-    explicit Lexer(std::string_view text);
-    char nextChar();
-    char peekChar() const;
-    void skipWhitespace();
-    void scanNextToken(Token& t);
-
-protected:
-    const char* source;
-    const char* source_root;
-    const char* sourceEnd;
-    int source_line;
-    int source_pos;
-    // error reporting
-    char is_error{};
-    std::string error{};
-    int error_line{};
-    int error_pos{};
-};
-
-class Program : protected Lexer
+class Assembler : protected Lexer
 {
 public:
     static constexpr int RAM_MAX = 16 * 1024 * 1024;
     static constexpr int RAM_MASK = 16 * 1024 * 1024 - 1;
 
-    Program() = delete;
-    explicit Program(std::string_view text, int startAddress = 0x200);
-    ~Program();
+    Assembler() = delete;
+    explicit Assembler(std::string_view text, int startAddress = 0x200);
+    ~Assembler();
     bool compile();
-    bool isError() const { return is_error; }
-    int errorLine() const { return is_error ? error_line + 1 : 0; }
-    int errorPos() const { return is_error ? error_pos + 1 : 0; }
-    [[nodiscard]] std::string errorMessage() const { return error; }
+    bool isError() const { return _isError; }
+    int errorLine() const { return _isError ? _errorLine + 1 : 0; }
+    int errorPos() const { return _isError ? _errorPos + 1 : 0; }
+    [[nodiscard]] std::string errorMessage() const { return _error; }
     int lastAddressUsed() const { return length - 1; }
     size_t codeSize() const { return length - startAddress; }
     int romStartAddress() const { return startAddress; }
     const uint8_t* data() const { return rom.data() + startAddress; }
-    int numSourceLines() const { return source_line; }
+    int numSourceLines() const { return _sourceLine; }
     std::string_view breakpointInfo(uint32_t addr) const
     {
-        if (is_error || addr > rom.size())
+        if (_isError || addr > rom.size())
             return "";
         auto iter = breakpoints.find(addr);
         return iter == breakpoints.end() ? "" : iter->second;
     }
-    uint32_t lineForAddress(uint32_t addr) const { return !is_error && addr < romLineMap.size() ? romLineMap[addr] : 0xFFFFFFFF; }
+    uint32_t lineForAddress(uint32_t addr) const { return !_isError && addr < romLineMap.size() ? romLineMap[addr] : 0xFFFFFFFF; }
 
 private:
     static double sign(double x) { return (0.0 < x) - (x < 0.0); }

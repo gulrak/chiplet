@@ -1,10 +1,10 @@
 //---------------------------------------------------------------------------------------
 //
-//  octo_compiler.cpp
+//  octo/assembler.cpp
 //
-//  A compiler for Octo CHIP-8 assembly language, suitable for embedding in other
+//  An assembler for Octo CHIP-8 assembly language, suitable for embedding in other
 //  tools and environments. Compared to its original form it depends heavily on C++20
-//  standard library. It's for sure not as lightweight as the original, but it is
+//  standard library. It's for sure not as lightweight as the original assembler, but it is
 //  quite a bit faster and hopefully easier to extend and due to no more use of any
 //  static arrays it has none of the original limitations.
 //
@@ -62,7 +62,7 @@
 //
 //---------------------------------------------------------------------------------------
 
-#include "octo_compiler.hpp"
+#include "assembler.hpp"
 
 #include <iostream>
 #include <ostream>
@@ -121,270 +121,11 @@ inline int toIntJS(double x) {
 
 } // namespace detail
 
-std::unordered_map<std::string_view, TokenId> lexerTokenMap = {
-#define TEXT_TOKEN_MAP(NAME, TEXT) {TEXT, TokenId::NAME},
-    TOKEN_LIST(TEXT_TOKEN_MAP)
-#undef TEXT_TOKEN_MAP
-};
-
-Token::Token(int line, int pos)
-    : type{Type::END_OF_FILE}
-    , line{line}
-    , pos{pos}
+Assembler::~Assembler()
 {
 }
 
-Token::Token(int n)
-    : type{Type::NUMBER}
-    , line{0}
-    , pos{0}
-{
-    num_value = n;
-}
-
-Token::Token(const Token& other)
-    : type{other.type}
-    , tid(other.tid)
-    , line{other.line}
-    , pos{other.pos}
-{
-    if (type == Type::NUMBER) {
-        num_value = other.num_value;
-    }
-    else {
-        if (!other.str_container.empty() && other.str_value.data() == other.str_container.data()) {
-            str_container = other.str_container;
-            str_value = str_container;
-        }
-        else {
-            str_value = other.str_value;
-        }
-    }
-}
-Token& Token::operator=(const Token& other)
-{
-    type = other.type;
-    tid = other.tid;
-    line = other.line;
-    pos = other.pos;
-    if (type == Type::NUMBER) {
-        num_value = other.num_value;
-    }
-    else {
-        if (!other.str_container.empty() && other.str_value.data() == other.str_container.data()) {
-            str_container = other.str_container;
-            str_value = str_container;
-        }
-        else {
-            str_value = other.str_value;
-        }
-    }
-    return *this;
-}
-
-char* Token::formatValue(char* d) const
-{
-    switch (type) {
-        case Type::END_OF_FILE:
-            snprintf(d, 255, "<end of file>");
-            break;
-        case Type::STRING:
-            snprintf(d, 255, "'%s'", std::string(str_value).c_str());
-            break;
-        case Type::NUMBER:
-            snprintf(d, 255, "%d", (int)num_value);
-            break;
-        default:
-            snprintf(d, 255, "unknown type");
-            break;
-    }
-    return d;
-}
-
-Lexer::Lexer(std::string_view text)
-{
-    source = text.data();
-    source_root = text.data();
-    sourceEnd = source + text.length();
-    source_line = 0;
-    source_pos = 0;
-    is_error = 0;
-    error[0] = '\0';
-    error_line = 0;
-    error_pos = 0;
-}
-
-char Lexer::nextChar()
-{
-    if(source >= sourceEnd)
-        return 0;
-    char c = source[0];
-    if (c == '\n')
-        source_line++, source_pos = 0;
-    else
-        source_pos++;
-    source++;
-    return c;
-}
-
-char Lexer::peekChar() const
-{
-    return source >= sourceEnd ? '\0' : source[0];
-}
-
-void Lexer::skipWhitespace()
-{
-    while (true) {
-        char c = peekChar();
-        if (c == '#') {  // line comments
-            nextChar();
-            while (true) {
-                char cc = peekChar();
-                if (cc == '\0' || cc == '\n')
-                    break;
-                nextChar();
-            }
-        }
-        else if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
-            break;
-        nextChar();
-    }
-}
-
-
-void Lexer::scanNextToken(octo::Token& t)
-{
-    std::string strBuffer;
-    const auto* start = source;
-    size_t index = 0;
-    if (source[0] == '"') {
-        nextChar();
-        while (true) {
-            char c = nextChar();
-            if (c == '\0') {
-                is_error = 1;
-                error = "Missing a closing \" in a string literal.";
-                error_line = source_line, error_pos = source_pos;
-                return;
-            }
-            if (c == '"') {
-                nextChar();
-                break;
-            }
-            if (c == '\\') {
-                start = nullptr;
-                char ec = nextChar();
-                if (ec == '\0') {
-                    is_error = 1;
-                    error = "Missing a closing \" in a string literal.";
-                    error_line = source_line, error_pos = source_pos;
-                    return;
-                }
-                if (ec == 't')
-                    strBuffer.push_back('\t');
-                else if (ec == 'n')
-                    strBuffer.push_back('\n');
-                else if (ec == 'r')
-                    strBuffer.push_back('\r');
-                else if (ec == 'v')
-                    strBuffer.push_back('\v');
-                else if (ec == '0')
-                    strBuffer.push_back('\0');
-                else if (ec == '\\')
-                    strBuffer.push_back('\\');
-                else if (ec == '"')
-                    strBuffer.push_back('"');
-                else {
-                    is_error = 1;
-                    error = fmt::format("Unrecognized escape character '{}' in a string literal.", ec);
-                    error_line = source_line, error_pos = source_pos - 1;
-                    return;
-                }
-            }
-            else {
-                strBuffer.push_back(c);
-            }
-        }
-        t.type = Token::Type::STRING;
-        t.tid = TokenId::STRING_LITERAL;
-        if(start) {
-            t.str_value = std::string_view(start + 1, strBuffer.length());
-        }
-        else {
-            t.str_container = std::move(strBuffer);
-            t.str_value = t.str_container;
-        }
-    }
-    else {
-        // string or number
-        while (true) {
-            char c = nextChar();
-            if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '#' || c == '\0')
-                break;
-            ++index;
-        }
-        if(std::isdigit(*start) || (*start == '-' && std::isdigit(start[1]))) {
-            double float_val = 0;
-            int64_t temp = 0;
-            t.type = Token::Type::STRING;
-            auto fcr = fast_float::from_chars(start, start + index, float_val);
-            if (fcr.ptr == start + index && fcr.ec == std::errc{}) {
-                t.type = Token::Type::NUMBER, t.num_value = float_val;
-            }
-            else if (index > 2 && start[0] == '0' && start[1] == 'b') {
-                auto [ptr, ec] = std::from_chars(start + 2, start + index, temp, 2);
-                if(ptr == start + index && ec == std::errc{})
-                    t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(temp);
-            }
-            else if (index > 2 && start[0] == '0' && start[1] == 'x') {
-                auto [ptr, ec] = std::from_chars(start + 2, start + index, temp, 16);
-                if(ptr == start + index && ec == std::errc{})
-                    t.type = Token::Type::NUMBER, t.num_value = static_cast<double>(temp);
-            }
-            else if (index > 3 && start[0] == '-' && start[1] == '0' && start[2] == 'b') {
-                auto [ptr, ec] = std::from_chars(start + 3, start + index, temp, 2);
-                if(ptr == start + index && ec == std::errc{})
-                    t.type = Token::Type::NUMBER, t.num_value = -static_cast<double>(temp);
-            }
-            else if (index > 3 && start[0] == '-' && start[1] == '0' && start[2] == 'x') {
-                auto [ptr, ec] = std::from_chars(start + 3, start + index, temp, 16);
-                if(ptr == start + index && ec == std::errc{})
-                    t.type = Token::Type::NUMBER, t.num_value = -static_cast<double>(temp);
-            }
-            if(t.type != Token::Type::NUMBER) {
-                t.type = Token::Type::STRING;
-                t.str_value = {start, index};
-                t.tid = TokenId::TOK_UNKNOWN;
-                // TODO: Make a strict mode!
-                //is_error = true;
-                //error = fmt::format("Expected a valid number, but found '{}'.", std::string_view(start, index));
-                //error_line = source_line, error_pos = static_cast<int>(source_pos - index);
-            }
-        }
-        else {
-            if (!index) {
-                t.type = Token::Type::END_OF_FILE;
-                t.tid = TokenId::TOK_UNKNOWN;
-                return;
-            }
-            t.type = Token::Type::STRING;
-            t.str_value = {start, index};
-            auto iter = lexerTokenMap.find(t.str_value);
-            if (iter != lexerTokenMap.end())
-                t.tid = iter->second;
-        }
-        // this is handy for debugging internal errors:
-        // if (t->type==Token::Type::STRING) printf("RAW TOKEN: %p %s\n", (void*)t->str_value, t->str_value);
-        // if (t->type==Token::Type::NUMBER) printf("RAW TOKEN: %f\n", t->num_value);
-    }
-    skipWhitespace();
-}
-
-Program::~Program()
-{
-}
-
-std::string_view Program::safeStringStringView(std::string&& name)
+std::string_view Assembler::safeStringStringView(std::string&& name)
 {
     auto iter = stringTable.find(name);
     if (iter != stringTable.end())
@@ -392,66 +133,66 @@ std::string_view Program::safeStringStringView(std::string&& name)
     return *stringTable.emplace(std::move(name)).first;
 }
 
-std::string_view Program::safeStringStringView(std::string_view name)
+std::string_view Assembler::safeStringStringView(std::string_view name)
 {
     return safeStringStringView(std::string(name));
 }
 
-std::string_view Program::safeStringStringView(char* name)
+std::string_view Assembler::safeStringStringView(char* name)
 {
     return safeStringStringView(std::string{name, std::strlen(name)});
 }
 
-int Program::is_end() const
+int Assembler::is_end() const
 {
-    return tokens.empty() && source >= sourceEnd;
+    return tokens.empty() && _source >= _sourceEnd;
 }
 
-void Program::fetchToken()
+void Assembler::fetchToken()
 {
     if (is_end()) {
-        is_error = 1;
-        error = "Unexpected EOF.";
+        _isError = 1;
+        _error = "Unexpected EOF.";
         return;
     }
-    if (is_error)
+    if (_isError)
         return;
-    tokens.emplace_back(source_line, source_pos);
+    tokens.emplace_back(_sourceLine, _sourcePos);
     auto& t = tokens.back();
     scanNextToken(t);
 }
 
-Token Program::next()
+Token Assembler::next()
 {
     if (tokens.empty())
         fetchToken();
-    if (is_error)
-        return {source_line, source_pos};
+    if (_isError)
+        return {_sourceLine, _sourcePos};
     auto t = tokens.front();
     tokens.pop_front();
-    error_line = t.line, error_pos = t.pos;
+    _errorLine = t.line, _errorPos = t.pos;
     return t;
 }
 
-Token Program::peek()
+Token Assembler::peek()
 {
     if (tokens.empty())
         fetchToken();
-    if (is_error)
-        return {source_line, source_pos};
+    if (_isError)
+        return {_sourceLine, _sourcePos};
     return tokens.front();
 }
 
-bool Program::peek_match(const std::string_view& name, int index)
+bool Assembler::peek_match(const std::string_view& name, int index)
 {
-    while (!is_error && !is_end() && tokens.size() < index + 1)
+    while (!_isError && !is_end() && tokens.size() < index + 1)
         fetchToken();
-    if (is_end() || is_error)
+    if (is_end() || _isError)
         return false;
-    return tokens[index].type == Token::Type::STRING && tokens[index].str_value == name;
+    return tokens[index].isText() && tokens[index].strValue == name;
 }
 
-inline bool Program::match(const std::string_view& name)
+inline bool Assembler::match(const std::string_view& name)
 {
     if (peek_match(name, 0)) {
         tokens.pop_front();
@@ -460,7 +201,7 @@ inline bool Program::match(const std::string_view& name)
     return false;
 }
 
-void Program::eat()
+void Assembler::eat()
 {
     tokens.pop_front();
 }
@@ -472,60 +213,59 @@ void Program::eat()
  **/
 
 
-bool Program::isReserved(std::string_view name)
+bool Assembler::isReserved(std::string_view name)
 {
-    return lexerTokenMap.count(name);
+    return isKnownToken(name);
 }
 
-bool Program::check_name(std::string_view name, const char* kind)
+bool Assembler::check_name(std::string_view name, const char* kind)
 {
-    if (is_error)
+    if (_isError)
         return false;
     if (strncmp("OCTO_", name.data(), 5) == 0 || isReserved(name)) {
-        is_error = 1, error = fmt::format("The name '{}' is reserved and cannot be used for a {}.", name, kind);
+        _isError = 1, _error = fmt::format("The name '{}' is reserved and cannot be used for a {}.", name, kind);
         return false;
     }
     return true;
 }
 
-std::string_view Program::string()
+std::string_view Assembler::string()
 {
-    if (is_error)
+    if (_isError)
         return "";
     stringToken = next();
-    if (stringToken.type != Token::Type::STRING) {
-        is_error = 1, error = fmt::format("Expected a string, got {}.", (int)stringToken.num_value);
+    if (!stringToken.isText()) {
+        _isError = 1, _error = fmt::format("Expected a string, got {}.", (int)stringToken.numValue);
         return "";
     }
-    return stringToken.str_value;
+    return stringToken.strValue;
 }
 
-std::string_view Program::identifier(const char* kind)
+std::string_view Assembler::identifier(const char* kind)
 {
-    if (is_error)
+    if (_isError)
         return "";
     stringToken = next();
-    if (stringToken.type != Token::Type::STRING) {
-        is_error = 1, error = fmt::format("Expected a name for a {}, got {}.", kind, (int)stringToken.num_value);
+    if (!stringToken.isText()) {
+        _isError = 1, _error = fmt::format("Expected a name for a {}, got {}.", kind, (int)stringToken.numValue);
         return "";
     }
-    if (!check_name(stringToken.str_value, kind))
+    if (!check_name(stringToken.strValue, kind))
         return "";
-    return stringToken.str_value;
+    return stringToken.strValue;
 }
 
-void Program::expect(std::string_view name)
+void Assembler::expect(std::string_view name)
 {
-    if (is_error)
+    if (_isError)
         return;
     auto t = next();
-    if (t.type != Token::Type::STRING || t.str_value != name) {
-        char d[256];
-        is_error = 1, error = fmt::format("Expected {}, got {}.", name, t.formatValue(d));
+    if (!t.isText() || t.strValue != name) {
+        _isError = 1, _error = fmt::format("Expected {}, got {}.", name, t.formatValue());
     }
 }
 
-bool Program::isRegister(std::string_view name)
+bool Assembler::isRegister(std::string_view name)
 {
     if (aliases.count(name))
         return true;
@@ -536,101 +276,100 @@ bool Program::isRegister(std::string_view name)
     return isxdigit(name[1]);
 }
 
-bool Program::peekIsRegister()
+bool Assembler::peekIsRegister()
 {
     auto t = peek();
-    return t.type == Token::Type::STRING && isRegister(t.str_value);
+    return t.isText() && isRegister(t.strValue);
 }
 
-int Program::registerOrAlias()
+int Assembler::registerOrAlias()
 {
-    if (is_error)
+    if (_isError)
         return 0;
     auto t = next();
-    if (t.type != Token::Type::STRING || !isRegister(t.str_value)) {
-        char d[256];
-        is_error = 1, error = fmt::format("Expected register, got {}.", t.formatValue(d));
+    if (!t.isText() || !isRegister(t.strValue)) {
+        _isError = 1, _error = fmt::format("Expected register, got {}.", t.formatValue());
         return 0;
     }
-    auto iter = aliases.find(t.str_value);
+    auto iter = aliases.find(t.strValue);
     if (iter != aliases.end())
         return iter->second;
-    char c = static_cast<char>(std::tolower(t.str_value[1]));
+    char c = static_cast<char>(std::tolower(t.strValue[1]));
     return isdigit(c) ? c - '0' : 10 + (c - 'a');
 }
 
-int Program::valueRange(int n, int mask)
+int Assembler::valueRange(int n, int mask)
 {
     if (mask == 0xF && (n < 0 || n > mask))
-        is_error = 1, error = fmt::format("Argument {} does not fit in 4 bits- must be in range [0,15].", n);
+        _isError = 1, _error = fmt::format("Argument {} does not fit in 4 bits- must be in range [0,15].", n);
     if (mask == 0xFF && (n < -128 || n > mask))
-        is_error = 1, error = fmt::format("Argument {} does not fit in a byte- must be in range [-128,255].", n);
+        _isError = 1, _error = fmt::format("Argument {} does not fit in a byte- must be in range [-128,255].", n);
     if (mask == 0xFFF && (n < 0 || n > mask))
-        is_error = 1, error = fmt::format("Argument {} does not fit in 12 bits.", n);
+        _isError = 1, _error = fmt::format("Argument {} does not fit in 12 bits.", n);
     if (mask == 0xFFFF && (n < 0 || n > mask))
-        is_error = 1, error = fmt::format("Argument {} does not fit in 16 bits.", n);
+        _isError = 1, _error = fmt::format("Argument {} does not fit in 16 bits.", n);
     if (mask == 0xFFFFFF && (n < 0 || n > mask))
-        is_error = 1, error = fmt::format("Argument {} does not fit in 24 bits.", n);
+        _isError = 1, _error = fmt::format("Argument {} does not fit in 24 bits.", n);
     return n & mask;
 }
 
-void Program::valueFail(const std::string_view& w, const std::string_view& n, bool undef)
+void Assembler::valueFail(const std::string_view& w, const std::string_view& n, bool undef)
 {
-    if (is_error)
+    if (_isError)
         return;
     if (isRegister(n))
-        is_error = 1, error = fmt::format("Expected {} value, but found the register {}.", w, n);
+        _isError = 1, _error = fmt::format("Expected {} value, but found the register {}.", w, n);
     else if (isReserved(n))
-        is_error = 1, error = fmt::format("Expected {} value, but found the keyword '{}'. Missing a token?", w, n);
+        _isError = 1, _error = fmt::format("Expected {} value, but found the keyword '{}'. Missing a token?", w, n);
     else if (undef)
-        is_error = 1, error = fmt::format("Expected {} value, but found the undefined name '{}'.", w, n);
+        _isError = 1, _error = fmt::format("Expected {} value, but found the undefined name '{}'.", w, n);
 }
 
-int Program::value4bit()
+int Assembler::value4bit()
 {
-    if (is_error)
+    if (_isError)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.num_value, 0xF);
+        return valueRange((int)t.numValue, 0xF);
     }
-    auto& n = t.str_value;
+    auto& n = t.strValue;
     auto iter = constants.find(n);
     if (iter != constants.end())
         return valueRange((int)iter->second.value, 0xF);
     return valueFail("a 4-bit", n, true), 0;
 }
 
-int Program::value8bit()
+int Assembler::value8bit()
 {
-    if (is_error)
+    if (_isError)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.num_value, 0xFF);
+        return valueRange((int)t.numValue, 0xFF);
     }
-    auto& n = t.str_value;
-    auto iter = constants.find(t.str_value);
+    auto& n = t.strValue;
+    auto iter = constants.find(t.strValue);
     if (iter != constants.end())
         return valueRange((int)iter->second.value, 0xFF);
-    return valueFail("an 8-bit", t.str_value, true), 0;
+    return valueFail("an 8-bit", t.strValue, true), 0;
 }
 
-int Program::value12bit()
+int Assembler::value12bit()
 {
-    if (is_error)
+    if (_isError)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.num_value, 0xFFF);
+        return valueRange((int)t.numValue, 0xFFF);
     }
-    auto& n = t.str_value;
+    auto& n = t.strValue;
     int proto_line = t.line, proto_pos = t.pos;
     auto iter = constants.find(n);
     if (iter != constants.end())
         return valueRange((int)iter->second.value, 0xFFF);
     valueFail("a 12-bit", n, false);
-    if (is_error)
+    if (_isError)
         return 0;
     if (!check_name(n, "label"))
         return 0;
@@ -638,59 +377,59 @@ int Program::value12bit()
     return 0;
 }
 
-int Program::value16bit(int can_forward_ref, int offset)
+int Assembler::value16bit(int can_forward_ref, int offset)
 {
-    if (is_error)
+    if (_isError)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.num_value, 0xFFFF);
+        return valueRange((int)t.numValue, 0xFFFF);
     }
-    auto& n = t.str_value;
+    auto& n = t.strValue;
     int proto_line = t.line, proto_pos = t.pos;
     auto iter = constants.find(n);
     if (iter != constants.end())
         return valueRange((int)iter->second.value, 0xFFFF);
     valueFail("a 16-bit", n, false);
-    if (is_error)
+    if (_isError)
         return 0;
     if (!check_name(n, "label"))
         return 0;
     if (!can_forward_ref) {
-        is_error = 1, error = fmt::format("The reference to '{}' may not be forward-declared.", n);
+        _isError = 1, _error = fmt::format("The reference to '{}' may not be forward-declared.", n);
         return 0;
     }
     addProtoRef(n, proto_line, proto_pos, here + offset, 16);
     return 0;
 }
 
-int Program::value24bit(int can_forward_ref, int offset)
+int Assembler::value24bit(int can_forward_ref, int offset)
 {
-    if (is_error)
+    if (_isError)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.num_value, 0xFFFFFF);
+        return valueRange((int)t.numValue, 0xFFFFFF);
     }
-    auto& n = t.str_value;
+    auto& n = t.strValue;
     int proto_line = t.line, proto_pos = t.pos;
     auto iter = constants.find(n);
     if (iter != constants.end())
         return valueRange((int)iter->second.value, 0xFFFFFF);
     valueFail("a 24-bit", n, false);
-    if (is_error)
+    if (_isError)
         return 0;
     if (!check_name(n, "label"))
         return 0;
     if (!can_forward_ref) {
-        is_error = 1, error = fmt::format("The reference to '{}' may not be forward-declared.", n);
+        _isError = 1, _error = fmt::format("The reference to '{}' may not be forward-declared.", n);
         return 0;
     }
     addProtoRef(n, proto_line, proto_pos, here + offset, 24);
     return 0;
 }
 
-void Program::addProtoRef(std::string_view name, int line, int pos, int where, int8_t size)
+void Assembler::addProtoRef(std::string_view name, int line, int pos, int where, int8_t size)
 {
     auto iter = protos.find(name);
     if (iter == protos.end()) {
@@ -699,31 +438,31 @@ void Program::addProtoRef(std::string_view name, int line, int pos, int where, i
     iter->second.addrs.push_back({where, size});
 }
 
-Constant Program::valueConstant()
+Constant Assembler::valueConstant()
 {
     auto t = next();
-    if (is_error)
+    if (_isError)
         return {0, false};
     if (t.type == Token::Type::NUMBER) {
-        return {static_cast<double>((int)t.num_value), false};
+        return {static_cast<double>((int)t.numValue), false};
     }
-    auto& n = t.str_value;
+    auto& n = t.strValue;
     auto iter = constants.find(n);
     if (iter != constants.end())
         return {iter->second.value, false};
     if (protos.count(n))
-        is_error = 1, error = fmt::format("A constant reference to '{}' may not be forward-declared.", n);
+        _isError = 1, _error = fmt::format("A constant reference to '{}' may not be forward-declared.", n);
     valueFail("a constant", n, true);
     return {0, false};
 }
 
-void Program::macroBody(const std::string_view& desc, const std::string_view& name, Macro& m)
+void Assembler::macroBody(const std::string_view& desc, const std::string_view& name, Macro& m)
 {
-    if (is_error)
+    if (_isError)
         return;
     expect("{");
-    if (is_error) {
-        error = fmt::format("Expected '{{' for definition of {} '{}'.", desc, name);
+    if (_isError) {
+        _error = fmt::format("Expected '{{' for definition of {} '{}'.", desc, name);
         return;
     }
     int depth = 1;
@@ -731,24 +470,24 @@ void Program::macroBody(const std::string_view& desc, const std::string_view& na
         auto t = peek();
         if (t.type == Token::Type::END_OF_FILE)
             break;
-        if (t.type == Token::Type::STRING && t.str_value == "{")
+        if (t.isText() && t.strValue == "{")
             depth++;
-        if (t.type == Token::Type::STRING && t.str_value == "}")
+        if (t.isText() && t.strValue == "}")
             depth--;
         if (depth == 0)
             break;
         m.body.push_back(next());
     }
     expect("}");
-    if (is_error)
-        error = fmt::format("Expected '}}' for definition of {} '{}'.", desc, name);
+    if (_isError)
+        _error = fmt::format("Expected '}}' for definition of {} '{}'.", desc, name);
 }
 
 //-----------------------------------------------------------
 // Compile-time Calculation
 //-----------------------------------------------------------
 
-double Program::calcTerminal(std::string_view name)
+double Assembler::calcTerminal(std::string_view name)
 {
     // NUMBER | CONSTANT | LABEL | VREGISTER | '(' expression ')'
     if (peekIsRegister())
@@ -761,19 +500,19 @@ double Program::calcTerminal(std::string_view name)
         return here;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        double r = t.num_value;
+        double r = t.numValue;
         return r;
     }
-    auto& n = t.str_value;
+    auto& n = t.strValue;
     if (protos.count(n)) {
-        is_error = 1, error = fmt::format("Cannot use forward declaration '{}' when calculating constant '{}'.", n, name);
+        _isError = 1, _error = fmt::format("Cannot use forward declaration '{}' when calculating constant '{}'.", n, name);
         return 0;
     }
     auto iter = constants.find(n);
     if (iter != constants.end())
         return iter->second.value;
     if (n != "(") {
-        is_error = 1, error = fmt::format("Found undefined name '{}' when calculating constant '{}'.", n, name);
+        _isError = 1, _error = fmt::format("Found undefined name '{}' when calculating constant '{}'.", n, name);
         return 0;
     }
     double r = calcExpr(name);
@@ -781,7 +520,7 @@ double Program::calcTerminal(std::string_view name)
     return r;
 }
 
-double Program::calcExpr(std::string_view name)
+double Assembler::calcExpr(std::string_view name)
 {
     // UNARY expression
     if (match("strlen"))
@@ -861,7 +600,7 @@ double Program::calcExpr(std::string_view name)
     return r;
 }
 
-double Program::calculated(std::string_view name)
+double Assembler::calculated(std::string_view name)
 {
     expect("{");
     double r = calcExpr(name);
@@ -873,13 +612,13 @@ double Program::calculated(std::string_view name)
 //  ROM construction
 //-----------------------------------------------------------
 
-void Program::append(uint8_t byte)
+void Assembler::append(uint8_t byte)
 {
-    if (is_error)
+    if (_isError)
         return;
     if (here >= RAM_MAX) {
-        is_error = 1;
-        error = "Supported ROM space is full (16MB).";
+        _isError = 1;
+        _error = "Supported ROM space is full (16MB).";
         return;
     }
     if (here >= rom.size()) {
@@ -900,29 +639,29 @@ void Program::append(uint8_t byte)
         }
     }
     if (here > startAddress && used[here]) {
-        is_error = 1;
-        error = fmt::format("Data overlap. Address 0x{:0X} has already been defined.", here);
+        _isError = 1;
+        _error = fmt::format("Data overlap. Address 0x{:0X} has already been defined.", here);
         return;
     }
-    romLineMap[here] = source_line;
+    romLineMap[here] = _sourceLine;
     rom[here] = byte, used[here] = 1, here++;
     if (here > length)
         length = here;
 }
 
-void Program::instruction(uint8_t a, uint8_t b)
+void Assembler::instruction(uint8_t a, uint8_t b)
 {
     append(a), append(b);
 }
 
-void Program::immediate(uint8_t op, int nnn)
+void Assembler::immediate(uint8_t op, int nnn)
 {
     instruction(op | ((nnn >> 8) & 0xF), (nnn & 0xFF));
 }
 
-void Program::jump(int addr, int dest)
+void Assembler::jump(int addr, int dest)
 {
-    if (is_error)
+    if (_isError)
         return;
     rom[addr] = (0x10 | ((dest >> 8) & 0xF)), used[addr] = 1;
     rom[addr + 1] = (dest & 0xFF), used[addr + 1] = 1;
@@ -932,7 +671,7 @@ void Program::jump(int addr, int dest)
 //  The Compiler proper
 //-----------------------------------------------------------
 
-void Program::pseudoConditional(int reg, int sub, int comp)
+void Assembler::pseudoConditional(int reg, int sub, int comp)
 {
     if (peekIsRegister())
         instruction(0x8F, registerOrAlias() << 4);
@@ -942,13 +681,12 @@ void Program::pseudoConditional(int reg, int sub, int comp)
     instruction(comp, 0);
 }
 
-void Program::conditional(int negated)
+void Assembler::conditional(int negated)
 {
     int reg = registerOrAlias();
     auto t = peek();
-    char d[256];
-    t.formatValue(d);
-    if (is_error)
+    auto formattedToken = t.formatValue();
+    if (_isError)
         return;
     auto n = string();
 
@@ -979,22 +717,22 @@ void Program::conditional(int negated)
     else if (octo_ca("<=", ">"))
         pseudoConditional(reg, 0x5, 0x3F);
     else {
-        is_error = 1, error = fmt::format("Expected conditional operator, got {}.", d);
+        _isError = 1, _error = fmt::format("Expected conditional operator, got {}.", formattedToken);
     }
 }
 
-void Program::resolveLabel(int offset)
+void Assembler::resolveLabel(int offset)
 {
     int target = (here) + offset;
     auto n = identifier("label");
-    if (is_error)
+    if (_isError)
         return;
     if (constants.count(n)) {
-        is_error = 1, error = fmt::format("The name '{}' has already been defined.", n);
+        _isError = 1, _error = fmt::format("The name '{}' has already been defined.", n);
         return;
     }
     if (aliases.count(n)) {
-        is_error = 1, error = fmt::format("The name '{}' is already used by an alias.", n);
+        _isError = 1, _error = fmt::format("The name '{}' is already used by an alias.", n);
         return;
     }
     if ((target == startAddress + 2 || target == startAddress) && (n == "main")) {
@@ -1018,15 +756,15 @@ void Program::resolveLabel(int offset)
             rom[pa.value + 1] = target;
         }
         else if (pa.size <= 12 && (target & 0xFFF) != target) {
-            is_error = 1, error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 12 bits.", target, n);
+            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 12 bits.", target, n);
             break;
         }
         else if (pa.size <= 16 && (target & 0xFFFF) != target) {
-            is_error = 1, error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 16 bits.", target, n);
+            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 16 bits.", target, n);
             break;
         }
         else if (pa.size <= 24 && (target & 0xFFFFFF) != target) {
-            is_error = 1, error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 24 bits.", target, n);
+            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 24 bits.", target, n);
             break;
         }
         else if (pa.size == 24) {
@@ -1047,9 +785,9 @@ void Program::resolveLabel(int offset)
 }
 
 #if 0
-void Program::compile_statement()
+void Assembler::compile_statement()
 {
-    if (is_error)
+    if (_isError)
         return;
     int peek_line = peek().line, peek_pos = peek().pos;
     if (peek_is_register()) {
@@ -1092,9 +830,8 @@ void Program::compile_statement()
             instruction(0x80 | r, (register_or_alias() << 4) | 0xE);
         else {
             auto t = next();
-            char d[256];
-            if (!is_error)
-                is_error = 1, error = fmt::format("Unrecognized operator {}.", t.formatValue(d));
+            if (!_isError)
+                _isError = 1, _error = fmt::format("Unrecognized operator {}.", t.formatValue());
         }
     }
     else if (match(":"))
@@ -1118,10 +855,9 @@ void Program::compile_statement()
     else if (match(":breakpoint"))
         breakpoints[here] = string().data();
     else if (match(":monitor")) {
-        char n[256];
+        auto n = peek().formatValue();
         int type, base, len;
         std::string format;
-        peek().formatValue(n);
         if (peek_is_register()) {
             type = 0;  // register monitor
             base = register_or_alias();
@@ -1138,19 +874,19 @@ void Program::compile_statement()
             else
                 len = -1, format = string();
         }
-        if (n[strlen(n) - 1] == '\'')
-            n[strlen(n) - 1] = '\0';
-        auto nn = safeStringStringView(n[0] == '\'' ? n + 1 : n);
+        if (!n.empty() && n.back() == '\'')
+            n.pop_back();
+        auto nn = safeStringStringView(!n.empty() && n.front() == '\'' ? std::string_view(n).substr(1) : std::string_view(n));
         monitors.insert_or_assign(nn, Monitor{type, base, len, format});
     }
     else if (match(":assert")) {
         auto message = peek_match("{", 0) ? std::string_view() : string();
         if (!(int)calculated("assertion")) {
-            is_error = 1;
+            _isError = 1;
             if (!message.empty())
-                error = fmt::format("Assertion failed: {}", message);
+                _error = fmt::format("Assertion failed: {}", message);
             else
-                error = "Assertion failed.";
+                _error = "Assertion failed.";
         }
     }
     else if (match(":proto"))
@@ -1158,13 +894,13 @@ void Program::compile_statement()
     else if (match(":alias")) {
         auto n = identifier("alias");
         if (constants.count(n)) {
-            is_error = 1, error = fmt::format("The name '{}' is already used by a constant.", n);
+            _isError = 1, _error = fmt::format("The name '{}' is already used by a constant.", n);
             return;
         }
         int v = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)register_or_alias();
         if (v < 0 || v > 15) {
-            is_error = 1;
-            error = "Register index must be in the range [0,F].";
+            _isError = 1;
+            _error = "Register index must be in the range [0,F].";
             return;
         }
         aliases[n] = v;
@@ -1190,8 +926,8 @@ void Program::compile_statement()
     else if (match(":const")) {
         auto n = identifier("constant");
         if (constants.count(n)) {
-            is_error = 1;
-            error = fmt::format("The name '{}' has already been defined.", n);
+            _isError = 1;
+            _error = fmt::format("The name '{}' has already been defined.", n);
             return;
         }
         constants.insert_or_assign(n, value_constant());
@@ -1200,7 +936,7 @@ void Program::compile_statement()
         auto n = identifier("calculated constant");
         auto iter = constants.find(n);
         if (iter != constants.end() && !iter->second.isMutable) {
-            is_error = 1, error = fmt::format("Cannot redefine the name '{}' with :calc.", n);
+            _isError = 1, _error = fmt::format("Cannot redefine the name '{}' with :calc.", n);
             return;
         }
         constants.insert_or_assign(n, Constant{calculated(n), true});
@@ -1246,7 +982,7 @@ void Program::compile_statement()
     else if (match("plane")) {
         int n = value_4bit();
         if (n > 15)
-            is_error = 1, error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
+            _isError = 1, _error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
         instruction(0xF0 | n, 0x01);
     }
     else if (match("saveflags"))
@@ -1285,8 +1021,7 @@ void Program::compile_statement()
             instruction(0xF0 | register_or_alias(), 0x1E);
         else {
             auto t = next();
-            char d[256];
-            is_error = 1, error = fmt::format("{} is not an operator that can target the i register.", t.formatValue(d));
+            _isError = 1, _error = fmt::format("{} is not an operator that can target the i register.", t.formatValue());
         }
     }
     else if (match("if")) {
@@ -1296,21 +1031,21 @@ void Program::compile_statement()
         }
         else if (peek_match("begin", index)) {
             conditional(1), expect("begin");
-            branches.push({here, source_line, source_pos, "begin"});
+            branches.push({here, _sourceLine, _sourcePos, "begin"});
             instruction(0x00, 0x00);
         }
         else {
             for (int z = 0; z <= index; z++)
                 if (!is_end())
                     next();
-            is_error = 1;
-            error = "Expected 'then' or 'begin'.";
+            _isError = 1;
+            _error = "Expected 'then' or 'begin'.";
         }
     }
     else if (match("else")) {
         if (branches.empty()) {
-            is_error = 1;
-            error = "This 'else' does not have a matching 'begin'.";
+            _isError = 1;
+            _error = "This 'else' does not have a matching 'begin'.";
             return;
         }
         jump(branches.top().addr, here + 2);
@@ -1320,8 +1055,8 @@ void Program::compile_statement()
     }
     else if (match("end")) {
         if (branches.empty()) {
-            is_error = 1;
-            error = "This 'end' does not have a matching 'begin'.";
+            _isError = 1;
+            _error = "This 'end' does not have a matching 'begin'.";
             return;
         }
         jump(branches.top().addr, here);
@@ -1333,8 +1068,8 @@ void Program::compile_statement()
     }
     else if (match("while")) {
         if (loops.empty()) {
-            is_error = 1;
-            error = "This 'while' is not within a loop.";
+            _isError = 1;
+            _error = "This 'while' is not within a loop.";
             return;
         }
         conditional(1);
@@ -1343,8 +1078,8 @@ void Program::compile_statement()
     }
     else if (match("again")) {
         if (loops.empty()) {
-            is_error = 1;
-            error = "This 'again' does not have a matching 'loop'.";
+            _isError = 1;
+            _error = "This 'again' does not have a matching 'loop'.";
             return;
         }
         immediate(0x10, loops.top().addr);
@@ -1360,31 +1095,31 @@ void Program::compile_statement()
     }
     else if (match(":macro")) {
         auto n = identifier("macro");
-        if (is_error)
+        if (_isError)
             return;
         if (macros.count(n)) {
-            is_error = 1, error = fmt::format("The name '{}' has already been defined.", n);
+            _isError = 1, _error = fmt::format("The name '{}' has already been defined.", n);
             return;
         }
         auto& m = macros.emplace(n, Macro()).first->second;
-        while (!is_error && !is_end() && !peek_match("{", 0))
+        while (!_isError && !is_end() && !peek_match("{", 0))
             m.args.push_back(identifier("macro argument"));
         macro_body("macro", n, m);
     }
     else if (match(":stringmode")) {
         auto n = identifier("stringmode");
-        if (is_error)
+        if (_isError)
             return;
         auto& s = stringModes.try_emplace(n, StringMode()).first->second;
-        int alpha_base = source_pos, alpha_quote = peek_char() == '"';
+        int alpha_base = _sourcePos, alpha_quote = peekChar() == '"';
         auto alphabet = string();
         Macro m;  // every stringmode needs its own copy of this
         macro_body("string mode", n, m);
         for (int z = 0; z < alphabet.length(); z++) {
             int c = 0xFF & alphabet[z];
             if (s.modes[c]) {
-                error_pos = alpha_base + z + (alpha_quote ? 1 : 0);
-                is_error = 1, error = fmt::format("String mode '{}' is already defined for the character '{:c}'.", n, c);
+                _errorPos = alpha_base + z + (alpha_quote ? 1 : 0);
+                _isError = 1, _error = fmt::format("String mode '{}' is already defined for the character '{:c}'.", n, c);
                 break;
             }
             s.values[c] = (char)z;
@@ -1395,18 +1130,18 @@ void Program::compile_statement()
     }
     else {
         auto t = peek();
-        if (is_error)
+        if (_isError)
             return;
         if (t.type == Token::Type::NUMBER) {
-            int n = (int)t.num_value;
+            int n = (int)t.numValue;
             next();
             if (n < -128 || n > 255) {
-                is_error = 1, error = fmt::format("Literal value '{}' does not fit in a byte- must be in range [-128,255].", n);
+                _isError = 1, _error = fmt::format("Literal value '{}' does not fit in a byte- must be in range [-128,255].", n);
             }
             append(n);
             return;
         }
-        auto n = t.type == Token::Type::STRING ? t.str_value : std::string_view();
+        auto n = t.isText() ? t.strValue : std::string_view();
         if (auto mi = macros.find(n); mi != macros.end()) {
             next();
             auto& m = mi->second;
@@ -1414,8 +1149,8 @@ void Program::compile_statement()
             bindings.emplace("CALLS", Token(m.calls++));
             for (auto& arg : m.args) {
                 if (is_end()) {
-                    error_line = source_line, error_pos = source_pos;
-                    is_error = 1, error = fmt::format("Not enough arguments for expansion of macro '{}'.", n);
+                    _errorLine = _sourceLine, _errorPos = _sourcePos;
+                    _isError = 1, _error = fmt::format("Not enough arguments for expansion of macro '{}'.", n);
                     break;
                 }
                 bindings.emplace(arg, next());
@@ -1423,21 +1158,21 @@ void Program::compile_statement()
             int splice_index = 0;
             for (int z = 0; z < m.body.size(); z++) {
                 auto& bt = m.body[z];
-                auto argIter = (bt.type == Token::Type::STRING ? bindings.find(bt.str_value) : bindings.end());
+                auto argIter = (bt.isText() ? bindings.find(bt.strValue) : bindings.end());
                 tokens.insert(tokens.begin() + z, argIter != bindings.end() ? argIter->second : bt);
             }
         }
         else if (auto iter = stringModes.find(n); iter != stringModes.end()) {
             next();
             auto& s = iter->second;
-            int text_base = source_pos, text_quote = peek_char() == '"';
+            int text_base = _sourcePos, text_quote = peekChar() == '"';
             auto text = string();
             int splice_index = 0;
             for (int tz = 0; tz < text.length(); tz++) {
                 int c = 0xFF & text[tz];
                 if (!s.modes[c]) {
-                    error_pos = text_base + tz + (text_quote ? 1 : 0);
-                    is_error = 1, error = fmt::format("String mode '{}' is not defined for the character '{:c}'.", n, c);
+                    _errorPos = text_base + tz + (text_quote ? 1 : 0);
+                    _isError = 1, _error = fmt::format("String mode '{}' is not defined for the character '{:c}'.", n, c);
                     break;
                 }
                 std::unordered_map<std::string_view, Token> bindings;  // name -> tok
@@ -1447,7 +1182,7 @@ void Program::compile_statement()
                 bindings.emplace("VALUE", Token(s.values[c]));         // index of char in class alphabet
                 auto& sm = *s.modes[c];
                 for (auto& bt : sm.body) {
-                    auto argIter = (bt.type == Token::Type::STRING ? bindings.find(bt.str_value) : bindings.end());
+                    auto argIter = (bt.isText() ? bindings.find(bt.strValue) : bindings.end());
                     tokens.insert(tokens.begin() + splice_index++, argIter != bindings.end() ? argIter->second : bt);
                 }
             }
@@ -1526,9 +1261,9 @@ inline std::vector<MonitorField> parseMonitorFormat(std::string_view fmt) {
   return out;
 }
 
-void Program::compileStatement()
+void Assembler::compileStatement()
 {
-    if (is_error)
+    if (_isError)
         return;
     int peek_line = peek().line, peek_pos = peek().pos;
     if (peekIsRegister()) {
@@ -1571,15 +1306,14 @@ void Program::compileStatement()
             instruction(0x80 | r, (registerOrAlias() << 4) | 0xE);
         else {
             auto t = next();
-            char d[256];
-            if (!is_error)
-                is_error = 1, error = fmt::format("Unrecognized operator {}.", t.formatValue(d));
+            if (!_isError)
+                _isError = 1, _error = fmt::format("Unrecognized operator {}.", t.formatValue());
         }
     }
     else {
-        if (!is_error && !is_end() && tokens.empty())
+        if (!_isError && !is_end() && tokens.empty())
             fetchToken();
-        if (is_end() || is_error)
+        if (is_end() || _isError)
             return;
         switch (tokens.front().tid) {
             case TokenId::COLON:
@@ -1612,10 +1346,9 @@ void Program::compileStatement()
                 break;
             case TokenId::MONITOR: {
                 eat();
-                char n[256];
+                auto n = peek().formatValue();
                 int type, base, len;
                 std::string format;
-                peek().formatValue(n);
                 if (peekIsRegister()) {
                     type = 0;  // register monitor
                     base = registerOrAlias();
@@ -1632,9 +1365,9 @@ void Program::compileStatement()
                     else
                         len = -1, format = string();
                 }
-                if (n[strlen(n) - 1] == '\'')
-                    n[strlen(n) - 1] = '\0';
-                auto nn = safeStringStringView(n[0] == '\'' ? n + 1 : n);
+                if (!n.empty() && n.back() == '\'')
+                    n.pop_back();
+                auto nn = safeStringStringView(!n.empty() && n.front() == '\'' ? std::string_view(n).substr(1) : std::string_view(n));
                 monitors.insert_or_assign(nn, Monitor{type, base, len, parseMonitorFormat(safeStringStringView(format))});
                 break;
             }
@@ -1642,11 +1375,11 @@ void Program::compileStatement()
                 eat();
                 auto message = peek_match("{", 0) ? std::string_view() : string();
                 if (!(int)calculated("assertion")) {
-                    is_error = 1;
+                    _isError = 1;
                     if (!message.empty())
-                        error = fmt::format("Assertion failed: {}", message);
+                        _error = fmt::format("Assertion failed: {}", message);
                     else
-                        error = "Assertion failed.";
+                        _error = "Assertion failed.";
                 }
                 break;
             }
@@ -1658,13 +1391,13 @@ void Program::compileStatement()
                 eat();
                 auto n = identifier("alias");
                 if (constants.count(n)) {
-                    is_error = 1, error = fmt::format("The name '{}' is already used by a constant.", n);
+                    _isError = 1, _error = fmt::format("The name '{}' is already used by a constant.", n);
                     return;
                 }
                 int v = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)registerOrAlias();
                 if (v < 0 || v > 15) {
-                    is_error = 1;
-                    error = "Register index must be in the range [0,F].";
+                    _isError = 1;
+                    _error = "Register index must be in the range [0,F].";
                     return;
                 }
                 aliases[n] = v;
@@ -1693,8 +1426,8 @@ void Program::compileStatement()
                 eat();
                 int new_address = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value16bit(0, 0));
                 if (new_address < here && used[new_address] && new_address != 0x200) {
-                    is_error = 1;
-                    error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - new_address, here);
+                    _isError = 1;
+                    _error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - new_address, here);
                 }
                 here = new_address;
                 break;
@@ -1708,8 +1441,8 @@ void Program::compileStatement()
                 eat();
                 auto n = identifier("constant");
                 if (constants.count(n)) {
-                    is_error = 1;
-                    error = fmt::format("The name '{}' has already been defined.", n);
+                    _isError = 1;
+                    _error = fmt::format("The name '{}' has already been defined.", n);
                     return;
                 }
                 constants.insert_or_assign(n, valueConstant());
@@ -1720,7 +1453,7 @@ void Program::compileStatement()
                 auto n = identifier("calculated constant");
                 auto iter = constants.find(n);
                 if (iter != constants.end() && !iter->second.isMutable) {
-                    is_error = 1, error = fmt::format("Cannot redefine the name '{}' with :calc.", n);
+                    _isError = 1, _error = fmt::format("Cannot redefine the name '{}' with :calc.", n);
                     return;
                 }
                 constants.insert_or_assign(n, Constant{calculated(n), true});
@@ -1788,7 +1521,7 @@ void Program::compileStatement()
                 eat();
                 int n = value4bit();
                 if (n > 15)
-                    is_error = 1, error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
+                    _isError = 1, _error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
                 instruction(0xF0 | n, 0x01);
                 break;
             }
@@ -1835,8 +1568,7 @@ void Program::compileStatement()
                     instruction(0xF0 | registerOrAlias(), 0x1E);
                 else {
                     auto t = next();
-                    char d[256];
-                    is_error = 1, error = fmt::format("{} is not an operator that can target the i register.", t.formatValue(d));
+                    _isError = 1, _error = fmt::format("{} is not an operator that can target the i register.", t.formatValue());
                 }
                 break;
             }
@@ -1848,23 +1580,23 @@ void Program::compileStatement()
                 }
                 else if (peek_match("begin", index)) {
                     conditional(1), expect("begin");
-                    branches.push({here, source_line, source_pos, "begin"});
+                    branches.push({here, _sourceLine, _sourcePos, "begin"});
                     instruction(0x00, 0x00);
                 }
                 else {
                     for (int z = 0; z <= index; z++)
                         if (!is_end())
                             next();
-                    is_error = 1;
-                    error = "Expected 'then' or 'begin'.";
+                    _isError = 1;
+                    _error = "Expected 'then' or 'begin'.";
                 }
                 break;
             }
             case TokenId::ELSE: {
                 eat();
                 if (branches.empty()) {
-                    is_error = 1;
-                    error = "This 'else' does not have a matching 'begin'.";
+                    _isError = 1;
+                    _error = "This 'else' does not have a matching 'begin'.";
                     return;
                 }
                 jump(branches.top().addr, here + 2);
@@ -1876,8 +1608,8 @@ void Program::compileStatement()
             case TokenId::END: {
                 eat();
                 if (branches.empty()) {
-                    is_error = 1;
-                    error = "This 'end' does not have a matching 'begin'.";
+                    _isError = 1;
+                    _error = "This 'end' does not have a matching 'begin'.";
                     return;
                 }
                 jump(branches.top().addr, here);
@@ -1893,8 +1625,8 @@ void Program::compileStatement()
             case TokenId::WHILE: {
                 eat();
                 if (loops.empty()) {
-                    is_error = 1;
-                    error = "This 'while' is not within a loop.";
+                    _isError = 1;
+                    _error = "This 'while' is not within a loop.";
                     return;
                 }
                 conditional(1);
@@ -1905,8 +1637,8 @@ void Program::compileStatement()
             case TokenId::AGAIN: {
                 eat();
                 if (loops.empty()) {
-                    is_error = 1;
-                    error = "This 'again' does not have a matching 'loop'.";
+                    _isError = 1;
+                    _error = "This 'again' does not have a matching 'loop'.";
                     return;
                 }
                 immediate(0x10, loops.top().addr);
@@ -1924,14 +1656,14 @@ void Program::compileStatement()
             case TokenId::MACRO: {
                 eat();
                 auto n = identifier("macro");
-                if (is_error)
+                if (_isError)
                     return;
                 if (macros.count(n)) {
-                    is_error = 1, error = fmt::format("The name '{}' has already been defined.", n);
+                    _isError = 1, _error = fmt::format("The name '{}' has already been defined.", n);
                     return;
                 }
                 auto& m = macros.emplace(n, Macro()).first->second;
-                while (!is_error && !is_end() && !peek_match("{", 0))
+                while (!_isError && !is_end() && !peek_match("{", 0))
                     m.args.push_back(identifier("macro argument"));
                 macroBody("macro", n, m);
                 break;
@@ -1939,18 +1671,18 @@ void Program::compileStatement()
             case TokenId::STRINGMODE: {
                 eat();
                 auto n = identifier("stringmode");
-                if (is_error)
+                if (_isError)
                     return;
                 auto& s = stringModes.try_emplace(n, StringMode()).first->second;
-                int alpha_base = source_pos, alpha_quote = peekChar() == '"';
+                int alpha_base = _sourcePos, alpha_quote = peekChar() == '"';
                 auto alphabet = string();
                 Macro m;  // every stringmode needs its own copy of this
                 macroBody("string mode", n, m);
                 for (int z = 0; z < alphabet.length(); z++) {
                     int c = 0xFF & alphabet[z];
                     if (s.modes[c]) {
-                        error_pos = alpha_base + z + (alpha_quote ? 1 : 0);
-                        is_error = 1, error = fmt::format("String mode '{}' is already defined for the character '{:c}'.", n, c);
+                        _errorPos = alpha_base + z + (alpha_quote ? 1 : 0);
+                        _isError = 1, _error = fmt::format("String mode '{}' is already defined for the character '{:c}'.", n, c);
                         break;
                     }
                     s.values[c] = (char)z;
@@ -1962,18 +1694,18 @@ void Program::compileStatement()
             }
             default: {
                 auto t = peek();
-                if (is_error)
+                if (_isError)
                     return;
                 if (t.type == Token::Type::NUMBER) {
-                    int n = (int)t.num_value;
+                    int n = (int)t.numValue;
                     next();
                     if (n < -128 || n > 255) {
-                        is_error = 1, error = fmt::format("Literal value '{}' does not fit in a byte- must be in range [-128,255].", n);
+                        _isError = 1, _error = fmt::format("Literal value '{}' does not fit in a byte- must be in range [-128,255].", n);
                     }
                     append(n);
                     return;
                 }
-                auto n = t.type == Token::Type::STRING ? t.str_value : std::string_view();
+                auto n = t.isText() ? t.strValue : std::string_view();
                 if (auto mi = macros.find(n); mi != macros.end()) {
                     next();
                     auto& m = mi->second;
@@ -1981,8 +1713,8 @@ void Program::compileStatement()
                     bindings.emplace("CALLS", Token(m.calls++));
                     for (auto& arg : m.args) {
                         if (is_end()) {
-                            error_line = source_line, error_pos = source_pos;
-                            is_error = 1, error = fmt::format("Not enough arguments for expansion of macro '{}'.", n);
+                            _errorLine = _sourceLine, _errorPos = _sourcePos;
+                            _isError = 1, _error = fmt::format("Not enough arguments for expansion of macro '{}'.", n);
                             break;
                         }
                         bindings.emplace(arg, next());
@@ -1990,21 +1722,21 @@ void Program::compileStatement()
                     int splice_index = 0;
                     for (int z = 0; z < m.body.size(); z++) {
                         auto& bt = m.body[z];
-                        auto argIter = (bt.type == Token::Type::STRING ? bindings.find(bt.str_value) : bindings.end());
+                        auto argIter = (bt.isText() ? bindings.find(bt.strValue) : bindings.end());
                         tokens.insert(tokens.begin() + z, argIter != bindings.end() ? argIter->second : bt);
                     }
                 }
                 else if (auto iter = stringModes.find(n); iter != stringModes.end()) {
                     next();
                     auto& s = iter->second;
-                    int text_base = source_pos, text_quote = peekChar() == '"';
+                    int text_base = _sourcePos, text_quote = peekChar() == '"';
                     auto text = string();
                     int splice_index = 0;
                     for (int tz = 0; tz < text.length(); tz++) {
                         int c = 0xFF & text[tz];
                         if (!s.modes[c]) {
-                            error_pos = text_base + tz + (text_quote ? 1 : 0);
-                            is_error = 1, error = fmt::format("String mode '{}' is not defined for the character '{:c}'.", n, c);
+                            _errorPos = text_base + tz + (text_quote ? 1 : 0);
+                            _isError = 1, _error = fmt::format("String mode '{}' is not defined for the character '{:c}'.", n, c);
                             break;
                         }
                         std::unordered_map<std::string_view, Token> bindings;  // name -> tok
@@ -2014,12 +1746,12 @@ void Program::compileStatement()
                         bindings.emplace("VALUE", Token(s.values[c]));         // index of char in class alphabet
                         auto& sm = *s.modes[c];
                         for (auto& bt : sm.body) {
-                            auto argIter = (bt.type == Token::Type::STRING ? bindings.find(bt.str_value) : bindings.end());
+                            auto argIter = (bt.isText() ? bindings.find(bt.strValue) : bindings.end());
                             tokens.insert(tokens.begin() + splice_index++, argIter != bindings.end() ? argIter->second : bt);
                         }
                     }
                 }
-                else if (!t.str_value.empty())
+                else if (!t.strValue.empty())
                     immediate(0x20, value12bit());
                 else {
                     // Just drop it, this is the end.
@@ -2031,7 +1763,7 @@ void Program::compileStatement()
 }
 #endif
 
-Program::Program(std::string_view text, int startAddress)
+Assembler::Assembler(std::string_view text, int startAddress)
 : Lexer(text)
 {
     has_main = 1;
@@ -2042,8 +1774,8 @@ Program::Program(std::string_view text, int startAddress)
     used.resize(65536, 0);
     romLineMap.resize(65536, 0xFFFFFFFF);
 
-    if ((unsigned char)source[0] == 0xEF && (unsigned char)source[1] == 0xBB && (unsigned char)source[2] == 0xBF)
-        source += 3;  // UTF-8 BOM
+    if ((unsigned char)_source[0] == 0xEF && (unsigned char)_source[1] == 0xBB && (unsigned char)_source[2] == 0xBF)
+        _source += 3;  // UTF-8 BOM
     skipWhitespace();
 
 #define octo_kc(l, n) constants.emplace(("OCTO_KEY_" l), Constant{n, 0})
@@ -2054,43 +1786,43 @@ Program::Program(std::string_view text, int startAddress)
     aliases["unpack-lo"] = 1;
 }
 
-bool Program::compile()
+bool Assembler::compile()
 {
     instruction(0x00, 0x00);  // reserve a jump slot for main
-    while (!is_end() && !is_error) {
-        error_line = source_line;
-        error_pos = source_pos;
+    while (!is_end() && !_isError) {
+        _errorLine = _sourceLine;
+        _errorPos = _sourcePos;
         compileStatement();
     }
-    if (is_error)
+    if (_isError)
         return false;
     while (length > startAddress && !used[length - 1])
         length--;
-    error_line = source_line, error_pos = source_pos;
+    _errorLine = _sourceLine, _errorPos = _sourcePos;
 
     if (has_main) {
         auto iter = constants.find("main");
         if (iter == constants.end())
-            return is_error = 1, error = "This program is missing a 'main' label.", false;
+            return _isError = 1, _error = "This program is missing a 'main' label.", false;
         jump(startAddress, (int)iter->second.value);
     }
     if (!protos.empty()) {
         auto& pr = protos.begin()->second;
-        error_line = pr.line, error_pos = pr.pos;
-        is_error = 1;
-        error = fmt::format("Undefined forward reference: {}", protos.begin()->first);
+        _errorLine = pr.line, _errorPos = pr.pos;
+        _isError = 1;
+        _error = fmt::format("Undefined forward reference: {}", protos.begin()->first);
         return false;
     }
     if (!loops.empty()) {
-        is_error = 1;
-        error = "This 'loop' does not have a matching 'again'.";
-        error_line = loops.top().line, error_pos = loops.top().pos;
+        _isError = 1;
+        _error = "This 'loop' does not have a matching 'again'.";
+        _errorLine = loops.top().line, _errorPos = loops.top().pos;
         return false;
     }
     if (!branches.empty()) {
-        is_error = 1;
-        error = fmt::format("This '{}' does not have a matching 'end'.", branches.top().type);
-        error_line = branches.top().line, error_pos = branches.top().pos;
+        _isError = 1;
+        _error = fmt::format("This '{}' does not have a matching 'end'.", branches.top().type);
+        _errorLine = branches.top().line, _errorPos = branches.top().pos;
         return false;
     }
     return true;  // success!
