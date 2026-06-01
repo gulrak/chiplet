@@ -1,7 +1,15 @@
+//
+// Created by Steffen Schümann on 28.11.25.
+//
 #include <doctest/doctest.h>
 
 #include "../src/cdp1802/assembly_session.hpp"
 #include "../src/cdp1802/lexer.hpp"
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
 
 using Data = std::vector<uint8_t>;
 
@@ -10,7 +18,8 @@ namespace {
 Data assemble(std::string_view source)
 {
     cdp1802::AssemblySession session;
-    CAPTURE(source);
+    const std::string sourceText{source};
+    CAPTURE(sourceText);
     REQUIRE(session.compile(source));
     CHECK_FALSE(session.isError());
     return session.contiguousData();
@@ -27,10 +36,10 @@ TEST_SUITE("CDP1802")
 
         REQUIRE_FALSE(lexer.isError());
         CHECK_EQ(tokens[0].type, cdp1802::TokenType::IDENTIFIER);
-        CHECK_EQ(tokens[0].text, "ORG");
+        CHECK_EQ(std::string{tokens[0].text}, "ORG");
         CHECK_EQ(tokens[1].type, cdp1802::TokenType::NUMBER);
         CHECK_EQ(tokens[1].value, 0x8000);
-        CHECK_EQ(tokens[3].text, "LDI");
+        CHECK_EQ(std::string{tokens[3].text}, "LDI");
         CHECK_EQ(tokens[4].value, 0);
     }
 
