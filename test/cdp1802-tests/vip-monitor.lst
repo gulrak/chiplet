@@ -1,0 +1,632 @@
+0000 ;              0001   .. VIP operating system
+0000 ;              0002   .. recreated from the hex listing
+0000 ;              0003   .. and using information from VIPER Vol 1, Issue 3
+0000 ;              0004   .. by J.W. Wentworth's Interpretation of VIP
+0000 ;              0005   .. D. Hunter            7/11/14
+0000 ;              0006   
+0000 ;              0007   .. Enter the VIP operating system by holding down the 'C' key when entering RUN
+0000 ;              0008   .. A hex address is entered followed by a command key
+0000 ;              0009   .. e.g. 0123 <cmd>
+0000 ;              0010   .. There are four commands possible:
+0000 ;              0011   .. Memory Read   = A
+0000 ;              0012   .. Memory Write  = 0    (enter the byte to write)
+0000 ;              0013   .. Tape Read     = B    (enter the number of pages to read)
+0000 ;              0014   .. Tape Write    = F    (enter the number of pages to write)
+0000 ;              0015   ..
+0000 ;              0016   .. Execute a RESET (RUN OFF, RUN ON) to exit a command and start again
+0000 ;              0017   ..
+0000 ;              0018   .. PORTS
+0000 ;              0019   ..      VIDEO ON        INPUT  1
+0000 ;              0020   ..      VIDEO OFF       OUTPUT 1
+0000 ;              0021   ..      KEYPAD SCAN     OUTPUT 2
+0000 ;              0022   ..      INPUT PORT      INPUT  3
+0000 ;              0023   ..      OUTPUT PORT     OUTPUT 3
+0000 ;              0024   ..      ROM MAP OFF     OUTPUT 4
+0000 ;              0025   
+0000 ;              0026   .. Q
+0000 ;              0027   ..      TAPE OUT
+0000 ;              0028   ..      LED
+0000 ;              0029   
+0000 ;              0030   .. EF PINS
+0000 ;              0031   ..      VIDEO FRAME     EF1
+0000 ;              0032   ..      TAPE IN         EF2
+0000 ;              0033   ..      KEYBD           EF3
+0000 ;              0034   ..      (OPEN)          EF4
+0000 ;              0035   
+0000 ;              0036   STKTOP: EQU     #AF             .. top of stack is below register memory
+0000 ;              0037   LINE27: EQU     216             .. display starts at line 27, position 0
+0000 ;              0038                                   .. for 5 rows (27,28,29,30,31)
+0000 ;              0039                                   .. so the characters are at the bottom
+0000 ;              0040                                   .. of the screen
+0000 ;              0041                                   .. 27 * 8 = 216 = #D8
+0000 ;              0042   NXTCHR: EQU     217             .. line 27, position 1
+0000 ;              0043   
+0000 ;              0044   .. REGISTER USAGE
+0000 ;              0045   .. R0 = DMA (video memory)
+0000 ;              0046   .. R1 = INTERRUPT
+0000 ;              0047   .. R2 = STACK POINTER
+0000 ;              0048   .. R3 = PC
+0000 ;              0049   .. R4 = DISPLAY CONTROL SUBROUTINE (#81DD)
+0000 ;              0050   .. R5 = 5 ROW DISPLAY SUBROUTINE (#81C6)
+0000 ;              0051   .. R6 = POINTER TO ADDRESSED BYTE ENTERED BY OPERATOR
+0000 ;              0052   .. R7 = GET BYTE FROM KEYPAD SUBROUTINE (#81BA)
+0000 ;              0053   ..      R7.1 STORES BYTES FOR PROCESSING IN TAPE READS AND WRITES
+0000 ;              0054   ..      R7.0 PARITY COUNTER FOR TAPE READS AND WRITES
+0000 ;              0055   .. R8 = R8.1 IS A TIMER FOR CHIP 8 PROGRAMS, TESTED EVERY TV SCREEN
+0000 ;              0056   ..      R8.0 TIMER TESTED AND DECREMENTED EVERY TV SCREEN (60 HZ)
+0000 ;              0057   ..      A TONE IS ON (Q SET) WHEN TIMER > 0
+0000 ;              0058   ..      R8.0 TIMER ALSO CONTROLS DEBOUNCE FOR THE KEYBOARD
+0000 ;              0059   .. R9 = SPECIAL VALUE USED BY THE RANDOM NUMBER GENERATOR IN CHIP 8,
+0000 ;              0060   ..      INCREMENTED ONCE PER TV SCREEN
+0000 ;              0061   ..      R9.1 IS A TIMER FOR THE TAPE LEADER IN TAPE READS AND WRITES
+0000 ;              0062   ..      R9.0 IS THE BIT COUNTER FOR TAPE READS AND WRITES
+0000 ;              0063   .. RA = DATA POINTER USED IN 5 ROW HEX DIGIT DISPLAY  -POINTS TO CHARACTER DATA
+0000 ;              0064   .. RB = RB.1 STORES DISPLAY PAGE UPPER ADDRESS FOR USE DURING THE INTERRUPT ROUTINE
+0000 ;              0065   ..      RB.0 USED DURING THE INTERRUPT ROUTINE TO DECREMENT R8.1 W/O CHANGING DF
+0000 ;              0066   .. RC = KEYBOARD SCAN SUBROUTINE (#8195)
+0000 ;              0067   .. RD = DESTINATION POINTER TO BE DISPLAYED ON DISPLAY PAGE
+0000 ;              0068   .. RE = RE.1 STORES CONTROL DIGIT (A, 0, B OR F) FROM USER
+0000 ;              0069   ..      RE.0 STORES THE MOST SIGNIFICANT DIGIT FOR THE KEYBOARD INPUT
+0000 ;              0070   .. RF = RF.1 STORES THE TIMER CONSTANT FOR THE TAPE WRITE
+0000 ;              0071   ..      RF.0 IS USED FOR KEYBOARD SCANNING AND A COUNTER FOR THE 5 ROW DISPLAY
+0000 ;              0072   
+0000 ;              0073           ORG     #8000
+8000 ;              0074   
+8000 F880;          0075   COLD:   LDI     A.1(MON)        .. jump to MON from boot vector
+8002 B2;            0076           PHI     R2
+8003 F808;          0077           LDI     A.0(MON)
+8005 A2;            0078           PLO     R2
+8006 E2;            0079           SEX     R2              .. 2 -> X
+8007 D2;            0080           SEP     R2              .. 2 -> P
+8008 64;            0081   MON:    OUT     4               .. output 00 to bus to turn off the boot flip-flop
+8009 00;            0082           ,#00
+800A 62;            0083           OUT     2               .. set keyboard scan for switch 'C'
+800B 0C;            0084           ,#0C
+800C ;              0085           
+800C ;              0086   .. Find the top of RAM starting at the 4K boundary (max size for a VIP)
+800C F8FF;          0087   MEMCK:  LDI     #FF             .. check for top of memory, starting at #0FFF
+800E A1;            0088           PLO     R1
+800F F80F;          0089           LDI     #0F
+8011 B1;            0090           PHI     R1
+8012 F8AA;          0091   MEMTST: LDI     #AA             .. write a byte and check that it got there
+8014 51;            0092           STR     R1
+8015 01;            0093           LDN     R1
+8016 FBAA;          0094           XRI     #AA
+8018 3222;          0095           BZ      DONE            .. exit at highest page
+801A ;              0096           
+801A 91;            0097           GHI     R1
+801B FF04;          0098           SMI     #04             .. drop down 1K (#0400)
+801D 3B22;          0099           BM      DONE            .. quit if at start of memory
+801F B1;            0100           PHI     R1
+8020 3012;          0101           BR      MEMTST
+8022 ;              0102           
+8022 3628;          0103   DONE:   B3      CLRDSP          .. start if KEY 'C' pressed
+8024 90;            0104           GHI     R0              .. else, start user program at #0000
+8025 A0;            0105           PLO     R0
+8026 E0;            0106           SEX     R0
+8027 D0;            0107           SEP     R0
+8028 ;              0108           
+8028 ;              0109   .. Erase the display page from 0XFF to 0XB0 
+8028 E1;            0110   CLRDSP: SEX     R1
+8029 F800;          0111   CLEAR:  LDI     #00
+802B 73;            0112           STXD
+802C 81;            0113           GLO     R1
+802D FBAF;          0114           XRI     STKTOP          .. clear register table to memory top
+802F 3A29;          0115           BNZ     CLEAR           .. (#0XB0 to #0XFF)  (0X = top of memory)
+8031 ;              0116                                   .. e.g. X = #7(2K), #B(3K) or #F(4K)
+8031 ;              0117                                   
+8031 ;              0118   .. copy registers to register table
+8031 ;              0119   .. by creating op codes on the fly
+8031 ;              0120   .. #0XB3-#0XBF <- R3.0-RF.0
+8031 ;              0121   .. #0XC3-#0XCF <- R3.1-RF.1
+8031 F8D2;          0122   REGDMP: LDI     #D2             .. SEP R2 op code
+8033 73;            0123           STXD
+8034 F89F;          0124           LDI     #9F             .. GHI RF op code
+8036 51;            0125           STR     R1
+8037 81;            0126           GLO     R1
+8038 A0;            0127           PLO     R0
+8039 91;            0128           GHI     R1
+803A B0;            0129           PHI     R0              .. R0 <- R1
+803B F8CF;          0130           LDI     #CF
+803D A1;            0131           PLO     R1              .. R1 <- #0xCF  (top of register table)
+803E D0;            0132   REGRD:  SEP     R0
+803F 73;            0133           STXD
+8040 20;            0134           DEC     R0
+8041 20;            0135           DEC     R0
+8042 40;            0136           LDA     R0
+8043 FF01;          0137           SMI     #01
+8045 20;            0138           DEC     R0
+8046 50;            0139           STR     R0
+8047 FB82;          0140           XRI     #82             .. stop after R3.0 is stored (GLO R2 opcode)
+8049 3A3E;          0141           BNZ     REGRD
+804B ;              0142           
+804B ;              0143   .. Initialize the registers to start the operating system
+804B 92;            0144           GHI     R2
+804C B3;            0145           PHI     R3
+804D F851;          0146           LDI     A.0(MAIN)
+804F A3;            0147           PLO     R3
+8050 D3;            0148           SEP     R3              .. go to MAIN
+8051 90;            0149   MAIN:   GHI     R0
+8052 B2;            0150           PHI     R2              .. R2.1 = top of memory (stack)
+8053 BB;            0151           PHI     RB              .. RB.1 = top of memory (video)
+8054 BD;            0152           PHI     RD              .. RD.1 = top of memory (display mem)
+8055 F881;          0153           LDI     #81             .. point subroutines to page 2 of ROM
+8057 B1;            0154           PHI     R1              .. #81 -> R1.1
+8058 B4;            0155           PHI     R4              .. #81 -> R4.1
+8059 B5;            0156           PHI     R5              .. #81 -> R5.1
+805A B7;            0157           PHI     R7              .. #81 -> R7.1
+805B BA;            0158           PHI     RA              .. #81 -> RA.1
+805C BC;            0159           PHI     RC              .. #81 -> RC.1
+805D ;              0160           
+805D F846;          0161           LDI     A.0(INT)
+805F A1;            0162           PLO     R1              .. set interrupt pointer
+8060 ;              0163   
+8060 F8AF;          0164           LDI     STKTOP
+8062 A2;            0165           PLO     R2              .. set stack pointer
+8063 ;              0166           
+8063 F8DD;          0167           LDI     A.0(DISPD)
+8065 A4;            0168           PLO     R4              .. R4 = display data
+8066 ;              0169           
+8066 F8C6;          0170           LDI     A.0(DISPW)
+8068 A5;            0171           PLO     R5              .. R5 = write character to display memory
+8069 ;              0172           
+8069 F8BA;          0173           LDI     A.0(GETB)       .. RA = get 2 hex digits into a byte
+806B A7;            0174           PLO     R7
+806C ;              0175           
+806C F8A1;          0176           LDI     A.0(DBNCE)      .. RC = keyboard debounce initially
+806E ;              0177                                   ..    = keyboard scan after first call
+806E AC;            0178           PLO     RC
+806F ;              0179           
+806F E2;            0180           SEX     R2              .. set R2 as stack pointer
+8070 69;            0181           INP     1               .. turn display on
+8071 ;              0182           
+8071 ;              0183   .. Enter address
+8071 DC;            0184           SEP     RC              .. call keypad debounce for the 'C' key
+8072 D7;            0185           SEP     R7              .. get address upper byte
+8073 D7;            0186           SEP     R7              .. routine must be called 3 times
+8074 D7;            0187           SEP     R7              .. because R7 returns to main
+8075 B6;            0188           PHI     R6              .. put high byte in R6
+8076 ;              0189           
+8076 D7;            0190           SEP     R7              .. get address lower byte
+8077 D7;            0191           SEP     R7
+8078 D7;            0192           SEP     R7
+8079 A6;            0193           PLO     R6              .. R6 = address entered by user
+807A ;              0194           
+807A D4;            0195           SEP     R4              .. display address
+807B ;              0196           
+807B ;              0197   .. get user command
+807B DC;            0198           SEP     RC              .. keyboard scan
+807C BE;            0199           PHI     RE              .. store control value (key) in RE.1
+807D 32F4;          0200           BZ      MWR             .. Memory write?
+807F FB0A;          0201           XRI     #0A
+8081 32EF;          0202           BZ      MRD             .. Memory read?
+8083 ;              0203           
+8083 ;              0204                                   .. No, then a TAPE command
+8083 DC;            0205           SEP     RC              .. get number of pages (1 page = 256 bytes)
+8084 AE;            0206           PLO     RE              .. RE.0 = number of pages
+8085 22;            0207           DEC     R2              .. decrement stack pointer (advances with OUT)
+8086 61;            0208           OUT     1               .. turn the display off during tape operations
+8087 ;              0209                                   .. so bit timing is maintained
+8087 ;              0210                                   
+8087 9E;            0211           GHI     RE              .. get control value
+8088 FB0B;          0212           XRI     #0B             .. TAPE READ?
+808A 32C2;          0213           BZ      TRD
+808C ;              0214           
+808C 9E;            0215           GHI     RE
+808D FB0F;          0216           XRI     #0F
+808F 3A8F;          0217           BNZ     $               .. TAPE WRITE?
+8091 ;              0218                                   .. invalid command, go into endless loop
+8091 ;              0219   
+8091 ;              0220   .. TAPE ROUTINES
+8091 ;              0221   .. tape format:
+8091 ;              0222   ..      0000....S01234567PS01234567P...
+8091 ;              0223   ..      <LEADER>< BYTE 0 >< BYTE 1 >...
+8091 ;              0224   ..      LEADER is ~4s of zeros
+8091 ;              0225   ..      S = start bit (1),      P = parity bit (odd parity)
+8091 ;              0226   ..      A zero is one cycle of 2 kHz, a one is one cycle of 800 Hz
+8091 ;              0227   ..      See RCA ap note ICAN-6934 for more info
+8091 ;              0228   
+8091 ;              0229   .. Tape Write Routine
+8091 F86F;          0230   TWR:    LDI     A.0(WRBIT)
+8093 AC;            0231           PLO     RC              .. RC = Write bit routine
+8094 ;              0232           
+8094 F840;          0233           LDI     #40
+8096 B9;            0234           PHI     R9              .. set tape leader timer
+8097 93;            0235   TWR1:   GHI     R3              .. #80 -> D
+8098 F6;            0236           SHR                     .. clear DF
+8099 DC;            0237           SEP     RC              .. write bit
+809A 29;            0238           DEC     R9
+809B 99;            0239           GHI     R9              
+809C 3A97;          0240           BNZ     TWR1            .. done writing leader? (~ 4s)
+809E ;              0241           
+809E F810;          0242   TWR2:   LDI     #10             .. preset parity counter to even number
+80A0 A7;            0243           PLO     R7
+80A1 F808;          0244           LDI     #08             .. set number of bits
+80A3 A9;            0245           PLO     R9
+80A4 46;            0246           LDA     R6              .. get byte
+80A5 B7;            0247           PHI     R7
+80A6 ;              0248   
+80A6 93;            0249           GHI     R3              .. #80 -> D
+80A7 FE;            0250           SHL                     .. set DF for start bit
+80A8 DC;            0251           SEP     RC              .. write start bit
+80A9 86;            0252           GLO     R6              .. get next address
+80AA 3AAD;          0253           BNZ     TWR3            .. end of page?
+80AC 2E;            0254           DEC     RE              .. yes, decrement number of pages
+80AD ;              0255           
+80AD 97;            0256   TWR3:   GHI     R7              .. get byte
+80AE F6;            0257           SHR                     .. put LSB in DF
+80AF B7;            0258           PHI     R7
+80B0 DC;            0259           SEP     RC              .. write data bit
+80B1 29;            0260           DEC     R9              .. decrement bit count
+80B2 89;            0261           GLO     R9              .. done?
+80B3 3AAD;          0262           BNZ     TWR3
+80B5 ;              0263           
+80B5 17;            0264   TWR4:   INC     R7              .. inc R7 - sets ODD parity
+80B6 87;            0265           GLO     R7
+80B7 F6;            0266           SHR                     .. put parity bit in DF
+80B8 DC;            0267           SEP     RC              .. write parity bit
+80B9 8E;            0268           GLO     RE
+80BA 3A9E;          0269           BNZ     TWR2            .. out of pages?
+80BC ;              0270           
+80BC DC;            0271           SEP     RC              .. yes, write last parity bit again
+80BD ;              0272           
+80BD 69;            0273   TDONE:  INP     1               .. turn display back on
+80BE 26;            0274           DEC     R6              .. get last byte
+80BF D4;            0275           SEP     R4              .. and display it
+80C0 30C0;          0276           BR      $               .. endless loop
+80C2 ;              0277           
+80C2 ;              0278   .. Tape Read Routine
+80C2 F883;          0279   TRD:    LDI     A.0(RDBIT)
+80C4 AC;            0280           PLO     RC              .. RC = Read Bit routine
+80C5 ;              0281           
+80C5 F80A;          0282   SRCH:   LDI     #0A
+80C7 B9;            0283           PHI     R9              .. set timer for leader search
+80C8 DC;            0284   LDR:    SEP     RC              .. get bit
+80C9 33C5;          0285           BDF     SRCH            .. look for a starting leader of zeros
+80CB ;              0286           
+80CB 29;            0287           DEC     R9
+80CC 99;            0288           GHI     R9
+80CD 3AC8;          0289           BNZ     LDR             .. check to make sure have enough zeros 
+80CF ;              0290                                   .. for a leader
+80CF ;              0291           
+80CF DC;            0292   TRD1:   SEP     RC              .. get bit
+80D0 3BCF;          0293           BNF     TRD1            .. wait for start bit
+80D2 ;              0294           
+80D2 F809;          0295           LDI     #09
+80D4 A9;            0296           PLO     R9              .. bit counter = 9
+80D5 A7;            0297           PLO     R7              .. set parity counter to an odd number
+80D6 ;              0298   
+80D6 97;            0299   TRD2:   GHI     R7              .. move bit in to R7.1
+80D7 76;            0300           SHRC
+80D8 B7;            0301           PHI     R7
+80D9 29;            0302           DEC     R9              .. decrement number of bits
+80DA DC;            0303           SEP     RC              .. get data bit
+80DB 89;            0304           GLO     R9
+80DC 3AD6;          0305           BNZ     TRD2            .. done with bits?
+80DE ;              0306           
+80DE 87;            0307           GLO     R7
+80DF F6;            0308           SHR                     .. get parity check
+80E0 33E3;          0309           BDF     TRD3            .. if no parity error, continue
+80E2 7B;            0310           SEQ                     .. else, turn on the tone
+80E3 ;              0311           
+80E3 97;            0312   TRD3:   GHI     R7
+80E4 56;            0313           STR     R6              .. store byte
+80E5 16;            0314           INC     R6              .. next address
+80E6 86;            0315           GLO     R6
+80E7 3ACF;          0316           BNZ     TRD1            .. at page boundary?
+80E9 2E;            0317           DEC     RE              .. yes, decrement number of pages
+80EA ;              0318           
+80EA 8E;            0319   TRD4:   GLO     RE
+80EB 3ACF;          0320           BNZ     TRD1            .. done?
+80ED ;              0321           
+80ED 30BD;          0322           BR      TDONE           .. yes, display last byte and spin
+80EF ;              0323           
+80EF ;              0324   .. MEMORY ROUTINES
+80EF ;              0325   
+80EF ;              0326   .. Memory read
+80EF ;              0327   .. displays the next byte with a press of any key
+80EF DC;            0328   MRD:    SEP     RC              .. get any key from keyboard
+80F0 16;            0329           INC     R6              .. go to next address
+80F1 D4;            0330           SEP     R4              .. display byte
+80F2 30EF;          0331           BR      MRD
+80F4 ;              0332           
+80F4 ;              0333   .. Memory Write
+80F4 D7;            0334   MWR:    SEP     R7              .. get byte to write
+80F5 D7;            0335           SEP     R7
+80F6 D7;            0336           SEP     R7
+80F7 56;            0337           STR     R6              .. store in the address
+80F8 D4;            0338           SEP     R4              .. display byte
+80F9 16;            0339           INC     R6              .. next address
+80FA 30F4;          0340           BR      MWR
+80FC ;              0341           
+80FC ;              0342   .. end of main routine  
+80FC 00;            0343           ,#00
+80FD 00;            0344           ,#00
+80FE 00;            0345           ,#00
+80FF 00;            0346           ,#00
+8100 ;              0347   
+8100 ;              0348           ORG #8100
+8100 ;              0349           
+8100 ;              0350   .. CHARACTER MAP LOOK UP TABLE
+8100 ;              0351   .. offsets to the character data
+8100 ;              0352   
+8100 30;            0353   CH0:    ,A.0(DIG0)
+8101 39;            0354   CH1:    ,A.0(DIG1)
+8102 22;            0355   CH2:    ,A.0(DIG2)
+8103 2A;            0356   CH3:    ,A.0(DIG3)
+8104 3E;            0357   CH4:    ,A.0(DIG4)
+8105 20;            0358   CH5:    ,A.0(DIG5)
+8106 24;            0359   CH6:    ,A.0(DIG6)
+8107 34;            0360   CH7:    ,A.0(DIG7)
+8108 26;            0361   CH8:    ,A.0(DIG8)
+8109 28;            0362   CH9:    ,A.0(DIG9)
+810A 2E;            0363   CHA:    ,A.0(DIGA)
+810B 18;            0364   CHB:    ,A.0(DIGB)
+810C 14;            0365   CHC:    ,A.0(DIGC)
+810D 1C;            0366   CHD:    ,A.0(DIGD)
+810E 10;            0367   CHE:    ,A.0(DIGE)
+810F 12;            0368   CHF:    ,A.0(DIGF)
+8110 ;              0369   
+8110 ;              0370   .. CHARACTER MAP
+8110 ;              0371   .. each character is 5 bytes
+8110 ;              0372   .. in a 8w x 5h matrix
+8110 ;              0373   .. the characters are 4w by 5h, left justified
+8110 ;              0374   
+8110 F0;            0375   DIGE:   ,#F0            .. ****....
+8111 80;            0376           ,#80            .. *.......
+8112 F0;            0377   DIGF:   ,#F0            .. ****....
+8113 80;            0378           ,#80            .. *.......
+8114 F0;            0379   DIGC:   ,#F0            .. ****....
+8115 80;            0380           ,#80            .. *.......
+8116 80;            0381           ,#80            .. *.......
+8117 80;            0382           ,#80            .. *.......
+8118 F0;            0383   DIGB:   ,#F0            .. ****....
+8119 50;            0384           ,#50            .. .*.*....
+811A 70;            0385           ,#70            .. .***....
+811B 50;            0386           ,#50            .. .*.*....
+811C F0;            0387   DIGD:   ,#F0            .. ****....
+811D 50;            0388           ,#50            .. .*.*....
+811E 50;            0389           ,#50            .. .*.*....
+811F 50;            0390           ,#50            .. .*.*....
+8120 F0;            0391   DIG5:   ,#F0            .. ****....
+8121 80;            0392           ,#80            .. *.......
+8122 F0;            0393   DIG2:   ,#F0            .. ****....
+8123 10;            0394           ,#10            .. ...*....
+8124 F0;            0395   DIG6:   ,#F0            .. ****....
+8125 80;            0396           ,#80            .. *.......
+8126 F0;            0397   DIG8:   ,#F0            .. ****....
+8127 90;            0398           ,#90            .. *..*....
+8128 F0;            0399   DIG9:   ,#F0            .. ****....
+8129 90;            0400           ,#90            .. *  *....
+812A F0;            0401   DIG3:   ,#F0            .. ****....
+812B 10;            0402           ,#10            .. ...*....
+812C F0;            0403           ,#F0            .. ****....
+812D 10;            0404           ,#10            .. ...*....
+812E F0;            0405   DIGA:   ,#F0            .. ****....
+812F 90;            0406           ,#90            .. *..*....
+8130 F0;            0407   DIG0:   ,#F0            .. ****....
+8131 90;            0408           ,#90            .. *..*....
+8132 90;            0409           ,#90            .. *..*....
+8133 90;            0410           ,#90            .. *..*....
+8134 F0;            0411   DIG7:   ,#F0            .. ****....
+8135 10;            0412           ,#10            .. ...*....
+8136 10;            0413           ,#10            .. ...*....
+8137 10;            0414           ,#10            .. ...*....
+8138 10;            0415           ,#10            .. ...*....
+8139 60;            0416   DIG1:   ,#60            .. .**.....
+813A 20;            0417           ,#20            .. ..*.....
+813B 20;            0418           ,#20            .. ..*.....
+813C 20;            0419           ,#20            .. ..*.....
+813D 70;            0420           ,#70            .. .***....
+813E A0;            0421   DIG4:   ,#A0            .. *.*.....
+813F A0;            0422           ,#A0            .. *.*.....
+8140 F0;            0423           ,#F0            .. ****....
+8141 20;            0424           ,#20            .. ..*.....
+8142 20;            0425           ,#20            .. ..*.....
+8143 ;              0426   
+8143 ;              0427           .. END OF CHARACTER MAP
+8143 ;              0428   
+8143 ;              0429   .. video interrupt (64 x 32 format)
+8143 7A;            0430   INTX:   REQ                     .. tone off
+8144 42;            0431           LDA     R2              .. get D from stack
+8145 70;            0432           RET                     .. exit and re-enable interrupt
+8146 22;            0433   INT:    DEC     R2
+8147 78;            0434           SAV                     .. T-> STACK
+8148 22;            0435           DEC     R2
+8149 52;            0436           STR     R2              .. D-> STACK
+814A ;              0437                                   .. note DF is not changed by this routine
+814A ;              0438                                   
+814A C4;            0439           NOP                     .. 3 cycle instruction to synchronize
+814B 19;            0440           INC     R9              .. increment random number value
+814C F800;          0441           LDI     #00
+814E A0;            0442           PLO     R0
+814F 9B;            0443           GHI     RB
+8150 B0;            0444           PHI     R0              .. reset R0 (DMA pointer) to video memory
+8151 ;              0445   
+8151 E2;            0446           SEX     R2              .. NOP
+8152 E2;            0447           SEX     R2              .. NOP
+8153 80;            0448   DISP:   GLO     R0              .. LINE START ADDR -> D
+8154 E2;            0449           SEX     R2
+8155 E2;            0450           SEX     R2
+8156 20;            0451           DEC     R0              .. reset R0.1 if pass page
+8157 A0;            0452           PLO     R0              .. line start addr -> R0.0
+8158 E2;            0453           SEX     R2              .. nop
+8159 20;            0454           DEC     R0              .. reset R0.1 if pass page      
+815A A0;            0455           PLO     R0              .. line start addr -> R0.0
+815B E2;            0456           SEX     R2              .. nop
+815C 20;            0457           DEC     R0              .. reset R0.1 if pass page      
+815D A0;            0458           PLO     R0              .. line start addr -> R0.0
+815E 3C53;          0459           BN1     DISP            .. loops 32 times
+8160 ;              0460   
+8160 ;              0461   .. decrement timers every video frame (~16ms)
+8160 ;              0462   ..      R8.1 is a regular timer
+8160 ;              0463   ..      R8.0 is the tone timer
+8160 ;              0464   
+8160 98;            0465   TIMER:  GHI     R8
+8161 3267;          0466           BZ      TIMX
+8163 AB;            0467           PLO     RB
+8164 2B;            0468           DEC     RB
+8165 8B;            0469           GLO     RB
+8166 B8;            0470           PHI     R8              .. dec timer.1 without changing DF
+8167 88;            0471   TIMX:   GLO     R8
+8168 3243;          0472           BZ      INTX            .. exit with tone off if timer = 0
+816A 7B;            0473           SEQ                     .. turn tone on if timer > 0
+816B 28;            0474           DEC     R8              .. decrement tone timer
+816C 3044;          0475           BR      INTX+1          .. exit with tone on
+816E ;              0476           
+816E ;              0477   .. write one bit on the tape
+816E D3;            0478           SEP     R3              .. return
+816F F80A;          0479   WRBIT:  LDI     #0A             .. set timer for a '0'
+8171 3B76;          0480           BNF     WRBIT1          .. if DF = 0, send a 0
+8173 F820;          0481           LDI     #20             .. else, send a one
+8175 17;            0482           INC     R7              .. and increment the parity counter
+8176 ;              0483           
+8176 7B;            0484   WRBIT1: SEQ                     .. set Q (write signal)
+8177 BF;            0485           PHI     RF              .. RF.1 = timer value (10 or 32)
+8178 FF01;          0486   WRBIT2: SMI     #01
+817A 3A78;          0487           BNZ     $-2             .. send bit half cycle
+817C ;              0488           
+817C 396E;          0489           BNQ     WRBIT-1         .. if Q = 0, cycle is done
+817E 7A;            0490           REQ                     .. otherwise start second half of bit cycle
+817F 9F;            0491           GHI     RF              .. get timer value back in D
+8180 3078;          0492           BR      WRBIT2
+8182 ;              0493   
+8182 ;              0494   .. read one bit on the tape
+8182 D3;            0495           SEP     R3
+8183 F810;          0496   RDBIT:  LDI     #10             .. set timer to value between 10 and 32
+8185 3D85;          0497           BN2     $               .. wait for start bit
+8187 3D8F;          0498   RDBIT1: BN2     RDBIT2          .. if EF2 = 0, it is a zero bit,
+8189 ;              0499                                   .. note: EF2 will be 1 first time through (start bit)
+8189 FF01;          0500           SMI     #01             .. (MSB of D = 0)
+818B 3A87;          0501           BNZ     RDBIT1          .. time bit
+818D ;              0502           
+818D ;              0503                                   .. if D = 0 before EF2 = 0, it must be a '1' bit
+818D 17;            0504           INC     R7              .. inc parity counter
+818E 9C;            0505           GHI     RC              .. #81 -> D
+818F ;              0506           
+818F FE;            0507   RDBIT2: SHL                     .. shift in a 1 or 0
+8190 3590;          0508           B2      $               .. wait for next bit to start
+8192 3082;          0509           BR      RDBIT-1
+8194 ;              0510           
+8194 ;              0511   .. keyboard scan
+8194 D3;            0512           SEP     R3
+8195 E2;            0513   KSCN:   SEX     R2              .. this subroutine uses the stack
+8196 9C;            0514           GHI     RC
+8197 AF;            0515           PLO     RF              .. #81 -> RF.0
+8198 ;              0516   
+8198 2F;            0517   KSCN1:  DEC     RF              .. next key value
+8199 22;            0518           DEC     R2              .. move stack down because OUT increments it
+819A 8F;            0519           GLO     RF
+819B 52;            0520           STR     R2              .. store RF.0 on stack
+819C ;              0521           
+819C 62;            0522           OUT     2               .. set keypad latch value, INC R2
+819D E2;            0523           SEX     R2
+819E E2;            0524           SEX     R2              .. pause
+819F 3E98;          0525           BN3     KSCN1
+81A1 ;              0526   
+81A1 ;              0527   .. alternative entry point to just debounce
+81A1 F804;          0528   DBNCE:  LDI     #04
+81A3 A8;            0529           PLO     R8              .. set R8.0 to debounce timer (~66ms)
+81A4 88;            0530           GLO     R8
+81A5 3AA4;          0531           BNZ     $-1             .. wait for timeout
+81A7 ;              0532           
+81A7 F804;          0533   DBNCE1: LDI     #04
+81A9 A8;            0534           PLO     R8              .. additional timing operation
+81AA ;              0535           
+81AA 36A7;          0536           B3      DBNCE1          .. wait for key 
+81AC 88;            0537           GLO     R8              .. pause
+81AD 31AA;          0538           BQ      $-3             .. if Q = 1, R8.0 timer is still running
+81AF ;              0539   
+81AF 8F;            0540           GLO     RF              .. get scan value
+81B0 FA0F;          0541           ANI     #0F             .. mask off lower byte
+81B2 52;            0542           STR     R2              .. store on the stack
+81B3 3094;          0543           BR      KSCN-1          .. exit
+81B5 ;              0544   
+81B5 ;              0545   .. filler
+81B5 00;            0546           ,#00
+81B6 00;            0547           ,#00
+81B7 00;            0548           ,#00
+81B8 00;            0549           ,#00
+81B9 ;              0550   
+81B9 ;              0551   .. assemble two keyboard entries into a byte
+81B9 ;              0552   .. note: this needs to be called 3 times to get through it completely
+81B9 ;              0553   .. because the keyboard scan keeps returning to main
+81B9 ;              0554   ..
+81B9 D3;            0555           SEP     R3
+81BA DC;            0556   GETB:   SEP     RC              .. get first digit (end 3rd SEP R7)
+81BB FE;            0557           SHL                     .. (end 1st SEP R7)
+81BC FE;            0558           SHL
+81BD FE;            0559           SHL
+81BE FE;            0560           SHL
+81BF AE;            0561           PLO     RE              .. put it in the high nibble
+81C0 ;              0562   
+81C0 DC;            0563           SEP     RC              .. get second digit
+81C1 8E;            0564           GLO     RE              .. (end 2nd SEP R7)
+81C2 F1;            0565           OR                      .. combine the digits
+81C3 30B9;          0566           BR      GETB-1          .. and return with digits in D
+81C5 ;              0567           
+81C5 ;              0568   .. write digit character to the display memory
+81C5 D4;            0569           SEP     R4
+81C6 AA;            0570   DISPW:  PLO     RA              .. put digit to display in RA.0
+81C7 0A;            0571           LDN     RA              .. offset into character map
+81C8 AA;            0572           PLO     RA              .. get first byte of character data
+81C9 ;              0573           
+81C9 F805;          0574           LDI     #05
+81CB AF;            0575           PLO     RF              .. set row counter for character data
+81CC ;              0576           
+81CC 4A;            0577   STRDM:  LDA     RA              .. get byte
+81CD 5D;            0578           STR     RD              .. save in display memory
+81CE 8D;            0579           GLO     RD
+81CF FC08;          0580           ADI     #08
+81D1 AD;            0581           PLO     RD              .. offset to next display line (64 bits = 8 bytes)
+81D2 2F;            0582           DEC     RF
+81D3 8F;            0583           GLO     RF
+81D4 3ACC;          0584           BNZ     STRDM           .. all 5 rows?
+81D6 ;              0585   
+81D6 8D;            0586           GLO     RD
+81D7 FCD9;          0587           ADI     NXTCHR          .. sets RD to 1 byte to the right
+81D9 AD;            0588           PLO     RD              .. so characters do not overlap
+81DA 30C5;          0589           BR      DISPW-1
+81DC ;              0590   
+81DC ;              0591   .. subroutine to display data address and contents on screen
+81DC D3;            0592           SEP     R3
+81DD 22;            0593   DISPD:  DEC     R2              .. dec stack pointer
+81DE 06;            0594           LDN     R6
+81DF 73;            0595           STXD                    .. store byte on stack addressed by R6
+81E0 86;            0596           GLO     R6
+81E1 73;            0597           STXD                    .. store lower byte of address
+81E2 96;            0598           GHI     R6
+81E3 52;            0599           STR     R2              .. store upper byte of address
+81E4 ;              0600           
+81E4 F806;          0601           LDI     #06
+81E6 AE;            0602           PLO     RE              .. set special control byte
+81E7 ;              0603           
+81E7 F8D8;          0604           LDI     LINE27          .. point to location for address display
+81E9 AD;            0605           PLO     RD              .. in RD
+81EA ;              0606           
+81EA 02;            0607   DSPBY:  LDN     R2              .. get upper byte
+81EB F6;            0608           SHR
+81EC F6;            0609           SHR
+81ED F6;            0610           SHR
+81EE F6;            0611           SHR                     .. get upper nibble
+81EF D5;            0612           SEP     R5              .. display the digit
+81F0 ;              0613           
+81F0 42;            0614           LDA     R2
+81F1 FA0F;          0615           ANI     #0F             .. get lower nibble
+81F3 D5;            0616           SEP     R5              .. display the digit
+81F4 ;              0617           
+81F4 8E;            0618           GLO     RE
+81F5 F6;            0619           SHR
+81F6 AE;            0620           PLO     RE              .. shift over control byte
+81F7 ;              0621           
+81F7 32DC;          0622           BZ      DISPD-1         .. exit if all digits written
+81F9 ;              0623           
+81F9 3BEA;          0624           BNF     DSPBY           .. DF=0 after writing high address byte
+81FB ;              0625                                   .. else, provide space between the address and data
+81FB 1D;            0626           INC     RD
+81FC 1D;            0627           INC     RD
+81FD 30EA;          0628           BR      DSPBY           .. next byte
+81FF ;              0629           
+81FF 01;            0630           ,#01                    .. filler and check byte
+8200 ;              0631           END
+0000

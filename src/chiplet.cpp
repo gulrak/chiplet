@@ -33,9 +33,12 @@
 #include <chiplet/octocompiler.hpp>
 #include <chiplet/chip8decompiler.hpp>
 
+#include <chiplet/hexfile.hpp>
 #include <chiplet/utility.hpp>
 #include <chiplet/sha1.hpp>
 #include <chiplet/octocartridge.hpp>
+
+#include "cdp1802/assembly_session.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <../external/nothings/stb_image.h>
@@ -64,6 +67,47 @@ static int64_t totalSourceLines = 0;
 static int64_t totalDecompileTime_us = 0;
 static int64_t totalAssembleTime_us = 0;
 
+enum class Architecture { OCTO, CDP1802 };
+
+Architecture architectureFromName(const std::string& name)
+{
+    if (name == "octo")
+        return Architecture::OCTO;
+    if (name == "cdp1802")
+        return Architecture::CDP1802;
+    throw std::runtime_error("Unsupported architecture '" + name + "' (expected 'octo' or 'cdp1802')");
+}
+
+bool writeBinaryOutput(const std::string& filename, std::span<const uint8_t> data)
+{
+    std::ofstream out(filename, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    return static_cast<bool>(out);
+}
+
+bool writeHexOutput(const std::string& filename, uint16_t address, std::span<const uint8_t> data)
+{
+    emu::HexFile hex{filename, emu::HexFile::Mode::WRITE};
+    hex.write(address, data);
+    hex.close();
+    return true;
+}
+
+bool writeHexOutput(const std::string& filename, const std::vector<cdp1802::AssemblySegment>& segments)
+{
+    emu::HexFile hex{filename, emu::HexFile::Mode::WRITE};
+    for (const auto& segment : segments)
+        hex.write(segment.address, segment.bytes);
+    hex.close();
+    return true;
+}
+
+std::string listingFilenameForOutput(const std::string& filename)
+{
+    auto path = fs::path(filename);
+    path.replace_extension(".lst");
+    return path.string();
+}
 
 bool isChipRom(const std::string& name)
 {
@@ -336,17 +380,21 @@ int main(int argc, char* argv[])
     std::string cartridgeImage;
     std::string cartridgeOptions;
     std::string cartridgeVariant;
+    std::string architectureName{"octo"};
     int verbosity = 1;
     int rc = 0;
     int64_t startAddress = 0x200;
+    bool hexOutput = false;
     std::vector<std::string> includePaths;
     std::vector<std::string> inputList;
     std::vector<std::string> defineList;
     cli.category("Assembler/Preprocessor");
+    cli.option({"-a", "--arch"}, architectureName, "select assembler architecture: octo or cdp1802, default octo");
     cli.option({"-P", "--preprocess"}, preprocess, "only preprocess the file and output the result");
     cli.option({"-I", "--include-path"}, includePaths, "add directory to include search path");
     cli.option({"-D", "--define"}, defineList, "add a defined option to the preprocessor");
     cli.option({"-o", "--output"}, outputFile, "name of output file, default stdout for preprocessor, a.out.ch8 for binary");
+    cli.option({"--hex"}, hexOutput, "write Intel HEX output instead of raw binary when compiling");
     cli.option({"--start-address"}, startAddress, "the address the program will be loaded to, the ': main' label address, default is 512");
     cli.optionEnable({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
     cli.option({"--cartridge-label"}, cartridgeLabel, "generate an Octo compatible cartridge gif with the given text label");
@@ -374,6 +422,14 @@ int main(int argc, char* argv[])
     cli.parse();
 
     auto& logstream = preprocess && outputFile.empty() ? std::clog : std::cout;
+    Architecture architecture;
+    try {
+        architecture = architectureFromName(architectureName);
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "ERROR: " << ex.what() << std::endl;
+        return 1;
+    }
 
     WorkMode mode = eCOMPILE;
     int modes = 0;
@@ -405,6 +461,14 @@ int main(int argc, char* argv[])
         std::cerr << "ERROR: Multiple operation modes selected!" << std::endl;
         exit(1);
     }
+    if(architecture != Architecture::OCTO && mode != eCOMPILE) {
+        std::cerr << "ERROR: --arch=cdp1802 is currently only supported for compile mode." << std::endl;
+        return 1;
+    }
+    if(architecture != Architecture::OCTO && cartridgeBuild) {
+        std::cerr << "ERROR: Cartridge output is only supported for --arch=octo." << std::endl;
+        return 1;
+    }
 
     if(quiet)
         verbosity = 0;
@@ -435,6 +499,52 @@ int main(int argc, char* argv[])
 
     if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH || mode == eDEEP_ANALYSE)
         rc = disassembleOrAnalyze(scan, dumpDoubles, inputList, mode);
+    else if(architecture == Architecture::CDP1802) {
+        if(inputList.size() != 1) {
+            std::cerr << "ERROR: CDP1802 assembly currently expects exactly one input file." << std::endl;
+            return 1;
+        }
+        if(outputFile.empty()) {
+            std::cerr << "ERROR: No output filename given for " << (hexOutput ? "hex" : "binary") << " output (use -o/--output)." << std::endl;
+            return 1;
+        }
+        std::error_code ec;
+        if(!fs::exists(inputList.front(), ec) || fs::is_directory(inputList.front(), ec)) {
+            std::cerr << "ERROR: Couldn't find input file '" << inputList.front() << "'." << std::endl;
+            return 1;
+        }
+        try {
+            const auto source = loadTextFile(inputList.front());
+            cdp1802::AssemblySession session;
+            if(!session.compile(source, {.listingMode = genListing ? cdp1802::ListingMode::TRADITIONAL : cdp1802::ListingMode::NONE})) {
+                std::cerr << inputList.front() << ":" << session.errorLine() << ":";
+                if(session.errorColumn())
+                    std::cerr << session.errorColumn() << ": ";
+                std::cerr << session.errorMessage() << std::endl;
+                return 1;
+            }
+            if(hexOutput) {
+                writeHexOutput(outputFile, session.segments());
+            }
+            else if(!writeBinaryOutput(outputFile, session.contiguousData())) {
+                std::cerr << "ERROR: Failed to write output file '" << outputFile << "'." << std::endl;
+                return 1;
+            }
+            if(genListing) {
+                const auto listingFile = listingFilenameForOutput(outputFile);
+                std::ofstream out(listingFile, std::ios::binary);
+                out << session.listing();
+                if(!out) {
+                    std::cerr << "ERROR: Failed to write listing file '" << listingFile << "'." << std::endl;
+                    return 1;
+                }
+            }
+        }
+        catch (std::exception& ex) {
+            std::cerr << "Internal error: " << ex.what() << std::endl;
+            rc = -1;
+        }
+    }
     else {
         emu::OctoCompiler compiler;
         compiler.setStartAddress(startAddress);
@@ -522,11 +632,20 @@ int main(int argc, char* argv[])
                 result = compiler.compile(inputList);
                 if (result.resultType == emu::CompileResult::eOK) {
                     if (outputFile.empty()) {
-                        std::cerr << "ERROR: No output filename given for binary output (use -o/--output)." << std::endl;
+                        std::cerr << "ERROR: No output filename given for " << (hexOutput ? "hex" : "binary") << " output (use -o/--output)." << std::endl;
                         return 1;
                     }
-                    std::ofstream out(outputFile, std::ios::binary);
-                    out.write((const char*)compiler.code(), compiler.codeSize());
+                    if(hexOutput) {
+                        if(startAddress < 0 || startAddress > 0xFFFF) {
+                            std::cerr << "ERROR: --start-address is out of range for Intel HEX output." << std::endl;
+                            return 1;
+                        }
+                        writeHexOutput(outputFile, static_cast<uint16_t>(startAddress), std::span<const uint8_t>{compiler.code(), compiler.codeSize()});
+                    }
+                    else if(!writeBinaryOutput(outputFile, std::span<const uint8_t>{compiler.code(), compiler.codeSize()})) {
+                        std::cerr << "ERROR: Failed to write output file '" << outputFile << "'." << std::endl;
+                        return 1;
+                    }
                 }
             }
             if (result.resultType != emu::CompileResult::eOK) {

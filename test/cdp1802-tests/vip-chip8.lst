@@ -1,0 +1,491 @@
+0000 ;              0001   .. The CHIP-8 interpreter as part of the COSMAC VIP
+0000 ;              0002   .. recreated from a disassembly reference by Laurence Scotford, 2013
+0000 ;              0003   .. source recreation and bug fixes by Steffen "Gulrak" Schümann, 2025
+0000 ;              0004   
+0000 ;              0005   ROM_FONT:       EQU     #8100
+0000 ;              0006   
+0000 ;              0007           ORG     #0000
+0000 ;              0008   
+0000 91;            0009           GHI     R1              .. R1 starts at end of RAM page.
+0001 BB;            0010           PHI     RB              .. RB points to display page.
+0002 FF01;          0011           SMI     #01             .. Select page below display RAM.
+0004 B2;            0012           PHI     R2              .. Set stack page in R2.1.
+0005 B6;            0013           PHI     R6              .. Set VX page in R6.1.
+0006 F8CF;          0014           LDI     #CF             .. Init stack low byte.
+0008 A2;            0015           PLO     R2
+0009 F881;          0016           LDI     #81             .. Set R1 to VIP interrupt routine.
+000B B1;            0017           PHI     R1
+000C F846;          0018           LDI     #46
+000E A1;            0019           PLO     R1
+000F 90;            0020           GHI     R0              .. Prepare R4 as interpreter PC.
+0010 B4;            0021           PHI     R4
+0011 F81B;          0022           LDI     A.0(FETCH)
+0013 A4;            0023           PLO     R4
+0014 F801;          0024           LDI     A.1(CHIPSTRT)   .. Set R5 to CHIP-8 PC start.
+0016 B5;            0025           PHI     R5
+0017 F8FC;          0026           LDI     A.0(CHIPSTRT)
+0019 A5;            0027           PLO     R5
+001A D4;            0028           SEP     R4              .. Start running with R4 as interpreter PC.
+001B ;              0029   FETCH:
+001B 96;            0030           GHI     R6              .. Start fetch/decode; copy VX page.
+001C B7;            0031           PHI     R7              .. Copy VX page to VY page.
+001D E2;            0032           SEX     R2              .. Use stack pointer as X.
+001E 94;            0033           GHI     R4              .. Copy dispatch table page.
+001F BC;            0034           PHI     RC              .. RC will index dispatch tables.
+0020 45;            0035           LDA     R5              .. Fetch opcode high byte; advance PC.
+0021 AF;            0036           PLO     RF              .. Save opcode high byte in RF.0.
+0022 F6;            0037           SHR                     .. Shift high nibble into low nibble.
+0023 F6;            0038           SHR
+0024 F6;            0039           SHR
+0025 F6;            0040           SHR
+0026 3244;          0041           BZ      OP_0MMM         .. Opcode 0: machine-code call.
+0028 F950;          0042           ORI     #50             .. Form dispatch high-byte table index.
+002A AC;            0043           PLO     RC              .. RC points at handler high-byte entry.
+002B 8F;            0044           GLO     RF              .. Restore opcode high byte.
+002C FA0F;          0045           ANI     #0F             .. Keep X nibble.
+002E F9F0;          0046           ORI     #F0             .. Make VX pointer low byte.
+0030 A6;            0047           PLO     R6              .. R6 points to VX.
+0031 05;            0048           LDN     R5              .. Read opcode low byte without advancing PC.
+0032 F6;            0049           SHR                     .. Shift Y nibble into low nibble.
+0033 F6;            0050           SHR
+0034 F6;            0051           SHR
+0035 F6;            0052           SHR
+0036 F9F0;          0053           ORI     #F0             .. Make VY pointer low byte.
+0038 A7;            0054           PLO     R7              .. R7 points to VY.
+0039 4C;            0055           LDA     RC              .. Fetch handler high byte.
+003A B3;            0056           PHI     R3              .. Store handler page in R3.1.
+003B 8C;            0057           GLO     RC              .. Adjust RC from high-byte table to low-byte table.
+003C FC0F;          0058           ADI     #0F             .. Low-byte table is 16 entries later. Allways resets DF!!!
+003E AC;            0059           PLO     RC              .. RC now indexes low-byte table.
+003F 0C;            0060           LDN     RC              .. Fetch handler low byte.
+0040 ;              0061   CALLSUB:
+0040 A3;            0062           PLO     R3              .. Store handler low byte in R3.0.
+0041 D3;            0063           SEP     R3              .. Dispatch to handler.
+0042 301B;          0064           BR      FETCH           .. Fetch next opcode after handler returns.
+0044 ;              0065   
+0044 ;              0066   OP_0MMM:
+0044 8F;            0067           GLO     RF              .. 0MMM: call a VIP machine-code routine.
+0045 FA0F;          0068           ANI     #0F             .. Keep the high address nibble.
+0047 B3;            0069           PHI     R3              .. Put it in R3.1 for the machine-code PC.
+0048 45;            0070           LDA     R5              .. Fetch the low address byte and advance PC.
+0049 3040;          0071           BR      CALLSUB         .. Dispatch through the common subroutine call path.
+004B 22;            0072           DEC     R2              .. Subroutine to turn on display.
+004C 69;            0073           INP     9               .. Turn display on through the VIP I/O port.
+004D 12;            0074           INC     R2              .. Pop stack byte.
+004E D4;            0075           SEP     R4              .. Return to 0x42.
+004F ;              0076   
+004F 0000;          0077           DB      0,0             .. Align the dispatch high-byte table to opcode digits.
+0051 ;              0078   
+0051 ;              0079           .. Dispatch table: handler high bytes for opcode groups 1..F.
+0051 01010101;      0080           DC      A.1(OP_1MMM), A.1(OP_2MMM), A.1(OP_3XNN), A.1(OP_4XNN)
+0055 01010101;      0081           DC      A.1(OP_5XY0), A.1(OP_6XNN), A.1(OP_7XNN), A.1(OP_8XYN)
+0059 01010101;      0082           DC      A.1(OP_9XY0), A.1(OP_AMMM), A.1(OP_BMMM), A.1(OP_CXNN)
+005D 000101;        0083           DC      A.1(OP_DXYN), A.1(OP_KEY), A.1(OP_FXNN)
+0060 ;              0084   
+0060 00;            0085           DB      0               .. Align the dispatch low-byte table to opcode digits.
+0061 ;              0086   
+0061 ;              0087           .. Dispatch table: handler low bytes for opcode groups 1..F.
+0061 7C75838B;      0088           DC      A.0(OP_1MMM), A.0(OP_2MMM), A.0(OP_3XNN), A.0(OP_4XNN)
+0065 95B4B7BC;      0089           DC      A.0(OP_5XY0), A.0(OP_6XNN), A.0(OP_7XNN), A.0(OP_8XYN)
+0069 91EBA4D9;      0090           DC      A.0(OP_9XY0), A.0(OP_AMMM), A.0(OP_BMMM), A.0(OP_CXNN)
+006D 709905;        0091           DC      A.0(OP_DXYN), A.0(OP_KEY), A.0(OP_FXNN)
+0070 ;              0092   
+0070 ;              0093   OP_DXYN:
+0070 06;            0094           LDN     R6              .. DXYN: draw sprite at VX,VY; set VF on collision.
+0071 FA07;          0095           ANI     #07             .. Keep X bit offset within display byte.
+0073 BE;            0096           PHI     RE              .. Save X bit offset in RE.1.
+0074 06;            0097           LDN     R6              .. Get VX.
+0075 FA3F;          0098           ANI     #3F             .. Keep X position in 0..63.
+0077 F6;            0099           SHR                     .. Divide X by 8 for byte column.
+0078 F6;            0100           SHR
+0079 F6;            0101           SHR
+007A 22;            0102           DEC     R2              .. Make room on stack.
+007B 52;            0103           STR     R2              .. Push byte column.
+007C 07;            0104           LDN     R7              .. Get VY.
+007D FA1F;          0105           ANI     #1F             .. Keep Y position in 0..31.
+007F FE;            0106           SHL                     .. Multiply Y by 8 for row offset.
+0080 FE;            0107           SHL
+0081 FE;            0108           SHL
+0082 F1;            0109           OR                      .. Combine row and byte column.
+0083 AC;            0110           PLO     RC              .. RC.0 = display offset.
+0084 9B;            0111           GHI     RB              .. Get display page.
+0085 BC;            0112           PHI     RC              .. RC points at target display byte.
+0086 45;            0113           LDA     R5              .. Fetch sprite height N.
+0087 FA0F;          0114           ANI     #0F             .. Keep sprite height N.
+0089 AD;            0115           PLO     RD              .. RD counts display rows.
+008A A7;            0116           PLO     R7              .. R7 counts rows while building sprite.
+008B F8D0;          0117           LDI     #D0             .. Work buffer starts at V0-0x20.
+008D A6;            0118           PLO     R6              .. R6 points into the work buffer.
+008E ;              0119   NXTSROW:
+008E 93;            0120           GHI     R3              .. Use R3.1 as zero.
+008F AF;            0121           PLO     RF              .. Clear shifted right-byte accumulator.
+0090 87;            0122           GLO     R7              .. Rows left to build?
+0091 32F3;          0123           BZ      RSTIPTR         .. Done building rows?
+0093 27;            0124           DEC     R7              .. Count one sprite row.
+0094 4A;            0125           LDA     RA              .. Fetch sprite byte through I; advance I.
+0095 BD;            0126           PHI     RD              .. RD.1 holds source sprite byte.
+0096 9E;            0127           GHI     RE              .. Load saved X bit offset.
+0097 AE;            0128           PLO     RE              .. RE.0 is shift counter.
+0098 ;              0129   SPLTROW:
+0098 8E;            0130           GLO     RE              .. Any shift left?
+0099 32A4;          0131           BZ      STORROW         .. Done splitting this row?
+009B 9D;            0132           GHI     RD              .. Get left byte.
+009C F6;            0133           SHR                     .. Shift left byte right, bit into DF.
+009D BD;            0134           PHI     RD              .. Save shifted left byte.
+009E 8F;            0135           GLO     RF              .. Get right-byte accumulator.
+009F 76;            0136           SHRC                    .. Shift DF into right byte.
+00A0 AF;            0137           PLO     RF              .. Save shifted right byte.
+00A1 2E;            0138           DEC     RE              .. One shift done.
+00A2 3098;          0139           BR      SPLTROW         .. Repeat loop.
+00A4 ;              0140   STORROW:
+00A4 9D;            0141           GHI     RD              .. Left display byte.
+00A5 56;            0142           STR     R6              .. Store in work buffer.
+00A6 16;            0143           INC     R6              .. Advance work pointer.
+00A7 8F;            0144           GLO     RF              .. Right display byte.
+00A8 56;            0145           STR     R6              .. Store in work buffer.
+00A9 16;            0146           INC     R6              .. Advance work pointer.
+00AA 308E;          0147           BR      NXTSROW         .. Build next sprite row.
+00AC ;              0148   DRAW:
+00AC 00;            0149           IDL                     .. Wait for display interrupt.
+00AD EC;            0150           SEX     RC              .. Use RC for display RAM accesses.
+00AE F8D0;          0151           LDI     #D0             .. Point R6 at work buffer.
+00B0 A6;            0152           PLO     R6              .. R6 points at shifted sprite rows.
+00B1 93;            0153           GHI     R3              .. Use R3.1 as zero.
+00B2 A7;            0154           PLO     R7              .. Clear collision accumulator.
+00B3 ;              0155   DRAWLOOP:
+00B3 8D;            0156           GLO     RD              .. Rows left to draw?
+00B4 32D9;          0157           BZ      SAVEVF          .. All rows drawn?
+00B6 06;            0158           LDN     R6              .. Read left sprite byte.
+00B7 F2;            0159           AND                     .. Collision if sprite bits overlap display bits.
+00B8 2D;            0160           DEC     RD              .. Count one display row.
+00B9 32BE;          0161           BZ      DRAWLFT         .. No collision?
+00BB F801;          0162           LDI     #01             .. Set collision flag.
+00BD A7;            0163           PLO     R7              .. Save collision flag.
+00BE ;              0164   DRAWLFT:
+00BE 46;            0165           LDA     R6              .. Read left byte and advance work pointer.
+00BF F3;            0166           XOR                     .. Toggle display bits.
+00C0 5C;            0167           STR     RC              .. Write right display byte.
+00C1 02;            0168           LDN     R2              .. Recover display byte column.
+00C2 FB07;          0169           XRI     #07             .. Test right-edge byte column.
+00C4 32D2;          0170           BZ      DRAWNEXT        .. Skip clipped right byte at edge.
+00C6 1C;            0171           INC     RC              .. Move to right display byte.
+00C7 06;            0172           LDN     R6              .. Read right sprite byte.
+00C8 F2;            0173           AND                     .. Collision if sprite bits overlap display bits.
+00C9 32CE;          0174           BZ      DRAWRGHT        .. No collision?
+00CB F801;          0175           LDI     #01             .. Set collision flag.
+00CD A7;            0176           PLO     R7              .. Save collision flag.
+00CE ;              0177   DRAWRGHT:
+00CE 06;            0178           LDN     R6              .. Read right sprite byte.
+00CF F3;            0179           XOR                     .. Toggle right display bits.
+00D0 5C;            0180           STR     RC              .. Write right display byte.
+00D1 2C;            0181           DEC     RC              .. Return RC to row start.
+00D2 ;              0182   DRAWNEXT:
+00D2 16;            0183           INC     R6              .. Advance work pointer.
+00D3 8C;            0184           GLO     RC              .. Current display offset.
+00D4 FC08;          0185           ADI     #08             .. Move one display row down.
+00D6 AC;            0186           PLO     RC              .. Store new display offset.
+00D7 3BB3;          0187           BNF     DRAWLOOP                .. Stop if row step crossed page.
+00D9 ;              0188   SAVEVF:
+00D9 F8FF;          0189           LDI     #FF             .. VF low byte.
+00DB A6;            0190           PLO     R6              .. R6 points to VF.
+00DC 87;            0191           GLO     R7              .. Get collision flag.
+00DD 56;            0192           STR     R6              .. Store VF.
+00DE 12;            0193           INC     R2              .. Pop stack byte.
+00DF ;              0194   RETURN:
+00DF D4;            0195           SEP     R4              .. Return to fetch/decode.
+00E0 ;              0196   
+00E0 9B;            0197   OP_CLS: GHI     RB              .. 00E0: clear the VIP display page.
+00E1 BF;            0198           PHI     RF              .. RF.1 = display page.
+00E2 F8FF;          0199           LDI     #FF             .. RF points to last display byte.
+00E4 AF;            0200           PLO     RF              .. RF points to last display byte.
+00E5 ;              0201   CLRLOOP:
+00E5 93;            0202           GHI     R3              .. Clear display bytes from the end of the page downward.
+00E6 5F;            0203           STR     RF              .. Clear byte at RF.
+00E7 8F;            0204           GLO     RF              .. Check low byte of RF.
+00E8 32DF;          0205           BZ      RETURN          .. Done after clearing offset 0.
+00EA 2F;            0206           DEC     RF              .. Move backward through display RAM.
+00EB 30E5;          0207           BR      CLRLOOP         .. Loop.
+00ED ;              0208   
+00ED 00;            0209           DB      0               .. Padding.
+00EE ;              0210   
+00EE 42;            0211   OP_RET: LDA     R2              .. 00EE: pop return address into the CHIP-8 PC.
+00EF B5;            0212           PHI     R5              .. Set CHIP-8 PC high byte.
+00F0 42;            0213           LDA     R2              .. Pop return low byte.
+00F1 A5;            0214           PLO     R5              .. Set CHIP-8 PC low byte.
+00F2 D4;            0215           SEP     R4              .. Resume at return address.
+00F3 ;              0216   RSTIPTR:
+00F3 8D;            0217           GLO     RD              .. Restore I to the start of the sprite before drawing.
+00F4 A7;            0218           PLO     R7              .. R7.0 counts rows to rewind.
+00F5 ;              0219   RSTILOP:
+00F5 87;            0220           GLO     R7              .. Walk I back by the sprite height.
+00F6 32AC;          0221           BZ      DRAW            .. I reset complete?
+00F8 2A;            0222           DEC     RA              .. Rewind I one byte.
+00F9 27;            0223           DEC     R7              .. Count one rewind step.
+00FA 30F5;          0224           BR      RSTILOP         .. Continue rewinding I.
+00FC ;              0225   
+00FC 00000000;      0226           DC      0,0,0,0         .. Filler to end of RAM page.
+0100 ;              0227   
+0100 0000000000;    0228           DC      0,0,0,0,0       .. Filler at start of next page.
+0105 ;              0229   
+0105 ;              0230   OP_FXNN:
+0105 45;            0231           LDA     R5              .. FXNN: second byte selects the FX handler.
+0106 A3;            0232           PLO     R3              .. Jump within this page to the selected FX handler.
+0107 ;              0233   
+0107 ;              0234   OP_FX07:
+0107 98;            0235           GHI     R8              .. FX07: copy delay timer to VX.
+0108 56;            0236           STR     R6              .. Store it in VX.
+0109 D4;            0237           SEP     R4              .. Return to fetch/decode.
+010A ;              0238   
+010A ;              0239   OP_FX0A:
+010A F881;          0240           LDI     #81             .. FX0A: wait for a key and store it in VX.
+010C BC;            0241           PHI     RC              .. Store this in RC.1.
+010D F895;          0242           LDI     #95             .. 0x95 is the low byte of the address of the keyboard routine.
+010F AC;            0243           PLO     RC              .. Put this in RC.0.
+0110 22;            0244           DEC     R2              .. Decrement stack pointer.
+0111 DC;            0245           SEP     RC              .. Call the routine to read the keyboard.
+0112 12;            0246           INC     R2              .. Increment stack pointer.
+0113 56;            0247           STR     R6              .. Store the result in VX.
+0114 D4;            0248           SEP     R4              .. Return to fetch/decode.
+0115 ;              0249   
+0115 ;              0250   OP_FX15:
+0115 06;            0251           LDN     R6              .. FX15: set delay timer from VX.
+0116 B8;            0252           PHI     R8              .. Copy VX into the delay timer.
+0117 D4;            0253           SEP     R4              .. Return to fetch/decode.
+0118 ;              0254   
+0118 ;              0255   OP_FX18:
+0118 06;            0256           LDN     R6              .. FX18: set sound timer from VX.
+0119 A8;            0257           PLO     R8              .. Copy it into the sound timer (R8.0).
+011A D4;            0258           SEP     R4              .. Return to fetch/decode.
+011B ;              0259   BCDDIVS:
+011B 640A01;        0260           DC      100,10,1        .. Divisors used by the BCD conversion loop.
+011E ;              0261   
+011E E6;            0262   OP_FX1E:SEX     R6              .. FX1E: add VX to I.
+011F 8A;            0263           GLO     RA              .. Get the low byte of I (stored in RA.0).
+0120 F4;            0264           ADD                     .. Add value in VX to low byte of I.
+0121 AA;            0265           PLO     RA              .. Store the new low byte of I.
+0122 3B28;          0266           BNF     SAMEPAGE        .. No carry means I stayed in the same page.
+0124 9A;            0267           GHI     RA              .. Get I high byte.
+0125 FC01;          0268           ADI     #01             .. Add 1 to it (to point to next page).
+0127 BA;            0269           PHI     RA              .. Store the updated I high byte.
+0128 ;              0270   SAMEPAGE:
+0128 D4;            0271           SEP     R4              .. Return when I stayed on the same page.
+0129 ;              0272   
+0129 ;              0273   OP_FX29:
+0129 F881;          0274           LDI     A.1(ROM_FONT)   .. FX29: point I at the font sprite for digit VX.
+012B BA;            0275           PHI     RA              .. Store this in the high byte of I (RA.1).
+012C 06;            0276           LDN     R6              .. Get the value in VX (R6).
+012D FA0F;          0277           ANI     #0F             .. Keep the low digit.
+012F AA;            0278           PLO     RA              .. I now points to the matching font table entry.
+0130 0A;            0279           LDN     RA              .. Get the low byte of the sprite address from the look-up table.
+0131 AA;            0280           PLO     RA              .. I now points to the start of the data for the correct sprite.
+0132 D4;            0281           SEP     R4              .. Return to fetch/decode.
+0133 ;              0282   
+0133 ;              0283   OP_FX33:
+0133 E6;            0284           SEX     R6              .. FX33: store BCD(VX) at I..I+2.
+0134 06;            0285           LDN     R6              .. Get the value to be converted from VX.
+0135 BF;            0286           PHI     RF              .. Preserve the original value by temporarily storing it in RF.1.
+0136 93;            0287           GHI     R3              .. Get BCD divisor table page.
+0137 BE;            0288           PHI     RE              .. Store this in RE.1.
+0138 F81B;          0289           LDI     A.0(BCDDIVS)            .. Low byte of the BCD divisor table.
+013A AE;            0290           PLO     RE              .. RE now points to first BCD denominator constant.
+013B 2A;            0291           DEC     RA              .. Back I up so the loop can pre-increment to the first digit.
+013C ;              0292   BCDLOOP:
+013C 1A;            0293           INC     RA              .. Convert one decimal digit.
+013D F800;          0294           LDI     #00             .. Start digit at zero.
+013F 5A;            0295           STR     RA              .. Use this to initialise the BCD digit.
+0140 ;              0296   DIVLOOP:
+0140 0E;            0297           LDN     RE              .. Repeated subtraction forms the current BCD digit.
+0141 F5;            0298           SD                      .. Subtract current divisor from VX.
+0142 3B4B;          0299           BNF     NXTDIG          .. Negative result means this digit is complete.
+0144 56;            0300           STR     R6              .. Store the remainder back in VX.
+0145 0A;            0301           LDN     RA              .. Get the value of the current BCD digit.
+0146 FC01;          0302           ADI     #01             .. Add 1 to it.
+0148 5A;            0303           STR     RA              .. Store the incremented BCD digit.
+0149 3040;          0304           BR      DIVLOOP         .. Continue to divide VX by current denominator.
+014B 4E;            0305   NXTDIG: LDA     RE              .. Move to the next BCD denominator.
+014C F6;            0306           SHR                     .. test the least significant bit.
+014D 3B3C;          0307           BNF     BCDLOOP         .. Continue until the divisor table reaches 1.
+014F 9F;            0308           GHI     RF              .. Get the preserved original value of VX.
+0150 56;            0309           STR     R6              .. Restore this to VX.
+0151 2A;            0310           DEC     RA              .. Restore I to the first stored BCD digit.
+0152 2A;            0311           DEC     RA
+0153 D4;            0312           SEP     R4              .. Return to fetch/decode.
+0154 ;              0313   
+0154 00;            0314           DC      0               .. Padding.
+0155 ;              0315   
+0155 ;              0316   OP_FX55:
+0155 22;            0317           DEC     R2              .. FX55: store V0..VX starting at I.
+0156 86;            0318           GLO     R6              .. Get the low byte of the VX pointer
+0157 52;            0319           STR     R2              .. Push the saved VX pointer low byte.
+0158 F8F0;          0320           LDI     #F0             .. 0xF0 is the low byte of the address of the first variable (V0).
+015A A7;            0321           PLO     R7              .. Set this as the low byte of the VY pointer (R7).
+015B ;              0322   STORLOOP:
+015B 07;            0323           LDN     R7              .. Store vars until the saved VX pointer is reached.
+015C 5A;            0324           STR     RA              .. Store it at I.
+015D 87;            0325           GLO     R7              .. Get the low byte of the address in I.
+015E F3;            0326           XOR                     .. Zero when VY has reached the saved VX pointer.
+015F 17;            0327           INC     R7              .. Point VY to the next variable.
+0160 1A;            0328           INC     RA              .. Point I to the next address in memory.
+0161 3A5B;          0329           BNZ     STORLOOP                .. Loop until V0..VX have been stored.
+0163 12;            0330           INC     R2              .. Pop the low byte of VX off the stack.
+0164 D4;            0331           SEP     R4              .. Return to fetch/decode.
+0165 ;              0332   
+0165 ;              0333   OP_FX65:
+0165 22;            0334           DEC     R2              .. FX65: load V0..VX starting at I.
+0166 86;            0335           GLO     R6              .. Get the low byte of the VX pointer
+0167 52;            0336           STR     R2              .. Push the saved VX pointer low byte.
+0168 F8F0;          0337           LDI     #F0             .. 0xF0 is the low byte of the address of the first variable (V0).
+016A A7;            0338           PLO     R7              .. Set this as the low byte of the VY pointer (R7).
+016B ;              0339   LOADLOOP:
+016B 0A;            0340           LDN     RA              .. Load vars until the saved VX pointer is reached.
+016C 57;            0341           STR     R7              .. Store it in the current variable slot.
+016D 87;            0342           GLO     R7              .. Get the low byte of the address in I.
+016E F3;            0343           XOR                     .. Zero when VY has reached the saved VX pointer.
+016F 17;            0344           INC     R7              .. Point VY to the next variable.
+0170 1A;            0345           INC     RA              .. Point I to the next address in memory.
+0171 3A6B;          0346           BNZ     LOADLOOP                .. Loop until V0..VX have been loaded.
+0173 12;            0347           INC     R2              .. Pop the low byte of VX off the stack.
+0174 D4;            0348           SEP     R4              .. Return to fetch/decode.
+0175 ;              0349   
+0175 ;              0350   OP_2MMM:
+0175 15;            0351           INC     R5              .. 2MMM: call 0MMM, pushing the next CHIP-8 PC.
+0176 85;            0352           GLO     R5              .. Get the low byte of the address.
+0177 22;            0353           DEC     R2              .. Decrement the stack pointer (R2).
+0178 73;            0354           STXD                    .. Push return low byte and pre-decrement the stack.
+0179 95;            0355           GHI     R5              .. Get the high byte of the address.
+017A 52;            0356           STR     R2              .. Push it onto the stack.
+017B 25;            0357           DEC     R5              .. Rewind PC to the low address byte for OP_1MMM.
+017C ;              0358   
+017C ;              0359   OP_1MMM:
+017C 45;            0360           LDA     R5              .. 1MMM: jump to 0MMM.
+017D A5;            0361           PLO     R5              .. Load it into the low byte of the CHIP-8 PC.
+017E 86;            0362           GLO     R6              .. Get the low byte of the VX pointer (R6).
+017F FA0F;          0363           ANI     #0F             .. We just need to mask it off to get it.
+0181 B5;            0364           PHI     R5              .. Set the high byte of the CHIP-8 PC.
+0182 D4;            0365   NOSKIP: SEP     R4              .. Return without skipping.
+0183 ;              0366   
+0183 ;              0367   OP_3XNN:
+0183 45;            0368           LDA     R5              .. 3XNN: skip next instruction if VX == NN.
+0184 E6;            0369   TSTEQ:  SEX     R6              .. Compare D with VX.
+0185 F3;            0370           XOR                     .. XOR NN with the contents of VX.
+0186 3A82;          0371           BNZ     NOSKIP          .. Non-zero means VX != NN, so do not skip.
+0188 15;            0372   SKIP:   INC     R5              .. Skip first byte of next instruction.
+0189 15;            0373           INC     R5              .. Skip second byte of next instruction.
+018A D4;            0374           SEP     R4              .. Return to fetch/decode.
+018B ;              0375   
+018B ;              0376   OP_4XNN:
+018B 45;            0377           LDA     R5              .. 4XNN: skip next instruction if VX != NN.
+018C E6;            0378   TSTNE:  SEX     R6              .. Compare D with VX for inequality.
+018D F3;            0379           XOR                     .. XOR NN with the contents of VX.
+018E 3A88;          0380           BNZ     SKIP            .. Non-zero means VX != NN, so skip.
+0190 D4;            0381           SEP     R4              .. Return to fetch/decode.
+0191 ;              0382   
+0191 ;              0383   OP_9XY0:
+0191 45;            0384           LDA     R5              .. 9XY0: skip if VX != VY.
+0192 07;            0385           LDN     R7              .. Load VY into D.
+0193 308C;          0386           BR      TSTNE           .. Branch to the test for inequality.
+0195 ;              0387   
+0195 ;              0388   OP_5XY0:
+0195 45;            0389           LDA     R5              .. 5XY0: skip if VX == VY.
+0196 07;            0390           LDN     R7              .. Load VY into D.
+0197 3084;          0391           BR      TSTEQ           .. Branch to the test for inequality.
+0199 ;              0392   
+0199 E6;            0393   OP_KEY: SEX     R6              .. EX9E/EXA1: skip based on the current key state.
+019A 62;            0394           OUT     2               .. Output VX to the keyboard latch.
+019B 26;            0395           DEC     R6              .. Undo OUT's auto-increment of the selected register.
+019C 45;            0396           LDA     R5              .. Fetch the second opcode byte and advance PC.
+019D A3;            0397           PLO     R3              .. Use 9E/A1 as the next handler address.
+019E 3688;          0398           B3      SKIP            .. If selected key is pressed, skip.
+01A0 D4;            0399           SEP     R4              .. Return to fetch/decode.
+01A1 3E88;          0400           BN3     SKIP            .. If selected key is not pressed, skip.
+01A3 D4;            0401           SEP     R4              .. Return to fetch/decode.
+01A4 ;              0402   
+01A4 ;              0403   OP_BMMM:
+01A4 F8F0;          0404           LDI     #F0             .. BMMM: jump to 0MMM + V0.
+01A6 A7;            0405           PLO     R7              .. Load this into the VY pointer (R7).
+01A7 E7;            0406           SEX     R7              .. Set the VY pointer to be used for indirect addressing.
+01A8 45;            0407           LDA     R5              .. Get the low byte of the current CHIP-8 instruction.
+01A9 F4;            0408           ADD                     .. Add V0 to the low address byte.
+01AA A5;            0409           PLO     R5              .. Load this into the CHIP-8 PC.
+01AB 86;            0410           GLO     R6              .. VX pointer has the branch high byte.
+01AC FA0F;          0411           ANI     #0F             .. Clear the top nibble.
+01AE 3BB2;          0412           BNF     STORHI          .. No carry means the high byte is unchanged.
+01B0 FC01;          0413           ADI     #01             .. Carry means advance the high address byte.
+01B2 ;              0414   STORHI:
+01B2 B5;            0415           PHI     R5              .. Load the high byte of the address into the CHIP-8 PC.
+01B3 D4;            0416           SEP     R4              .. Return; the next fetch uses the branched PC.
+01B4 ;              0417   
+01B4 ;              0418   OP_6XNN:
+01B4 45;            0419           LDA     R5              .. 6XNN: set VX = NN.
+01B5 56;            0420           STR     R6              .. Store the value in VX.
+01B6 D4;            0421           SEP     R4              .. Return to fetch/decode.
+01B7 ;              0422   
+01B7 ;              0423   OP_7XNN:
+01B7 45;            0424           LDA     R5              .. 7XNN: add NN to VX.
+01B8 E6;            0425           SEX     R6              .. Use VX pointer for indirect addressing.
+01B9 F4;            0426           ADD                     .. Add immediate NN to VX.
+01BA 56;            0427           STR     R6              .. Store the result back in VX.
+01BB D4;            0428           SEP     R4              .. Return to fetch/decode.
+01BC ;              0429   
+01BC ;              0430   OP_8XYN:
+01BC 45;            0431           LDA     R5              .. 8XYN: ALU ops on VX and VY, DF is 0 on entry (see call)
+01BD FA0F;          0432           ANI     #0F             .. Mask the byte to save just the second hex digit.
+01BF 3AC4;          0433           BNZ     #C4             .. Non-zero N selects an ALU operation.
+01C1 07;            0434           LDN     R7              .. N=0 is 8XY0, so copy VY into VX.
+01C2 56;            0435           STR     R6              .. Copy this into VX.
+01C3 D4;            0436           SEP     R4              .. Return to fetch/decode.
+01C4 ;              0437   DECODEAL:
+01C4 AF;            0438           PLO     RF              .. Temporarily save the last digit of the instruction in RF.0.
+01C5 22;            0439           DEC     R2              .. Decrement the stack pointer, ready for a push operation.
+01C6 F8D3;          0440           LDI     #D3             .. Put a SEP 3 return instruction in D.
+01C8 73;            0441           STXD                    .. Push this onto the stack and decrement the stack pointer.
+01C9 8F;            0442           GLO     RF              .. Restore the CHIP-8 ALU sub-op to D.
+01CA F9F0;          0443           ORI     #F0             .. Build a 1802 ALU opcode from CHIP-8 N.
+01CC 52;            0444           STR     R2              .. Push this onto the stack
+01CD E6;            0445           SEX     R6              .. Use VX pointer for indirect addressing.
+01CE 07;            0446           LDN     R7              .. Load VY into D.
+01CF D2;            0447           SEP     R2              .. Execute generated ALU opcode, then SEP 3 returns here.
+01D0 56;            0448           STR     R6              .. Save the result of the operation in VX.
+01D1 F8FF;          0449           LDI     #FF             .. 0xFF is the low byte of the address of CHIP-8 variable VF.
+01D3 A6;            0450           PLO     R6              .. The VX pointer now points to VF.
+01D4 F800;          0451           LDI     #00             .. Clear D.
+01D6 7E;            0452           SHLC                    .. Move carry into bit 0 of D.
+01D7 56;            0453           STR     R6              .. Save this in VF. (VF will be 0 for 8xy1/2/3 with unchanged DF)
+01D8 D4;            0454           SEP     R4              .. Return to fetch/decode.
+01D9 ;              0455   
+01D9 ;              0456   OP_CXNN:
+01D9 19;            0457           INC     R9              .. CXNN: pseudo-random byte AND NN into VX.
+01DA 89;            0458           GLO     R9              .. Get the low byte of the random number seed.
+01DB AE;            0459           PLO     RE              .. Save this in RE.0.
+01DC 93;            0460           GHI     R3              .. Get the high byte of the interpreter PC (This will be 0x01).
+01DD BE;            0461           PHI     RE              .. Put this in RE.1.
+01DE 99;            0462           GHI     R9              .. Get the high byte of the random number seed.
+01DF EE;            0463           SEX     RE              .. Use RE for indirect addressing.
+01E0 F4;            0464           ADD                     .. Mix in a byte from interpreter code.
+01E1 56;            0465           STR     R6              .. Store this in VX.
+01E2 76;            0466           SHRC                    .. Shift the result one bit to the right.
+01E3 E6;            0467           SEX     R6              .. Use VX pointer for indirect addressing.
+01E4 F4;            0468           ADD                     .. Add VX to the shifted value in D.
+01E5 B9;            0469           PHI     R9              .. Save this as the new high byte of the random number seed.
+01E6 56;            0470           STR     R6              .. Put this value in VX.
+01E7 45;            0471           LDA     R5              .. Get second byte of CHIP-8 instruction and advance PC.
+01E8 F2;            0472           AND                     .. Use this to mask the random number in VX.
+01E9 56;            0473           STR     R6              .. Put final value in VX.
+01EA D4;            0474           SEP     R4              .. Return to fetch/decode.
+01EB ;              0475   
+01EB ;              0476   OP_AMMM:
+01EB 45;            0477           LDA     R5              .. AMMM: set I = 0MMM.
+01EC AA;            0478           PLO     RA              .. Set this as the low byte of the address in I (RA).
+01ED 86;            0479           GLO     R6              .. VX pointer still carries the high address nibble.
+01EE FA0F;          0480           ANI     #0F             .. Set the first hex digit to 0x0.
+01F0 BA;            0481           PHI     RA              .. Set this as the high byte of the address in I.
+01F1 D4;            0482           SEP     R4              .. Return to fetch/decode.
+01F2 ;              0483   
+01F2 00000000;      0484           DC      0,0,0,0         .. Padding.
+01F6 00000000;      0485           DC      0,0,0,0
+01FA 0000;          0486           DC      0,0
+01FC ;              0487   
+01FC ;              0488   CHIPSTRT:
+01FC 00E0;          0489           DC      #00, #E0                .. Startup CHIP-8 code: clear display.
+01FE 004B;          0490           DC      #00, #4B                .. Call VIP display-on routine.
+0000

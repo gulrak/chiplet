@@ -3,6 +3,7 @@ set(CHIPLET_LIBRARY_SOURCE
     ../include/chiplet/chip8meta.hpp
     ../include/chiplet/chip8variants.hpp
     ../include/chiplet/compileresult.hpp
+    ../include/chiplet/hexfile.hpp
     ../include/chiplet/octocompiler.hpp
     ../include/chiplet/octocartridge.hpp
     ../include/chiplet/chunkedmemory.hpp
@@ -15,6 +16,12 @@ set(CHIPLET_LIBRARY_SOURCE
     octo/assembler.cpp
     octo/assembly_session.hpp
     octo/assembly_session.cpp
+    cdp1802/lexer.cpp
+    cdp1802/lexer.hpp
+    cdp1802/assembler.cpp
+    cdp1802/assembler.hpp
+    cdp1802/assembly_session.cpp
+    cdp1802/assembly_session.hpp
     chip8decompiler.cpp
     octocompiler.cpp
     octocartridge.cpp
