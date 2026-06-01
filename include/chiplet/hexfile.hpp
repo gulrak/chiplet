@@ -68,6 +68,7 @@ public:
         , _stream{std::move(other._stream)}
         , _chunks{std::move(other._chunks)}
         , _ranges{std::move(other._ranges)}
+        , _dataBytesPerRecord{other._dataBytesPerRecord}
         , _isClosed{other._isClosed}
     {
         other._isClosed = true;
@@ -84,6 +85,7 @@ public:
         _stream = std::move(other._stream);
         _chunks = std::move(other._chunks);
         _ranges = std::move(other._ranges);
+        _dataBytesPerRecord = other._dataBytesPerRecord;
         _isClosed = other._isClosed;
         other._isClosed = true;
         rebuildRanges();
@@ -110,11 +112,22 @@ public:
 
         size_t offset = 0;
         while (offset < data.size()) {
-            const auto chunkSize = std::min<size_t>(data.size() - offset, 0xFF);
+            const auto chunkSize = std::min<size_t>(data.size() - offset, _dataBytesPerRecord);
             writeRecord(address, std::span<const uint8_t>{data.data() + offset, chunkSize});
             address = static_cast<uint16_t>(address + chunkSize);
             offset += chunkSize;
         }
+    }
+
+    void setDataBytesPerRecord(uint8_t dataBytesPerRecord)
+    {
+        if (_mode != Mode::WRITE)
+            throw std::logic_error("HexFile is not open for writing");
+        if (_isClosed)
+            throw std::logic_error("HexFile is closed");
+        if (dataBytesPerRecord == 0)
+            throw std::invalid_argument("Intel HEX data records must contain at least one byte");
+        _dataBytesPerRecord = dataBytesPerRecord;
     }
 
     void close()
@@ -324,6 +337,7 @@ private:
     std::ofstream _stream;
     std::vector<Chunk> _chunks;
     std::vector<Range> _ranges;
+    uint8_t _dataBytesPerRecord{16};
     bool _isClosed{};
 };
 

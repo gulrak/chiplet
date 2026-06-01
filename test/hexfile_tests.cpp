@@ -67,7 +67,7 @@ TEST_SUITE("HexFile")
     TEST_CASE("splits large writes into valid records")
     {
         const auto path = tempPath("chiplet-hexfile-large.hex");
-        std::vector<uint8_t> data(300);
+        std::vector<uint8_t> data(20);
         std::iota(data.begin(), data.end(), 0);
 
         {
@@ -75,10 +75,34 @@ TEST_SUITE("HexFile")
             file.write(0x1000, data);
         }
 
+        CHECK_EQ(readText(path), ":10100000000102030405060708090A0B0C0D0E0F68\n"
+                                 ":041010001011121396\n"
+                                 ":00000001FF\n");
+
         emu::HexFile file{path.string(), emu::HexFile::Mode::READ};
         REQUIRE_EQ(file.ranges().size(), 1);
         CHECK_EQ(file.ranges()[0].first, 0x1000);
         CHECK_EQ(std::vector<uint8_t>{file.ranges()[0].second.begin(), file.ranges()[0].second.end()}, data);
+    }
+
+    TEST_CASE("allows configuring data bytes per record")
+    {
+        const auto path = tempPath("chiplet-hexfile-record-size.hex");
+        std::vector<uint8_t> data(20);
+        std::iota(data.begin(), data.end(), 0);
+
+        {
+            emu::HexFile file{path.string(), emu::HexFile::Mode::WRITE};
+            file.setDataBytesPerRecord(4);
+            file.write(0x1000, data);
+        }
+
+        CHECK_EQ(readText(path), ":0410000000010203E6\n"
+                                 ":0410040004050607D2\n"
+                                 ":0410080008090A0BBE\n"
+                                 ":04100C000C0D0E0FAA\n"
+                                 ":041010001011121396\n"
+                                 ":00000001FF\n");
     }
 
     TEST_CASE("hashes loaded data as one zero-filled binary span")
