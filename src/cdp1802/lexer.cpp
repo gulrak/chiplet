@@ -65,8 +65,9 @@ int digitValue(char ch)
 
 } // namespace
 
-Lexer::Lexer(std::string_view text)
-    : _source{text}
+Lexer::Lexer(std::string_view text, bool preserveIdentifiers)
+    : _preserveIdentifiers{preserveIdentifiers}
+    , _source{text}
 {
     scan();
 }
@@ -162,7 +163,7 @@ void Lexer::scanIdentifier()
         scanStringOrBasedNumber();
         return;
     }
-    addToken(TokenType::IDENTIFIER, upper(std::move(text)));
+    addToken(TokenType::IDENTIFIER, _preserveIdentifiers ? std::move(text) : upper(std::move(text)));
 }
 
 void Lexer::scanNumber()

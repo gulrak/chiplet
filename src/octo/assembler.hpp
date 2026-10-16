@@ -73,6 +73,7 @@
 #include <fmt/format.h>
 
 #include "lexer.hpp"
+#include "../cdp1802/assembler.hpp"
 
 
 namespace octo {
@@ -198,6 +199,19 @@ private:
     void conditional(int negated);
     void resolveLabel(int offset);
     void compileStatement();
+    void compileNativeBlock(Token token);
+    bool finishNativeBlocks();
+    struct NativeBlock {
+        Token token;
+        int address{};
+        uint32_t size{};
+        std::unordered_map<std::string, double> values;
+    };
+    cdp1802::AssemblerOptions nativeOptions(const NativeBlock& block, bool measureOnly);
+    void nativeError(const NativeBlock& block, const cdp1802::Assembler& assembler);
+    std::vector<NativeBlock> _nativeBlocks;
+    std::unordered_map<std::string_view, int> _programLabels;
+
 
     static bool isReserved(std::string_view name);
 

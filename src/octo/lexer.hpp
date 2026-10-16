@@ -152,7 +152,7 @@ namespace octo {
     decl(UNLESS, ":unless", PREPROCESSOR) \
     decl(DUMP_OPTIONS, ":dump-options", PREPROCESSOR) \
     decl(CONFIG, ":config", PREPROCESSOR) \
-    decl(ASM, ":asm", PREPROCESSOR) \
+    decl(ASM, ":asm", NATIVE_BLOCK) \
 
 enum class TokenId {
     TOK_UNKNOWN,
@@ -177,7 +177,8 @@ public:
         RCURLY,
         LSQUARE,
         RSQUARE,
-        END_OF_FILE
+        END_OF_FILE,
+        NATIVE_BLOCK
     };
     Token() = delete;
     Token(int line, int pos);
@@ -197,6 +198,9 @@ public:
     int prefixLine{};
     int prefixPos{};
     double numValue{};
+    std::string_view nativeCpu{};
+    int nativeLine{};
+    int nativePos{};
 };
 
 struct LexerOptions
@@ -247,6 +251,7 @@ protected:
     int _errorLine{};
     int _errorPos{};
 private:
+    void scanNativeBlock(Token& token, const char* start);
     Token _internalToken{0, 0};
 };
 

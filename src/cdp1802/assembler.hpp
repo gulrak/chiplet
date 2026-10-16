@@ -28,6 +28,9 @@
 #include "lexer.hpp"
 
 #include <cstdint>
+#include <functional>
+#include <optional>
+#include <unordered_set>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -44,6 +47,12 @@ enum class ListingMode {
 struct AssemblerOptions
 {
     ListingMode listingMode{ListingMode::NONE};
+    // Embedded assembly has a fixed origin and cannot change its layout.
+    bool embedded{false};
+    bool measureOnly{false};
+    uint16_t origin{};
+    std::function<std::optional<double>(std::string_view)> resolveSymbol;
+
 };
 
 struct AssemblySegment
@@ -73,6 +82,8 @@ public:
     const std::vector<uint8_t>& contiguousData() const { return _contiguousData; }
     const std::string& listing() const { return _listing; }
     uint16_t startAddress() const { return _startAddress; }
+    uint32_t embeddedSize() const { return _pc - _options.origin; }
+    const std::vector<int>& byteSourceLines() const { return _byteSourceLines; }
 
 private:
     enum class Pass { SYMBOLS, EMIT };
@@ -128,13 +139,17 @@ private:
     Lexer _lexer;
     std::vector<Token> _tokens;
     size_t _current{};
-    uint16_t _pc{};
+    uint32_t _pc{};
     uint16_t _statementAddress{};
     int _statementLine{};
     uint16_t _startAddress{};
     bool _haveStartAddress{};
     bool _finished{};
     std::unordered_map<std::string, int> _symbols;
+    std::unordered_set<std::string> _localDefinitions;
+    std::vector<int> _byteSourceLines;
+    void defineLocal(Pass pass, const std::string& name, Value value);
+
     std::vector<AssemblySegment> _segments;
     std::vector<uint8_t> _contiguousData;
     std::map<int, std::vector<uint8_t>> _listingBytesByLine;

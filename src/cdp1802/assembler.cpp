@@ -25,12 +25,30 @@
 //---------------------------------------------------------------------------------------
 #include "assembler.hpp"
 
+#include <cmath>
+#include <limits>
+#include <cctype>
+
 #include <algorithm>
 #include <fmt/format.h>
 
 namespace cdp1802 {
 
 namespace {
+
+std::string upperIdentifier(std::string_view text)
+{
+    std::string result{text};
+    for (auto& ch : result)
+        ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    return result;
+}
+
+bool isRegisterName(std::string_view text)
+{
+    return text.size() == 2 && (text[0] == 'R' || text[0] == 'r')
+        && std::isxdigit(static_cast<unsigned char>(text[1]));
+}
 
 using InstructionMap = std::unordered_map<std::string_view, Assembler::Instruction>;
 
@@ -96,6 +114,7 @@ InstructionMap makeInstructionMap()
         {"REQ", {0x7A, CONTROL}},
         {"SEQ", {0x7B, CONTROL}},
         {"ADDI", {0x7C, IMMEDIATE}},
+        {"ADCI", {0x7C, IMMEDIATE}},
         {"SDBI", {0x7D, IMMEDIATE}},
         {"SHLC", {0x7E, CONTROL}},
         {"RSHL", {0x7E, CONTROL}},
@@ -149,7 +168,7 @@ InstructionMap makeInstructionMap()
 Assembler::Assembler(std::string_view text, AssemblerOptions options)
     : _source{text}
     , _options{options}
-    , _lexer{text}
+    , _lexer{text, options.embedded}
 {
 }
 
@@ -157,13 +176,15 @@ bool Assembler::compile()
 {
     if (_lexer.isError()) {
         _errorMessage = _lexer.errorMessage();
-        _errorLine = 1;
-        _errorColumn = 1;
+        _errorLine = _lexer.errorLine();
+        _errorColumn = _lexer.errorColumn();
         return false;
     }
 
     _tokens = _lexer.tokens();
     _symbols.clear();
+    _localDefinitions.clear();
+    _byteSourceLines.clear();
     for (int reg = 0; reg < 16; ++reg) {
         const char suffix = reg < 10 ? static_cast<char>('0' + reg) : static_cast<char>('A' + reg - 10);
         _symbols[fmt::format("R{}", suffix)] = reg;
@@ -176,16 +197,18 @@ bool Assembler::compile()
     _listingEndAddressByLine.clear();
     _errorMessage.clear();
     _finished = false;
-    _pc = 0;
+    _pc = _options.embedded ? _options.origin : 0;
     _startAddress = 0;
     _haveStartAddress = false;
 
     if (!parseProgram(Pass::SYMBOLS))
         return false;
+    if (_options.measureOnly)
+        return true;
 
     resetCursor();
     _finished = false;
-    _pc = 0;
+    _pc = _options.embedded ? _options.origin : 0;
     _segments.clear();
     _contiguousData.clear();
     _listingBytesByLine.clear();
@@ -228,7 +251,10 @@ void Assembler::parseStatement(Pass pass)
     }
 
     if (!check(TokenType::IDENTIFIER)) {
-        skipStatement();
+        if (_options.embedded)
+            fail(peek(), "Expected native instruction, label, or equate");
+        else
+            skipStatement();
         return;
     }
 
@@ -237,8 +263,7 @@ void Assembler::parseStatement(Pass pass)
         advance();
         advance();
         const auto value = parseExpression(pass);
-        if (value.known)
-            _symbols[name] = value.number;
+        defineLocal(pass, name, value);
         return;
     }
 
@@ -256,7 +281,7 @@ void Assembler::parseStatement(Pass pass)
         return;
     }
 
-    const auto name = advance().text;
+    const auto name = upperIdentifier(advance().text);
     if (isDirective(name)) {
         parseDirective(pass, name);
         return;
@@ -276,12 +301,11 @@ void Assembler::parseLabelOrEquate(Pass pass)
         return;
 
     const auto name = peek().text;
-    if (peek(1).type == TokenType::EQUAL || checkIdentifier("EQU")) {
+    if (peek(1).type == TokenType::EQUAL || (peek(1).type == TokenType::IDENTIFIER && upperIdentifier(peek(1).text) == "EQU")) {
         advance();
         if (match(TokenType::EQUAL) || matchIdentifier("EQU")) {
             const auto value = parseExpression(pass);
-            if (value.known)
-                _symbols[name] = value.number;
+            defineLocal(pass, name, value);
         }
         return;
     }
@@ -290,12 +314,32 @@ void Assembler::parseLabelOrEquate(Pass pass)
         advance();
         advance();
         if (pass == Pass::SYMBOLS)
-            _symbols[name] = _pc;
+            defineLocal(pass, name, {static_cast<int>(_pc), true});
     }
+}
+
+void Assembler::defineLocal(Pass pass, const std::string& name, Value value)
+{
+    if (_options.embedded && pass == Pass::SYMBOLS) {
+        if (isRegisterName(name)) {
+            fail(previous(), "Cannot redefine a CPU register");
+            return;
+        }
+        if (!_localDefinitions.insert(name).second) {
+            fail(previous(), fmt::format("Duplicate local symbol '{}'", name));
+            return;
+        }
+    }
+    if (value.known)
+        _symbols[name] = value.number;
 }
 
 void Assembler::parseDirective(Pass pass, std::string_view name)
 {
+    if (_options.embedded && (name == "ORG" || name == "PAGE" || name == "END")) {
+        fail(previous(), fmt::format("{} is not allowed inside :asm blocks", name));
+        return;
+    }
     if (name == "ORG") {
         const auto address = valueAddress(parseExpression(pass), "origin");
         setOrigin(pass, address);
@@ -331,10 +375,16 @@ void Assembler::parseInstruction(Pass pass, std::string_view, const Instruction&
             emit(pass, instruction.opcode);
             emit(pass, valueByte(parseExpression(pass), "immediate"));
             break;
-        case BRANCH:
+        case BRANCH: {
             emit(pass, instruction.opcode);
-            emit(pass, static_cast<uint8_t>(valueAddress(parseExpression(pass), "branch address") & 0xFF));
+            const auto value = parseExpression(pass);
+            const auto address = valueAddress(value, "branch address");
+            if (_options.embedded && pass == Pass::EMIT && value.known
+                && (address & 0xFF00) != ((_statementAddress + 1) & 0xFF00))
+                fail(previous(), "Short branch target is outside the operand's page; use a long branch");
+            emit(pass, static_cast<uint8_t>(address & 0xFF));
             break;
+        }
         case LONG_BRANCH: {
             emit(pass, instruction.opcode);
             const auto address = valueAddress(parseExpression(pass), "long branch address");
@@ -378,7 +428,17 @@ std::vector<uint8_t> Assembler::parseDataValue(Pass pass)
         return {text.begin(), text.end()};
     }
 
+    // Bare data and A.0/A.1 always occupy one byte in an embedded block.
+    // A(expr) is an explicit two-byte address even when expr is unresolved.
+    const bool addressWord = _options.embedded && checkIdentifier("A") && peek(1).type == TokenType::LPAREN;
     const auto value = parseExpression(pass);
+    if (_options.embedded) {
+        if (addressWord) {
+            const auto address = valueAddress(value, "data address");
+            return {static_cast<uint8_t>(address >> 8), static_cast<uint8_t>(address)};
+        }
+        return {valueByte(value, "data value")};
+    }
     if (!value.known)
         return {0};
     if (value.number > 0xFF)
@@ -412,9 +472,20 @@ Assembler::Value Assembler::parsePrimary(Pass pass)
     if (checkIdentifier("A") && (peek(1).type == TokenType::LPAREN || peek(1).type == TokenType::DOT))
         return parseAddressFunction(pass);
     if (match(TokenType::IDENTIFIER)) {
-        const auto iter = _symbols.find(previous().text);
+        const auto& name = previous().text;
+        const auto iter = _symbols.find(isRegisterName(name) ? upperIdentifier(name) : name);
         if (iter != _symbols.end())
             return {iter->second, true};
+        if (_options.resolveSymbol) {
+            if (const auto value = _options.resolveSymbol(name)) {
+                if (!std::isfinite(*value) || std::trunc(*value) != *value
+                    || *value < std::numeric_limits<int>::min() || *value > std::numeric_limits<int>::max()) {
+                    fail(previous(), fmt::format("Imported symbol '{}' must be a finite integer in range", name));
+                    return {};
+                }
+                return {static_cast<int>(*value), true};
+            }
+        }
         if (pass == Pass::SYMBOLS)
             return {0, false};
         fail(previous(), fmt::format("Undefined symbol '{}'", previous().text));
@@ -480,14 +551,19 @@ uint8_t Assembler::parsePort(Pass pass)
     const auto value = parseExpression(pass);
     if (!value.known)
         return 0;
-    if (value.number < 1 || value.number > 15)
+    if (value.number < 1 || value.number > (_options.embedded ? 7 : 15))
         fail(previous(), "I/O port out of range");
     return static_cast<uint8_t>(value.number & 0x07);
 }
 
 void Assembler::emit(Pass pass, uint8_t byte)
 {
+    if (_options.embedded && _pc > 0xFFFF) {
+        fail(previous(), "Native block exceeds the 16-bit address space");
+        return;
+    }
     if (pass == Pass::EMIT) {
+        _byteSourceLines.push_back(_statementLine);
         if (_segments.empty())
             setOrigin(pass, _pc);
         _segments.back().bytes.push_back(byte);
@@ -505,6 +581,8 @@ void Assembler::emit(Pass pass, uint8_t byte)
         _listingEndAddressByLine[_statementLine] = static_cast<uint16_t>(_pc + 1);
     }
     ++_pc;
+    if (!_options.embedded)
+        _pc &= 0xFFFF;
 }
 
 void Assembler::setOrigin(Pass pass, uint16_t address)
@@ -674,7 +752,7 @@ bool Assembler::check(TokenType type) const
 
 bool Assembler::checkIdentifier(std::string_view text) const
 {
-    return peek().type == TokenType::IDENTIFIER && peek().text == text;
+    return peek().type == TokenType::IDENTIFIER && upperIdentifier(peek().text) == text;
 }
 
 const Token& Assembler::peek(size_t offset) const

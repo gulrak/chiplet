@@ -62,11 +62,13 @@ struct Token
 class Lexer
 {
 public:
-    explicit Lexer(std::string_view text);
+    explicit Lexer(std::string_view text, bool preserveIdentifiers = false);
 
     const std::vector<Token>& tokens() const { return _tokens; }
     bool isError() const { return !_errorMessage.empty(); }
     const std::string& errorMessage() const { return _errorMessage; }
+    int errorLine() const { return _tokenLine; }
+    int errorColumn() const { return _tokenColumn; }
 
 private:
     void scan();
@@ -78,6 +80,7 @@ private:
     char advance();
     void fail(std::string message);
 
+    bool _preserveIdentifiers{};
     std::string_view _source;
     size_t _offset{};
     int _line{1};

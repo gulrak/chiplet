@@ -123,6 +123,9 @@ Token::Token(const Token& other)
     , prefix{other.prefix}
     , prefixLine{other.prefixLine}
     , prefixPos{other.prefixPos}
+    , nativeCpu{other.nativeCpu}
+    , nativeLine{other.nativeLine}
+    , nativePos{other.nativePos}
 {
     if (type == Type::NUMBER) {
         numValue = other.numValue;
@@ -148,6 +151,9 @@ Token& Token::operator=(const Token& other)
     prefix = other.prefix;
     prefixLine = other.prefixLine;
     prefixPos = other.prefixPos;
+    nativeCpu = other.nativeCpu;
+    nativeLine = other.nativeLine;
+    nativePos = other.nativePos;
     if (type == Type::NUMBER) {
         numValue = other.numValue;
     }
@@ -174,6 +180,7 @@ std::string Token::formatValue() const
         case Type::OPERATOR:
         case Type::KEYWORD:
         case Type::PREPROCESSOR:
+        case Type::NATIVE_BLOCK:
         case Type::LCURLY:
         case Type::RCURLY:
         case Type::LSQUARE:
@@ -278,6 +285,8 @@ void Lexer::scanNextToken(octo::Token& t, bool resetPrefixAfterNewline)
     const auto* start = _source;
     size_t index = 0;
     t.tid = TokenId::TOK_UNKNOWN;
+    t.nativeCpu = {};
+    t.nativeLine = t.nativePos = 0;
     t.strValue = {};
     t.strContainer.clear();
     t.line = _sourceLine;
@@ -429,10 +438,74 @@ void Lexer::scanNextToken(octo::Token& t, bool resetPrefixAfterNewline)
             }
         }
         t.rawValue = {start, index};
+        if (t.tid == TokenId::ASM) {
+            scanNativeBlock(t, start);
+            return;
+        }
         if (!_options.preprocessorMode)
             skipWhitespace();
     }
 }
+
+void Lexer::scanNativeBlock(Token& token, const char* start)
+{
+    const auto fail = [&](std::string message) {
+        _isError = 1;
+        _error = std::move(message);
+        _errorLine = token.line;
+        _errorPos = token.pos;
+    };
+    skipWhitespace();
+    const auto* cpuStart = _source;
+    while (std::isalnum(static_cast<unsigned char>(peekChar())) || peekChar() == '_')
+        nextChar();
+    token.nativeCpu = {cpuStart, static_cast<size_t>(_source - cpuStart)};
+    if (token.nativeCpu.empty()) {
+        fail("Expected CPU name after :asm.");
+        return;
+    }
+    skipWhitespace();
+    if (peekChar() != '{') {
+        fail("Expected '{' after :asm CPU name.");
+        return;
+    }
+    nextChar();
+    const auto* body = _source;
+    token.nativeLine = _sourceLine;
+    token.nativePos = _sourcePos;
+    while (peekChar()) {
+        if (peekChar() == '.' && _source + 1 < _sourceEnd && _source[1] == '.') {
+            while (peekChar() && peekChar() != '\n')
+                nextChar();
+        }
+        else if (peekChar() == '\'') {
+            nextChar();
+            while (peekChar() && peekChar() != '\'') {
+                if (nextChar() == '\\' && peekChar())
+                    nextChar();
+            }
+            if (peekChar())
+                nextChar();
+        }
+        else if (peekChar() == '}') {
+            token.strValue = {body, static_cast<size_t>(_source - body)};
+            nextChar();
+            token.rawValue = {start, static_cast<size_t>(_source - start)};
+            if (!_options.preprocessorMode)
+                skipWhitespace();
+            return;
+        }
+        else if (peekChar() == '{') {
+            fail("Nested :asm blocks are not supported.");
+            return;
+        }
+        else {
+            nextChar();
+        }
+    }
+    fail("Unterminated :asm block.");
+}
+
 Token::Type Lexer::nextToken(bool resetPrefixAfterNewline)
 {
     scanNextToken(_internalToken, resetPrefixAfterNewline);

@@ -36,6 +36,7 @@ github_fetch_file(
 )
 
 include(FindPython3)
+add_test(NAME hybrid-cli COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/hybrid_cli_test.py --chiplet $<TARGET_FILE:chiplet>)
 add_test(NAME relocation-test-py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/relocation-test.py --chiplet $<TARGET_FILE:chiplet>)
 #add_test(NAME repair-emma-hex-test-py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/repair-emma-hex-test.py --chiplet $<TARGET_FILE:chiplet>)
 add_test(NAME assembler-test-py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/assembler-test.py $<TARGET_FILE:chiplet> ${CMAKE_CURRENT_SOURCE_DIR}/c-octo-tests WORKING_DIRECTORY ${EXECUTABLE_OUTPUT_PATH} )
@@ -44,8 +45,9 @@ add_test(NAME test-suite-tests.py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_
 add_test(NAME preprocessor-line-info-test.py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/preprocessor-line-info-test.py --assembler $<TARGET_FILE:chiplet> --tests-dir "${chip8testsuite_SOURCE_DIR}/src/tests" --reference ${CMAKE_CURRENT_SOURCE_DIR}/octo-preproc-tests/5-quirks-line-info.8o --work-dir c8ts-line-info)
 add_test(NAME cdp1802-test.py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cdp1802-test.py --chiplet $<TARGET_FILE:chiplet> --tests-dir ${CMAKE_CURRENT_SOURCE_DIR}/cdp1802-tests --work-dir cdp1802-tests)
 
-add_executable(chiplet-tests main.cpp assembler_tests.cpp cdp1802_tests.cpp chunkedmemory_test.cpp utility_tests.cpp hexfile_tests.cpp image_tests.cpp relocation_tests.cpp)
+add_executable(chiplet-tests main.cpp assembler_tests.cpp hybrid_tests.cpp cdp1802_tests.cpp chunkedmemory_test.cpp utility_tests.cpp hexfile_tests.cpp image_tests.cpp relocation_tests.cpp)
 target_compile_definitions(chiplet-tests PUBLIC IMAGES_PATH="${CMAKE_BINARY_DIR}/test/images")
+target_compile_definitions(chiplet-tests PRIVATE CHIPLET_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_link_libraries(chiplet-tests PUBLIC chiplet-lib doctest fast_float)
 doctest_discover_tests(chiplet-tests)
 

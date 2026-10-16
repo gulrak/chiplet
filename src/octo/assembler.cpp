@@ -761,6 +761,7 @@ void Assembler::resolveLabel(int offset)
         rom[startAddress + 1] = 0, used[startAddress + 1] = 0;
     }
     constants.insert_or_assign(n, Constant{static_cast<double>(target), false});
+    _programLabels.insert_or_assign(n, target);
     auto iter = protos.find(n);
     if (iter == protos.end())
         return;
@@ -1285,6 +1286,10 @@ void Assembler::compileStatement()
 {
     if (_isError)
         return;
+    if (peek().tid == TokenId::ASM) {
+        compileNativeBlock(next());
+        return;
+    }
     int peek_line = peek().line, peek_pos = peek().pos;
     if (peekIsRegister()) {
         int r = registerOrAlias();
@@ -1814,6 +1819,80 @@ void Assembler::compileStatement()
 }
 #endif
 
+cdp1802::AssemblerOptions Assembler::nativeOptions(const NativeBlock& block, bool measureOnly)
+{
+    cdp1802::AssemblerOptions options;
+    options.embedded = true;
+    options.measureOnly = measureOnly;
+    options.origin = static_cast<uint16_t>(block.address);
+    options.resolveSymbol = [this, &block](std::string_view name) -> std::optional<double> {
+        if (const auto it = block.values.find(std::string{name}); it != block.values.end())
+            return it->second;
+        if (const auto it = _programLabels.find(name); it != _programLabels.end())
+            return it->second;
+        return std::nullopt;
+    };
+    return options;
+}
+
+void Assembler::nativeError(const NativeBlock& block, const cdp1802::Assembler& assembler)
+{
+    _isError = 1;
+    _error = "cdp1802: " + assembler.errorMessage();
+    _errorLine = block.token.nativeLine + assembler.errorLine() - 1;
+    _errorPos = (assembler.errorLine() == 1 ? block.token.nativePos : 0) + assembler.errorColumn() - 1;
+}
+
+void Assembler::compileNativeBlock(Token token)
+{
+    if (token.nativeCpu != "cdp1802") {
+        _isError = 1;
+        _error = fmt::format("Unsupported :asm CPU '{}'; only cdp1802 is supported.", token.nativeCpu);
+        return;
+    }
+    if (here < 0 || here > 0xFFFF) {
+        _isError = 1;
+        _error = ":asm cdp1802 requires a 16-bit origin.";
+        return;
+    }
+    NativeBlock block{std::move(token), here};
+    for (const auto& [name, value] : constants)
+        block.values.emplace(name, value.value);
+    cdp1802::Assembler assembler{block.token.strValue, nativeOptions(block, true)};
+    if (!assembler.compile()) {
+        nativeError(block, assembler);
+        return;
+    }
+    block.size = assembler.embeddedSize();
+    for (uint32_t byte = 0; byte < block.size && !_isError; ++byte)
+        append(0);
+    if (!_isError)
+        _nativeBlocks.push_back(std::move(block));
+}
+
+bool Assembler::finishNativeBlocks()
+{
+    for (const auto& block : _nativeBlocks) {
+        cdp1802::Assembler assembler{block.token.strValue, nativeOptions(block, false)};
+        if (!assembler.compile()) {
+            nativeError(block, assembler);
+            return false;
+        }
+        if (assembler.contiguousData().size() != block.size) {
+            _isError = 1;
+            _error = "Native block changed size after resolving symbols.";
+            _errorLine = block.token.line;
+            _errorPos = block.token.pos;
+            return false;
+        }
+        for (uint32_t byte = 0; byte < block.size; ++byte) {
+            rom[block.address + byte] = assembler.contiguousData()[byte];
+            romLineMap[block.address + byte] = block.token.nativeLine + assembler.byteSourceLines()[byte] - 1;
+        }
+    }
+    return true;
+}
+
 Assembler::Assembler(std::string_view text, int startAddress)
 : Lexer(text)
 {
@@ -1857,6 +1936,8 @@ bool Assembler::compile()
             return _isError = 1, _error = "This program is missing a 'main' label.", false;
         jump(startAddress, (int)iter->second.value);
     }
+    if (!finishNativeBlocks())
+        return false;
     if (!protos.empty()) {
         auto& pr = protos.begin()->second;
         _errorLine = pr.line, _errorPos = pr.pos;
