@@ -26,6 +26,7 @@ set(CHIPLET_LIBRARY_SOURCE
     octocompiler.cpp
     octocartridge.cpp
     chunkedmemory.cpp
+    stb_image.cpp
     decoder/saturndecoder.cpp
 )
 

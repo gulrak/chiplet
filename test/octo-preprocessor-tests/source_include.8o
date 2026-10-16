@@ -1,0 +1,8 @@
+:include "assets/helper.8o"
+
+: main
+included
+:if INCLUDED_OPTION
+    v1 := 2
+:end
+return

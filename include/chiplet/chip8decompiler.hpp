@@ -39,6 +39,7 @@
 #include <tuple>
 #include <vector>
 #include <regex>
+#include <stdexcept>
 
 #include <fmt/format.h>
 #include <ghc/fs_fwd.hpp>
@@ -81,7 +82,7 @@ public:
     , _chunks(data, offset)
     {
         if(_mappedOpcodeInfo.empty()) {
-            updateOpcodeMapping(variants);
+            updateOpcodeMapping();
         }
     }
 
@@ -98,7 +99,7 @@ public:
     {
         _mappedOpcodeInfo.resize(65536);
         for(uint32_t opcode = 0; opcode < 0x10000; ++opcode) {
-            _mappedOpcodeInfo.clear();
+            _mappedOpcodeInfo[opcode].clear();
             for(const auto& info : detail::opcodes) {
                 if((opcode & detail::opcodeMasks[info.type]) == info.opcode && info.variants.containsAny(variants)) {
                     _mappedOpcodeInfo[opcode].push_back(&info);
@@ -423,6 +424,9 @@ public:
                             ec.rV[x < y ? x + i : x - i] = -1;
                         break;
                     default:
+                        // The original VIP ignores the low nibble of 5XYN.
+                        if(_possibleVariants.is_empty())
+                            inSkip = true;
                         break;
                 }
                 break;
@@ -535,7 +539,7 @@ public:
                 break;
             }
             case 9:  // 9xy0 - SNE Vx, Vy
-                if(n == 0) {
+                if(n == 0 || _possibleVariants.is_empty()) {
                     inSkip = true;
                     if (ec.rV[x] >= 0 && ec.rV[y] >= 0 && ec.rV[x] != ec.rV[y]) {
                         ec.rPC += 2;
@@ -550,7 +554,7 @@ public:
                 refLabel(nnn, UsageType::eREAD);
                 break;
             case 0xB:  // Bnnn - JP V0, addr
-                if(_possibleVariants.containsAny(chip8::Variant::CHIP_8X | chip8::Variant::CHIP_8X_TPD | chip8::Variant::HI_RES_CHIP_8X)) {
+                if(_possibleVariants.containsAny(chip8::ALL_VARIANTS - chip8::Variant::CHIP_8X - chip8::Variant::CHIP_8X_TPD - chip8::Variant::HI_RES_CHIP_8X)) {
                     if (ec.rV[0] >= 0)
                         refLabel(nnn + ec.rV[0], UsageType::eJUMP);
                     else
@@ -678,14 +682,24 @@ public:
             code += 2;
             ec.rPC += 2;
             int next = -1;
+            unsigned instructionSize = 2;
             if(opcode == 0xF000 || ((opcode & 0xFF00) == 0x0100 && supportsVariant(C8V::MEGA_CHIP))) {
+                if(chunk.endData() - code < 2) {
+                    _truncatedInstruction = true;
+                    break;
+                }
+                instructionSize = 4;
                 next = readOpcode(code);
                 code += 2;
                 ec.rPC += 2;
             }
             else if(opcode == 0x0011 && supportsVariant(C8V::MEGA_CHIP))
                 _megaChipEnabled = true;
-            if (opcode == 0x00FF && readOpcode(code + 2) == 0x00E0) {
+            const auto instructionAddress = chunk.startAddr() + static_cast<uint32_t>(code - chunk.startData()) - instructionSize;
+            auto [instruction, inserted] = _tracedInstructions.emplace(instructionAddress, instructionSize);
+            if(!inserted && instruction->second != instructionSize)
+                _ambiguousTrace = true;
+            if (opcode == 0x00FF && chunk.endData() - code >= 4 && readOpcode(code + 2) == 0x00E0) {
                 //std::cout << "Combined 00FF/00E0" << std::endl;
             }
             if(preCallback)
@@ -696,7 +710,7 @@ public:
             }
         }
         if(!result)
-            result = chunk.endData() - chunk.startData();
+            result = code - start;
         //std::clog << "        found code of size " << result << std::endl;
         return result;
     }
@@ -738,6 +752,8 @@ public:
             while (code + 1 < chunk.endData()) {
                 auto rawOpcode = readOpcode(code);
                 auto [size, opcode, instruction] = opcode2Str(code, chunk.endData());
+                if(size > chunk.endData() - code)
+                    break;
                 auto iter = _stats.find(opcode);
                 if(iter == _stats.end()) {
                     _stats.emplace(opcode, 1);
@@ -764,14 +780,17 @@ public:
 
     void decompile(const fs::path& filename, uint32_t entry, std::ostream* os, bool analyzeOnly = false, bool quiet = false)
     {
-        assert(entry == _chunks.offset());
+        if(!_chunks.chunkWithAddress(entry) || _chunks.size() < 2)
+            throw std::invalid_argument("Entry address is outside the program");
         auto start = std::chrono::steady_clock::now();
         _start = _chunks.startData();
         _size = _chunks.size();
         //_chunks[offset] = {offset, code, code + size, eJUMP};
         auto chunk = _chunks.chunkWithAddress(entry);
+        if(entry != chunk->startAddr())
+            chunk = _chunks.splitChunkAt(*chunk, entry).second;
         auto chunkSize = analyseCodeChunk(*chunk, entry);
-        auto [codeChunk,suffixChunk] = chunkSize == _size ? std::pair{*chunk, ChunkedMemory::Chunk{}} : _chunks.splitChunkAt(*chunk, _chunks.offset() + chunkSize);
+        auto [codeChunk,suffixChunk] = chunkSize == chunk->size() ? std::pair{*chunk, ChunkedMemory::Chunk{}} : _chunks.splitChunkAt(*chunk, entry + chunkSize);
         decltype(codeChunk) prefixChunk;
         codeChunk.setUsageType(ChunkedMemory::eJUMP);
         //_chunks.dumpChunks(std::clog);
@@ -797,9 +816,9 @@ public:
                                     chunk = _chunks.splitChunkAt(*chunk, labelOffset + chunkSize).first;
                                 }
                                 chunk->setUsageType(ChunkedMemory::eEXECUTABLE);
+                                iterate = true;
                             }
                             //_chunks.dumpChunks(std::clog);
-                            iterate = true;
                         }
                     }
                 }
@@ -925,6 +944,15 @@ public:
         }
     }
 
+    struct RelocationResult {
+        std::vector<uint8_t> bytes;
+        std::vector<std::string> warnings;
+    };
+
+    // Best-effort relocation of address operands in instructions found by path tracing.
+    RelocationResult relocate(uint32_t entry, uint32_t destination);
+    const auto& tracedInstructions() const { return _tracedInstructions; }
+
     bool usesOddPcAddress() const { return _oddPcAccess; }
     const chip8::VariantSet& possibleVariants() const { return _possibleVariants; }
     const auto& fullStats() const { return _fullStats; }
@@ -940,6 +968,9 @@ private:
     uint32_t _size{};
     bool _oddPcAccess{false};
     bool _megaChipEnabled{false};
+    bool _truncatedInstruction{false};
+    bool _ambiguousTrace{false};
+    std::map<uint32_t, unsigned> _tracedInstructions;
     chip8::VariantSet _possibleVariants{};
     detail::OpcodeSet _opcodeSet;
     ChunkedMemory _chunks;

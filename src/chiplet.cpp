@@ -40,17 +40,15 @@
 
 #include "cdp1802/assembly_session.hpp"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <../external/nothings/stb_image.h>
-
 #include <ghc/cli.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cctype>
 #include <set>
 #include <stdexcept>
 
-enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH, eDEEP_ANALYSE };
+enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH, eDEEP_ANALYSE, RELOCATE };
 static std::unordered_map<std::string, std::string> fileMap;
 static std::set<std::string> extensionsDetected;
 static std::set<std::string> extensionsUndetected;
@@ -100,6 +98,70 @@ bool writeHexOutput(const std::string& filename, const std::vector<cdp1802::Asse
         hex.write(segment.address, segment.bytes);
     hex.close();
     return true;
+}
+
+int relocateFile(const std::string& filename, uint32_t entry, uint32_t destination, bool hexOutput, bool quiet)
+{
+    try {
+        std::vector<uint8_t> data;
+        std::vector<std::pair<uint32_t, size_t>> ranges;
+        uint32_t base = entry;
+        auto extension = fs::path(filename).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch){ return std::tolower(ch); });
+        if(extension == ".hex") {
+            emu::HexFile hex(filename, emu::HexFile::Mode::READ);
+            if(hex.ranges().empty())
+                throw std::runtime_error("Input HEX contains no data");
+            base = hex.ranges().front().first;
+            const auto& last = hex.ranges().back();
+            data.resize(last.first + last.second.size() - base, 0);
+            for(const auto& [address, bytes] : hex.ranges()) {
+                std::copy(bytes.begin(), bytes.end(), data.begin() + address - base);
+                ranges.emplace_back(address, bytes.size());
+            }
+        }
+        else {
+            auto binary = loadFile(filename);
+            if(!binary)
+                throw std::runtime_error("Couldn't read input file: " + filename);
+            data = std::move(*binary);
+            ranges.emplace_back(base, data.size());
+        }
+        if(data.size() < 2 || data.size() > 0x10000u - base)
+            throw std::runtime_error("Input program must contain at least two bytes and fit in 16-bit address space");
+        auto contains = [&](uint32_t address, size_t size) {
+            return std::any_of(ranges.begin(), ranges.end(), [&](const auto& range) {
+                return address >= range.first && static_cast<uint64_t>(address) + size <= range.first + range.second;
+            });
+        };
+        if(!contains(entry, 2))
+            throw std::runtime_error("No instruction at --start-address in input HEX (default 0x200)");
+        emu::Chip8Decompiler decompiler(data, base);
+        auto result = decompiler.relocate(entry, destination);
+        for(const auto& [address, size] : decompiler.tracedInstructions()) {
+            if(!contains(address, size))
+                throw std::runtime_error(fmt::format("Path tracing reaches a HEX gap at 0x{:04X}", address));
+        }
+        const auto delta = static_cast<int64_t>(destination) - entry;
+        if(hexOutput) {
+            emu::HexFile hex(outputFile, emu::HexFile::Mode::WRITE);
+            for(const auto& [address, size] : ranges)
+                hex.write(static_cast<uint16_t>(address + delta), std::span<const uint8_t>{result.bytes}.subspan(address - base, size));
+            hex.close();
+        }
+        else if(!writeBinaryOutput(outputFile, result.bytes))
+            throw std::runtime_error("Couldn't write output file: " + outputFile);
+        if(!quiet) {
+            for(const auto& warning : result.warnings)
+                std::cerr << "WARNING: " << warning << std::endl;
+            std::clog << fmt::format("Relocated {} traced instructions from 0x{:04X} to 0x{:04X} -> {}", decompiler.tracedInstructions().size(), entry, destination, outputFile) << std::endl;
+        }
+        return 0;
+    }
+    catch(const std::exception& ex) {
+        std::cerr << "ERROR: " << ex.what() << std::endl;
+        return 1;
+    }
 }
 
 std::string listingFilenameForOutput(const std::string& filename)
@@ -260,6 +322,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                 }
             }
         }
+        case RELOCATE:
         case ePREPROCESS:
         case eCOMPILE:
             // not handled here
@@ -384,6 +447,7 @@ int main(int argc, char* argv[])
     int verbosity = 1;
     int rc = 0;
     int64_t startAddress = 0x200;
+    int64_t relocateAddress = -1;
     bool hexOutput = false;
     std::vector<std::string> includePaths;
     std::vector<std::string> inputList;
@@ -394,7 +458,7 @@ int main(int argc, char* argv[])
     cli.option({"-I", "--include-path"}, includePaths, "add directory to include search path");
     cli.option({"-D", "--define"}, defineList, "add a defined option to the preprocessor");
     cli.option({"-o", "--output"}, outputFile, "name of output file, default stdout for preprocessor, a.out.ch8 for binary");
-    cli.option({"--hex"}, hexOutput, "write Intel HEX output instead of raw binary when compiling");
+    cli.option({"--hex"}, hexOutput, "write Intel HEX output instead of raw binary when compiling or relocating");
     cli.option({"--start-address"}, startAddress, "the address the program will be loaded to, the ': main' label address, default is 512");
     cli.optionEnable({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
     cli.option({"--cartridge-label"}, cartridgeLabel, "generate an Octo compatible cartridge gif with the given text label");
@@ -403,6 +467,7 @@ int main(int argc, char* argv[])
     cli.option({"--cartridge-variant"}, cartridgeVariant, "specifies a CHIP-8 variant that will be used to set the options (chip-8, schip, octo, xo-chip)");
 
     cli.category("Disassembler/Analyzer");
+    cli.option({"--relocate"}, relocateAddress, "relocate one binary or HEX program to this address using execution path tracing").range(0, 0xFFFF);
     cli.option({"-d", "--disassemble"}, disassemble, "disassemble a given file");
     cli.option({"-s", "--scan"}, scan, "scan files or directories for chip roms and analyze them, giving some information");
     cli.option({"--deep-scan"}, deepscan, "scan a directory tree for any files that look like CHIP-8 variant programs and list them, ignoring extensions");
@@ -433,6 +498,10 @@ int main(int argc, char* argv[])
 
     WorkMode mode = eCOMPILE;
     int modes = 0;
+    if(relocateAddress >= 0) {
+        mode = RELOCATE;
+        modes++;
+    }
     if(!opcodesToFind.empty()) {
         mode = eSEARCH, modes++;
     }
@@ -475,7 +544,7 @@ int main(int argc, char* argv[])
     else if(verbose)
         verbosity = 100;
 
-    if(!version && inputList.size() == 1 && fs::path(inputList.front()).extension() == ".gif") {
+    if(mode != RELOCATE && !version && inputList.size() == 1 && fs::path(inputList.front()).extension() == ".gif") {
         emu::OctoCartridge cart(inputList.front());
         cart.loadCartridge();
         std::cout << cart.getJsonString() << std::endl;
@@ -497,7 +566,26 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH || mode == eDEEP_ANALYSE)
+    if(mode == RELOCATE) {
+        if(inputList.size() != 1 || !fs::is_regular_file(inputList.front())) {
+            std::cerr << "ERROR: Relocation expects exactly one input file." << std::endl;
+            return 1;
+        }
+        if(outputFile.empty()) {
+            std::cerr << "ERROR: Relocation requires an output filename (use -o/--output)." << std::endl;
+            return 1;
+        }
+        if(startAddress < 0 || startAddress > 0xFFFF) {
+            std::cerr << "ERROR: --start-address is out of range for relocation." << std::endl;
+            return 1;
+        }
+        if(cartridgeBuild || deepscan || roundTrip || genListing) {
+            std::cerr << "ERROR: Cartridge, deep scan, round-trip and listing options are not supported for relocation." << std::endl;
+            return 1;
+        }
+        rc = relocateFile(inputList.front(), static_cast<uint32_t>(startAddress), static_cast<uint32_t>(relocateAddress), hexOutput, quiet);
+    }
+    else if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH || mode == eDEEP_ANALYSE)
         rc = disassembleOrAnalyze(scan, dumpDoubles, inputList, mode);
     else if(architecture == Architecture::CDP1802) {
         if(inputList.size() != 1) {

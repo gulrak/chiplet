@@ -35,6 +35,92 @@
 
 namespace emu {
 
+Chip8Decompiler::RelocationResult Chip8Decompiler::relocate(uint32_t entry, uint32_t destination)
+{
+    const auto base = _chunks.offset();
+    const auto size = _chunks.size();
+    const auto delta = static_cast<int64_t>(destination) - entry;
+    const auto relocatedBase = static_cast<int64_t>(base) + delta;
+    if(entry < base || entry >= 0x10000 || size < 2 || entry - base > size - 2)
+        throw std::invalid_argument("Entry address is outside the program");
+    if(destination >= 0x10000 || relocatedBase < 0 || relocatedBase + size > 0x10000)
+        throw std::out_of_range("Relocated program exceeds 16-bit address space");
+
+    RelocationResult result{{_chunks.startData(), _chunks.endData()}, {}};
+    decompile({}, entry, nullptr, true, true);
+    if(_truncatedInstruction)
+        throw std::runtime_error("Cannot relocate a truncated instruction");
+    if(_ambiguousTrace)
+        throw std::runtime_error("Path tracing found conflicting instruction sizes");
+
+    // Addresses below the input base belong to the interpreter/system. Addresses at
+    // or above it move with the program, including scratch RAM beyond the file's end.
+    auto relocateAddress = [&](uint32_t address, uint32_t maximum, uint32_t pc) {
+        if(address < base)
+            return address;
+        const auto moved = static_cast<int64_t>(address) + delta;
+        if(moved < 0 || moved > maximum)
+            throw std::out_of_range(fmt::format("Relocated operand at 0x{:04X} exceeds its address range", pc));
+        return static_cast<uint32_t>(moved);
+    };
+    std::map<uint32_t, uint8_t> patchedBytes;
+    const auto* original = _chunks.startData();
+    for(const auto& [pc, instructionSize] : _tracedInstructions) {
+        const auto offset = pc - base;
+        const auto opcode = readOpcode(original + offset);
+        auto instruction = std::vector<uint8_t>(original + offset, original + offset + instructionSize);
+        const auto family = opcode >> 12;
+        const bool colorOpcode = family == 0xB && !_possibleVariants.is_empty() &&
+                                 !_possibleVariants.containsAny(chip8::ALL_VARIANTS - C8V::CHIP_8X - C8V::CHIP_8X_TPD - C8V::HI_RES_CHIP_8X);
+        if(family == 1 || family == 2 || family == 0xA || (family == 0xB && !colorOpcode)) {
+            const auto address = relocateAddress(opcode & 0xFFF, 0xFFF, pc);
+            instruction[0] = static_cast<uint8_t>((opcode & 0xF000) >> 8 | address >> 8);
+            instruction[1] = static_cast<uint8_t>(address);
+            if(family == 0xB)
+                result.warnings.push_back(fmt::format("Computed jump at 0x{:04X}: path tracing may miss targets; CHIP-48 register selection must be checked", pc));
+        }
+        else if(opcode == 0xF000 && instructionSize == 4) {
+            const auto address = relocateAddress(readOpcode(original + offset + 2), 0xFFFF, pc);
+            instruction[2] = static_cast<uint8_t>(address >> 8);
+            instruction[3] = static_cast<uint8_t>(address);
+        }
+        else if((opcode & 0xFF00) == 0x0100 && instructionSize == 4) {
+            const auto address = relocateAddress(((opcode & 0xFF) << 16) | readOpcode(original + offset + 2), 0xFFFFFF, pc);
+            instruction[1] = static_cast<uint8_t>(address >> 16);
+            instruction[2] = static_cast<uint8_t>(address >> 8);
+            instruction[3] = static_cast<uint8_t>(address);
+        }
+        else if(family == 0) {
+            // System calls/native payloads require a separate machine-code relocator.
+            const auto* info = _opcodeSet.getOpcodeInfo(opcode);
+            if(!info || info->type == OT_Fnnn)
+                result.warnings.push_back(fmt::format("Native or unknown instruction at 0x{:04X} is left unchanged", pc));
+        }
+        if((family == 5 || family == 9) && (opcode & 0xF) && !_opcodeSet.getOpcodeInfo(opcode))
+            result.warnings.push_back(fmt::format("Nonstandard skip at 0x{:04X} traced using original VIP semantics", pc));
+        for(unsigned index = 0; index < instructionSize; ++index) {
+            auto [patch, inserted] = patchedBytes.emplace(offset + index, instruction[index]);
+            if(!inserted && patch->second != instruction[index])
+                throw std::runtime_error(fmt::format("Conflicting relocation of overlapping instructions at 0x{:04X}", pc));
+            result.bytes[offset + index] = instruction[index];
+        }
+    }
+    for(const auto& [address, info] : _label) {
+        if(info.type & UsageType::eEXECUTABLE) {
+            if(address >= base && address < base + size && !_tracedInstructions.contains(address))
+                throw std::runtime_error(fmt::format("Could not trace instruction at target 0x{:04X} (truncated or overlapping code)", address));
+            if(address >= base + size)
+                result.warnings.push_back(fmt::format("Target 0x{:04X} is outside the input; its code cannot be traced", address));
+        }
+        if(info.type & UsageType::eWRITE) {
+            auto chunk = _chunks.chunkWithAddress(address);
+            if(chunk && (chunk->usageType() & UsageType::eEXECUTABLE))
+                result.warnings.push_back(fmt::format("Write to traced code at 0x{:04X}: self-modifying code may not relocate correctly", address));
+        }
+    }
+    return result;
+}
+
 std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(chip8::Variant cv)
 {
     switch(cv)

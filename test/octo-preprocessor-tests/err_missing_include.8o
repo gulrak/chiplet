@@ -1,0 +1,3 @@
+: main
+:include "assets/missing-preprocessor-file.8o"
+return

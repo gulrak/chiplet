@@ -1,0 +1,4 @@
+# Comments and whitespace pass through.
+: main
+    v0 := 1
+    return

@@ -107,16 +107,36 @@ inline void pushLiteral(std::vector<MonitorField>& out,
     }
 }
 
-inline uint8_t toUint8JS(double x) {
+static constexpr uint8_t toUint8JS(double x) {
     if (!std::isfinite(x) || x == 0.0)
         return 0;
-    return static_cast<uint8_t>(x);
+    double narrowed = std::fmod(std::trunc(x), 256.0);
+    if (narrowed < 0.0)
+        narrowed += 256.0;
+    return static_cast<uint8_t>(narrowed);
 }
 
-inline int toIntJS(double x) {
+static constexpr int32_t toInt32JS(double x) noexcept
+{
     if (!std::isfinite(x) || x == 0.0)
         return 0;
-    return static_cast<int>(x);
+
+    constexpr double MODULUS = 4294967296.0;  // 2^32
+    constexpr double SIGN_BIT = 2147483648.0; // 2^31
+
+    double narrowed = std::fmod(std::trunc(x), MODULUS);
+    if (narrowed < 0.0)
+        narrowed += MODULUS;
+    if (narrowed >= SIGN_BIT)
+        narrowed -= MODULUS;
+
+    return static_cast<int32_t>(narrowed);
+}
+
+[[nodiscard]] constexpr bool isTruthy(double val) noexcept
+{
+    // NaN is never equal to itself in IEEE 754; +0.0 == -0.0 in C++
+    return !std::isnan(val) && (val != 0.0);
 }
 
 } // namespace detail
@@ -528,9 +548,9 @@ double Assembler::calcExpr(std::string_view name)
     if (match("-"))
         return -calcExpr(name);
     if (match("~"))
-        return ~((int)calcExpr(name));
+        return ~detail::toInt32JS(calcExpr(name));
     if (match("!"))
-        return !((int)calcExpr(name));
+        return !detail::toInt32JS(calcExpr(name));
     if (match("sin"))
         return sin(calcExpr(name));
     if (match("cos"))
@@ -552,7 +572,7 @@ double Assembler::calcExpr(std::string_view name)
     if (match("floor"))
         return floor(calcExpr(name));
     if (match("@")) {
-        auto addr = (int)calcExpr(name);
+        auto addr = detail::toInt32JS(calcExpr(name));
         return addr >= 0 && addr < rom.size() ? 0xFF & rom[addr] : 0;
     }
 
@@ -567,17 +587,17 @@ double Assembler::calcExpr(std::string_view name)
     if (match("/"))
         return r / calcExpr(name);
     if (match("%"))
-        return ((int)r) % ((int)calcExpr(name));
+        return ((int)r) % (detail::toInt32JS(calcExpr(name)));
     if (match("&"))
-        return ((int)r) & ((int)calcExpr(name));
+        return ((int)r) & (detail::toInt32JS(calcExpr(name)));
     if (match("|"))
-        return ((int)r) | ((int)calcExpr(name));
+        return ((int)r) | (detail::toInt32JS(calcExpr(name)));
     if (match("^"))
-        return ((int)r) ^ ((int)calcExpr(name));
+        return ((int)r) ^ (detail::toInt32JS(calcExpr(name)));
     if (match("<<"))
-        return ((int)r) << ((int)calcExpr(name));
+        return ((int)r) << (detail::toInt32JS(calcExpr(name)));
     if (match(">>"))
-        return ((int)r) >> ((int)calcExpr(name));
+        return ((int)r) >> (detail::toInt32JS(calcExpr(name)));
     if (match("pow"))
         return pow(r, calcExpr(name));
     if (match("min"))
@@ -747,6 +767,18 @@ void Assembler::resolveLabel(int offset)
 
     auto& pr = iter->second;
     for (auto& pa : pr.addrs) {
+        if (pa.size <= 12 && (target & 0xFFF) != target) {
+            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 12 bits.", target, n);
+            break;
+        }
+        if (pa.size <= 16 && (target & 0xFFFF) != target) {
+            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 16 bits.", target, n);
+            break;
+        }
+        if (pa.size <= 24 && (target & 0xFFFFFF) != target) {
+            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 24 bits.", target, n);
+            break;
+        }
         if (pa.size == 16 && (rom[pa.value] & 0xF0) == 0x60) {  // :unpack long target
             rom[pa.value + 1] = target >> 8;
             rom[pa.value + 3] = target;
@@ -754,18 +786,6 @@ void Assembler::resolveLabel(int offset)
         else if (pa.size == 16) {  // i := long target
             rom[pa.value] = target >> 8;
             rom[pa.value + 1] = target;
-        }
-        else if (pa.size <= 12 && (target & 0xFFF) != target) {
-            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 12 bits.", target, n);
-            break;
-        }
-        else if (pa.size <= 16 && (target & 0xFFFF) != target) {
-            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 16 bits.", target, n);
-            break;
-        }
-        else if (pa.size <= 24 && (target & 0xFFFFFF) != target) {
-            _isError = 1, _error = fmt::format("Value 0x{:0X} for label '{}' does not fit in 24 bits.", target, n);
-            break;
         }
         else if (pa.size == 24) {
             rom[pa.value] = target >> 16;
@@ -1374,7 +1394,7 @@ void Assembler::compileStatement()
             case TokenId::ASSERT: {
                 eat();
                 auto message = peek_match("{", 0) ? std::string_view() : string();
-                if (!(int)calculated("assertion")) {
+                if (!detail::isTruthy(calculated("assertion"))) {
                     _isError = 1;
                     if (!message.empty())
                         _error = fmt::format("Assertion failed: {}", message);
@@ -1424,7 +1444,20 @@ void Assembler::compileStatement()
             }
             case TokenId::ORG: {
                 eat();
-                int new_address = (peek_match("{", 0) ? RAM_MASK & (int)calculated("ANONYMOUS") : value16bit(0, 0));
+                int32_t new_address;
+                if (peek_match("{", 0)) {
+                    auto pos = _sourcePos;
+                    new_address = detail::toInt32JS(calculated("ANONYMOUS"));
+                    if (new_address < 0) {
+                        _isError = 1;
+                        _errorPos = pos;
+                        _error = "Argument to :org is negative.";
+                        return;
+                    }
+                }
+                else {
+                    new_address = value16bit(0, 0);
+                }
                 if (new_address < here && used[new_address] && new_address != 0x200) {
                     _isError = 1;
                     _error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - new_address, here);
@@ -1434,13 +1467,31 @@ void Assembler::compileStatement()
             }
             case TokenId::CALL: {
                 eat();
-                immediate(0x20, peek_match("{", 0) ? 0xFFF & (int)calculated("ANONYMOUS") : value12bit());
+                if (peek_match("{", 0)) {
+                    auto pos = _sourcePos;
+                    auto label = detail::toInt32JS(calculated("ANONYMOUS"));
+                    if (label < 0 || label > 0xFFF) {
+                        _isError = 1;
+                        _errorPos = pos;
+                        _error = fmt::format("Argument 4096 does not fit in 12 bits.", here);
+                        return;
+                    }
+                    immediate(0x20, label);
+                }
+                else {
+                    immediate(0x20, value12bit());
+                }
                 break;
             }
             case TokenId::CONST_DIRECTIVE: {
                 eat();
                 auto n = identifier("constant");
-                if (constants.count(n)) {
+                if (aliases.contains(n)) {
+                    _isError = 1;
+                    _error = fmt::format("The name '{}' is already used by an alias.", n);
+                    return;
+                }
+                if (constants.contains(n)) {
                     _isError = 1;
                     _error = fmt::format("The name '{}' has already been defined.", n);
                     return;

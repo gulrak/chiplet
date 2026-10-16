@@ -1,0 +1,7 @@
+: included-code
+v1 := 2
+return
+
+:segment data
+: included-data
+0xbb

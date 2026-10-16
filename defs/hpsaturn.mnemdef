@@ -1,0 +1,529 @@
+; Documentation:
+; Lines starting with semicolons are comments and not part of the mnemonic definition.
+; A cpu clause defines the name of the cpu described in this file.
+; Operand clauses define bit values for parameters of an opcode.
+; The elements in an operand clause are interpreted by taking the hex number at the end of each line as bit value
+; and trimming each whitespace at the start of the line and in front of that bit value.
+; The instructions clause lists binary patterns, and assembly syntax.
+; Inside the assembly syntax can be operand references in angled brackets,
+; where the first one or more equal letters reference one or more nibbles.
+; Inside the opcode and either an operand reference or a function call, seperated
+; from the operand reference by either '=' or '#' (the latter for relative addressing).
+; In case of opcode references, there can be an additional offset, given by e.g. +4,
+; which means the operand bit value plus four.
+;
+cpu hpsaturn
+
+operand field {
+    p   0
+    wp  1
+    xs  2
+    x   3
+    s   4
+    m   5
+    b   6
+    w   7
+}
+
+operand regpair4 {
+    a,b 0
+    b,c 1
+    c,a 2
+    d,c 3
+}
+
+operand regpair4rev {
+    b,a 0
+    c,b 1
+    a,c 2
+    c,d 3
+}
+
+operand regpair8 {
+    b,a 0
+    c,b 1
+    a,c 2
+    c,d 3
+    a,b 4
+    b,c 5
+    c,a 6
+    d,c 7
+}
+
+operand regpair8split {
+    b,a 0
+    c,b 1
+    a,c 2
+    c,d 3
+    a,b 8
+    b,c 9
+    c,a a
+    d,c b
+}
+
+operand regpair12 {
+    b,a 0
+    c,b 1
+    a,c 2
+    c,d 3
+    a,a 4
+    b,b 5
+    c,c 6
+    d,d 7
+    a,b 8
+    b,c 9
+    c,a a
+    d,c b
+}
+
+operand reg {
+    a 0
+    b 1
+    c 2
+    d 3
+}
+
+operand mrpair {
+    a,@d0 0
+    a,@d1 1
+    @d0,a 2
+    @d1,a 3
+    c,@d0 4
+    c,@d1 5
+    @d0,c 6
+    @d1,c 7
+}
+
+operand daregpair {
+    a,d0 0
+    a,d1 1
+    c,d0 4
+    c,d1 5
+}
+
+operand daregpairrev {
+    d0,a 0
+    d1,a 1
+    d0,c 4
+    d1,c 5
+}
+
+operand tempreg {
+    r0 0
+    r1 1
+    r2 2
+    r3 3
+    r4 4
+}
+
+instructions {
+
+; add
+809				add.a		p+1,c	; must be early
+cx				add.a		<x=regpair12>
+akx				add.<k=field> 	<x=regpair12>
+818fxi				add.a		<i=nzconst(4)>,<x=reg>
+818txi				add.<t=field>	<i=nzconst(4)>,<x=reg>
+16x				add.a		<x=nzconst(4)>,d0
+17x				add.a		<x=nzconst(4)>,d1
+
+; and
+0efy				and.a		<y=regpair8>
+0exy				and.<x=field>	<y=regpair8>
+
+; branch
+8086xyy				brbc		<x=const(4)>,a,<yy#pcofs(5)>
+808axyy				brbc		<x=const(4)>,c,<yy#pcofs(5)>
+86xyy				brbc		<x=const(4)>,st,<yy#pcofs(3)>
+
+; 
+83zyy				brbc		<z=hwflags()>,<yy#pcofs(3)>
+
+; 
+8087xyy				brbs		<x=const(4)>,a,<yy#pcofs(5)>
+808bxyy				brbs		<x=const(4)>,c,<yy#pcofs(5)>
+87xyy				brbs		<x=const(4)>,st,<yy#pcofs(3)>
+
+; return bit clear
+8086x00				retbc		<x=const(4)>,a
+808ax00				retbc		<x=const(4)>,c
+86x00				retbc		<x=const(4)>,st
+83z00				retbc		<z=hwflags()>
+
+; return bit set
+8087x00				retbs		<x=const(4)>,a
+808bx00				retbs		<x=const(4)>,c
+87x00				retbs		<x=const(4)>,st
+
+; branch carry clear/set
+5xx				brcc		<xx#pcofs(1)>
+4xx				brcs		<xx#pcofs(1)>
+
+; return carry clear/set
+500				retcc
+400				retcs
+
+; branch pointer equal/not equal
+89xyy				breq.1		p,<x=const(4)>,<yy#pcofs(3)>
+88xyy				brne.1		p,<x=const(4)>,<yy#pcofs(3)>
+
+; return pointer equal/not equal
+89x00				reteq.1		p,<x=const(4)>
+88x00				retne.1		p,<x=const(4)>
+
+; branch register (in)equality
+8auyy				breq.a		<u=regpair4+0>,<yy#pcofs(3)>
+9tuyy				breq.<t=field>	<u=regpair4+0>,<yy#pcofs(3)>
+8auyy				brne.a		<u=regpair4+4>,<yy#pcofs(3)>
+9tuyy				brne.<t=field>	<u=regpair4+4>,<yy#pcofs(3)>
+8auyy				brz.a		<u=reg+8>,<yy#pcofs(3)>
+9tuyy				brz.<t=field>	<u=reg+8>,<yy#pcofs(3)>
+8auyy				brnz.a		<u=reg+12>,<yy#pcofs(3)>
+9tuyy				brnz.<t=field>	<u=reg+12>,<yy#pcofs(3)>
+8buyy				brgt.a		<u=regpair4+0>,<yy#pcofs(3)>
+9tuyy				brgt.<t=field+8> <u=regpair4+0>,<yy#pcofs(3)>
+8buyy				brlt.a		<u=regpair4+4>,<yy#pcofs(3)>
+9tuyy				brlt.<t=field+8> <u=regpair4+4>,<yy#pcofs(3)>
+8buyy				brge.a		<u=regpair4+8>,<yy#pcofs(3)>
+9tuyy				brge.<t=field+8> <u=regpair4+8>,<yy#pcofs(3)>
+8buyy				brle.a		<u=regpair4+12>,<yy#pcofs(3)>
+9tuyy				brle.<t=field+8> <u=regpair4+12>,<yy#pcofs(3)>
+
+; return register (in)equality
+8au00				reteq.a		<u=regpair4+0>
+9tu00				reteq.<t=field>	<u=regpair4+0>
+8au00				retne.a		<u=regpair4+4>
+9tu00				retne.<t=field>	<u=regpair4+4>
+8au00				retz.a		<u=reg+8>
+9tu00				retz.<t=field>	<u=reg+8>
+8au00				retnz.a		<u=reg+12>
+9tu00				retnz.<t=field>	<u=reg+12>
+8bu00				retgt.a		<u=regpair4+0>
+9tu00				retgt.<t=field+8> <u=regpair4+0>
+8bu00				retlt.a		<u=regpair4+4>
+9tu00				retlt.<t=field+8> <u=regpair4+4>
+8bu00				retge.a		<u=regpair4+8>
+9tu00				retge.<t=field+8> <u=regpair4+8>
+8bu00				retle.a		<u=regpair4+12>
+9tu00				retle.<t=field+8> <u=regpair4+12>
+
+; bus commands
+8083				buscb	
+80b				buscc
+808d				buscd
+804				uncnfg		
+805				config		
+807				shutdn		
+80a				reset		
+80e				sreq		
+
+; call subroutine relative
+7xxx				call.3		<xxx#pcofs(4)>
+8exxxx				call.4		<xxxx#pcofs(6)>
+
+; call subroutine absolute
+8fxxxxx				call.a		<xxxxx=const(20)>
+
+; clear field of register
+dt				clr.a		<t=reg>
+apt				clr.<p=field+8>	<t=reg>
+
+; clear bit
+8084x				clrb		<x=const(4)>,a
+8088x				clrb		<x=const(4)>,c
+84x				clrb		<x=const(4)>,st
+
+; clear hardware status flags
+82x				clrb		<x=hwflags()>
+
+; clear bits 0-11 of st
+08				clr.x		st
+
+; decrement
+0d				dec.1		p
+cw				dec.a		<w=reg+12>
+akw				dec.<k=field>	<w=reg+12>
+
+; in
+802				in.4		a
+803				in.4		c
+
+; increment/decrement
+0d				dec.1		p
+cu				dec.a		<u=reg+12>
+aku				dec.<k=field>	<u=reg+12>
+
+0c				inc.1		p
+eu				inc.a		<u=reg+4>
+bku				inc.<k=field>	<u=reg+4>
+
+; interrupt commands
+808f				intoff
+8080				inton
+80810				rsi
+
+; jump register indirect
+808c				jump.a		@a
+808c				move.a		@a,pc
+808e				jump.a		@c
+808e				move.a		@c,pc
+
+; jump register direct / move pc
+81b2				jump.a		a
+81b2				move.a		a,pc
+81b3				jump.a		c
+81b3				move.a		c,pc
+81b4				move.a		pc,a
+81b5				move.a		pc,c
+81b6				swap.a		a,pc
+81b6				swap.a		pc,a	; rev
+81b7				swap.a		c,pc
+81b7				swap.a		pc,c	; rev
+
+
+; jump relative
+6xxx				jump.3		<xxx#pcofs(1)>
+8cxxxx				jump.4		<xxxx#pcofs(2)>
+
+; jump absolute
+8dxxxxx				jump.a		<xxxxx=const(20)>
+
+; move id register (must be before "move constant to c"
+806				move.a		id,c
+
+; move/swap register/register
+dz				move.a		<z=regpair8+4>
+apz				move.<p=field+8> <z=regpair8+4>
+dz				swap.a		<z=regpair4rev+12>
+dz				swap.a		<z=regpair4+12>	; rev
+apz				swap.<p=field+8> <z=regpair4rev+12>
+apz				swap.<p=field+8> <z=regpair4+12> ; rev
+
+
+; move register/memory
+14x				move.a		<x=mrpair+0>
+14x				move.b		<x=mrpair+8>
+15xt				move.<t=field>	<x=mrpair+0>
+15xi				move.<i=nzconst(4)> <x=mrpair+8>
+
+; move/swap register w. address register
+13x				move.a		<x=daregpair+0>
+13x				move.4		<x=daregpair+8>
+13x				swap.a		<x=daregpair+2>
+13x				swap.a		<x=daregpairrev+2>  ; rev
+13x				swap.4		<x=daregpair+10>
+13x				swap.4		<x=daregpairrev+10> ; rev
+
+; move/swap register w. temporary register
+10x				move.w		a,<x=tempreg+0>
+12x				swap.w		a,<x=tempreg+0>
+12x				swap.w		<x=tempreg+0>,a		; rev
+10x				move.w		c,<x=tempreg+8>
+12x				swap.w		c,<x=tempreg+8>
+12x				swap.w		<x=tempreg+8>,c		; rev
+11x				move.w		<x=tempreg+0>,a
+11x				move.w		<x=tempreg+8>,c
+81af0x				move.a		a,<x=tempreg+0>
+81af2x				swap.a		a,<x=tempreg+0>
+81af2x				swap.a		<x=tempreg+0>,a		; rev
+81af0x				move.a		c,<x=tempreg+8>
+81af2x				swap.a		c,<x=tempreg+8>
+81af2x				swap.a		<x=tempreg+8>,c		; rev
+81af1x				move.a		<x=tempreg+0>,a
+81af1x				move.a		<x=tempreg+8>,c
+81at0x				move.<t=field>	a,<x=tempreg+0>
+81at2x				swap.<t=field>	a,<x=tempreg+0>
+81at0x				move.<t=field>	c,<x=tempreg+8>
+81at2x				swap.<t=field>	c,<x=tempreg+8>
+81at2x				swap.<t=field>	<x=tempreg+8>,c		; rev
+81at1x				move.<t=field>	<x=tempreg+0>,a
+81at1x				move.<t=field>	<x=tempreg+8>,c
+
+; move constant to register (variable length)
+; 3ix			move.p<i=nzconst(4)> <x=varlenconst(i)>,c
+; 8082ix		move.p<i=nzconst(4)> <x=varlenconst(i)>,a
+30x			move.p1		 <x=const(4)>,c
+31xx			move.p2		 <xx=const(8)>,c
+32xxx			move.p3		 <xxx=const(12)>,c
+33xxxx			move.p4		 <xxxx=const(16)>,c
+34xxxxx			move.p5		 <xxxxx=const(20)>,c
+35xxxxxx		move.p6		 <xxxxxx=const(24)>,c
+36xxxxxxx		move.p7		 <xxxxxxx=const(28)>,c
+37xxxxxxxx		move.p8		 <xxxxxxxx=const(32)>,c
+38xxxxxxxxx		move.p9		 <xxxxxxxxx=const(36)>,c
+39xxxxxxxxxx		move.p10	 <xxxxxxxxxx=const(40)>,c
+3axxxxxxxxxxx		move.p11	 <xxxxxxxxxxx=const(44)>,c
+3bxxxxxxxxxxxx		move.p12	 <xxxxxxxxxxxx=const(48)>,c
+3cxxxxxxxxxxxxx		move.p13	 <xxxxxxxxxxxxx=const(52)>,c
+3dxxxxxxxxxxxxxx	move.p14	 <xxxxxxxxxxxxxx=const(56)>,c
+3exxxxxxxxxxxxxxx	move.p15	 <xxxxxxxxxxxxxxx=const(60)>,c
+3fxxxxxxxxxxxxxxxx	move.p16	 <xxxxxxxxxxxxxxxx=const(64)>,c
+
+80820x			move.p1		 <x=const(4)>,a
+80821xx			move.p2		 <xx=const(8)>,a
+80822xxx		move.p3		 <xxx=const(12)>,a
+80823xxxx		move.p4		 <xxxx=const(16)>,a
+80824xxxxx		move.p5		 <xxxxx=const(20)>,a
+80825xxxxxx		move.p6		 <xxxxxx=const(24)>,a
+80826xxxxxxx		move.p7		 <xxxxxxx=const(28)>,a
+80827xxxxxxxx		move.p8		 <xxxxxxxx=const(32)>,a
+80828xxxxxxxxx		move.p9		 <xxxxxxxxx=const(36)>,a
+80829xxxxxxxxxx		move.p10	 <xxxxxxxxxx=const(40)>,a
+8082axxxxxxxxxxx	move.p11	 <xxxxxxxxxxx=const(44)>,a
+8082bxxxxxxxxxxxx	move.p12	 <xxxxxxxxxxxx=const(48)>,a
+8082cxxxxxxxxxxxxx	move.p13	 <xxxxxxxxxxxxx=const(52)>,a
+8082dxxxxxxxxxxxxxx	move.p14	 <xxxxxxxxxxxxxx=const(56)>,a
+8082exxxxxxxxxxxxxxx	move.p15	 <xxxxxxxxxxxxxxx=const(60)>,a
+8082fxxxxxxxxxxxxxxxx	move.p16	 <xxxxxxxxxxxxxxxx=const(64)>,a
+
+; move constant to address register
+19xx				move.2		<xx=const(8)>,d0
+1axxxx				move.4		<xxxx=const(16)>,d0
+1bxxxxx				move.5		<xxxxx=const(20)>,d0
+1dxx				move.2		<xx=const(8)>,d1
+1exxxx				move.4		<xxxx=const(16)>,d1
+1fxxxxx				move.5		<xxxxx=const(20)>,d1
+
+; move constant to pointer register
+2x				move.1		<x=const(4)>,p
+2x				move		<x=const(4)>,p
+
+; move pointer register to register nibble and vice versa
+80cx				move.1		p,c,<x=const(4)>
+80dx				move.1		c,<x=const(4)>,p
+
+; move/swap register with status register
+09				move.x		st,c
+0a				move.x		c,st
+0b				swap.x		c,st
+0b				swap.x		st,c		; rev
+
+; negate
+fv				neg.a		<v=reg+8>
+brv				neg.<r=field+8>	<v=reg+8>
+
+; nop
+420				nop3
+6300				nop4
+64000				nop5
+
+; not
+fv				not.a		<v=reg+12>
+brv				not.<r=field+8>	<v=reg+12>
+
+; or
+0efy				or.a		<y=regpair8+8>
+0exy				or.<x=field>	<y=regpair8+8>
+
+; out
+800				out.s		c
+801				out.x		c
+
+; push/pop
+06				push.a		c
+07				pop.a		c
+
+; return
+01				ret
+02				retsetc
+03				retclrc
+0f				reti
+00				retsetxm
+; the "retsxm" mnemonic exists only to be compatible with a bug in 
+; Alonzo Gariepy's (unpublished) disassembler; do not use it in new
+; assembly language programs.
+00				retsxm
+
+; rotate
+81x				rln.w		<x=reg+0>
+81x				rrn.w		<x=reg+4>
+
+; set bit
+8085x				setb		<x=const(4)>,a
+8089x				setb		<x=const(4)>,c
+85x				setb		<x=const(4)>,st
+
+; set decimal/hexadecimal
+05				setdec
+04				sethex
+
+; shift
+fw				sln.a		<w=reg>
+brw				sln.<r=field+8>	<w=reg>
+fw				srn.a		<w=reg+4>
+brw				srn.<r=field+8>	<w=reg+4>
+; this could be expressed using 819rw also?
+81w				srb.w		<w=reg+12>
+819fw				srb.a		<w=reg>
+819rw				srb.<r=field>	<w=reg>
+
+; subtract
+bty				sub.<t=field>	<y=regpair8split>
+ey				sub.a		<y=regpair8split>
+bty				subn.<t=field>	<y=regpair4rev+12>
+ey				subn.a		<y=regpair4rev+12>
+
+; subtract constant from register
+818fxi				sub.a		<i=nzconst(4)>,<x=reg+8>
+818txi				sub.<t=field>	<i=nzconst(4)>,<x=reg+8>
+
+; subtract constant from address register
+18x				sub.a		<x=nzconst(4)>,d0
+1cx				sub.a		<x=nzconst(4)>,d1
+
+; swap register with pointer register
+80fx			swap.1		p,c,<x=const(4)>
+80fx			swap.1		c,p,<x=const(4)>	; rev
+
+; various metainstructions:
+
+; data.f: generate constant data
+
+x			data.1		<x=const(4)>
+xx			data.2		<xx=const(8)>
+xxx			data.3		<xxx=const(12)>
+xxxx			data.4		<xxxx=const(16)>
+xxxxx			data.5		<xxxxx=const(20)>
+xxxxxx			data.6		<xxxxxx=const(24)>
+xxxxxxx			data.7		<xxxxxxx=const(28)>
+xxxxxxxx		data.8		<xxxxxxxx=const(32)>
+xxxxxxxxx		data.9		<xxxxxxxxx=const(36)>
+xxxxxxxxxx		data.10		<xxxxxxxxxx=const(40)>
+xxxxxxxxxxx		data.11 	<xxxxxxxxxxx=const(44)>
+xxxxxxxxxxxx		data.12		<xxxxxxxxxxxx=const(48)>
+xxxxxxxxxxxxx		data.13		<xxxxxxxxxxxxx=const(52)>
+xxxxxxxxxxxxxx		data.14		<xxxxxxxxxxxxxx=const(56)>
+xxxxxxxxxxxxxxx		data.15		<xxxxxxxxxxxxxxx=const(60)>
+xxxxxxxxxxxxxxxx	data.16		<xxxxxxxxxxxxxxxx=const(64)>
+
+; synonyms with alphabetic field suffixes
+
+xx			data.b		<xx=const(8)>
+xxxxx			data.a		<xxxxx=const(20)>
+xxxxxxxxxxxxxxxx	data.w		<xxxxxxxxxxxxxxxx=const(64)>
+
+x			dat.1		<x=const(4)>
+xx			dat.2		<xx=const(8)>
+xxx			dat.3		<xxx=const(12)>
+xxxx			dat.4		<xxxx=const(16)>
+xxxxx			dat.5		<xxxxx=const(20)>
+xxxxxx			dat.6		<xxxxxx=const(24)>
+xxxxxxx			dat.7		<xxxxxxx=const(28)>
+xxxxxxxx		dat.8		<xxxxxxxx=const(32)>
+xxxxxxxxx		dat.9		<xxxxxxxxx=const(36)>
+xxxxxxxxxx		dat.10		<xxxxxxxxxx=const(40)>
+xxxxxxxxxxx		dat.11 	<xxxxxxxxxxx=const(44)>
+xxxxxxxxxxxx		dat.12		<xxxxxxxxxxxx=const(48)>
+xxxxxxxxxxxxx		dat.13		<xxxxxxxxxxxxx=const(52)>
+xxxxxxxxxxxxxx		dat.14		<xxxxxxxxxxxxxx=const(56)>
+xxxxxxxxxxxxxxx		dat.15		<xxxxxxxxxxxxxxx=const(60)>
+xxxxxxxxxxxxxxxx	dat.16		<xxxxxxxxxxxxxxxx=const(64)>
+xxxxxxxxxxxxxxxxxxxx	dat.20		<xxxxxxxxxxxxxxxxxxxx=const(80)>
+
+; synonyms with alphabetic field suffixes
+
+xx			dat.b		<xx=const(8)>
+xxxxx			dat.a		<xxxxx=const(20)>
+xxxxxxxxxxxxxxxx	dat.w		<xxxxxxxxxxxxxxxx=const(64)>
+
+}

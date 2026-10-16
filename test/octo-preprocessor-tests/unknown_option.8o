@@ -1,0 +1,10 @@
+: main
+:if UNKNOWN
+    v0 := 9
+:else
+    v0 := 1
+:end
+:unless UNKNOWN
+    v1 := 2
+:end
+return

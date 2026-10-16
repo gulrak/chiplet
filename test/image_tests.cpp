@@ -5,8 +5,7 @@
 
 #include <chiplet/imagehelper.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <../external/nothings/stb_image.h>
+#include <nothings/stb_image.h>
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"

@@ -1,0 +1,6 @@
+: main
+clear
+return
+
+:segment data
+:include "assets/payload.bin" no-labels

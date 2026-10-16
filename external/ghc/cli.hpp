@@ -256,17 +256,19 @@ private:
     {
         auto iter1 = s1.begin();
         auto iter2 = s2.begin();
-        while(iter1 != s1.end() && iter2 != s2.end()) {
-            while(iter1 != s1.end() && !std::isalnum(*iter1)) ++iter1;
-            while(iter2 != s2.end() && !std::isalnum(*iter2)) ++iter2;
-            if(iter1 != s1.end() && iter2 == s2.end() && std::tolower(*iter1) != std::tolower(*iter2)) {
+        for(;;) {
+            while(iter1 != s1.end() && !std::isalnum(static_cast<unsigned char>(*iter1))) ++iter1;
+            while(iter2 != s2.end() && !std::isalnum(static_cast<unsigned char>(*iter2))) ++iter2;
+            if(iter1 == s1.end() || iter2 == s2.end()) {
+                break;
+            }
+            if(std::tolower(static_cast<unsigned char>(*iter1))
+               != std::tolower(static_cast<unsigned char>(*iter2))) {
                 return false;
             }
-            if (iter1 != s1.end()) ++iter1;
-            if (iter2 != s2.end()) ++iter2;
+            ++iter1;
+            ++iter2;
         }
-        while (iter1 != s1.end() && !std::isalnum(*iter1)) ++iter1;
-        while (iter2 != s2.end() && !std::isalnum(*iter2)) ++iter2;
         return iter1 == s1.end() && iter2 == s2.end();
     }
     std::vector<std::string> argList;

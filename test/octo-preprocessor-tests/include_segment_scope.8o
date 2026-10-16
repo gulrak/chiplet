@@ -1,0 +1,10 @@
+: main
+v0 := 1
+return
+
+:segment data
+: parent-data
+0xaa
+
+:include "assets/segmented.8o"
+0xcc

@@ -1,73 +1,154 @@
 #!/usr/bin/env python3
+"""Compare Octo assembly fixtures with binary or diagnostic references."""
+
 from __future__ import annotations
+
 import argparse
-import filecmp
+import math
 import re
+import shutil
 import subprocess
 import sys
-from pathlib import Path
+import tempfile
 from collections.abc import Sequence
+from pathlib import Path
+
+
+EXPECTED_ERROR = re.compile(r"\((\d+):(\d+)\)\s*(.*)")
+GENERATED_ERROR = re.compile(r"^.*?:(\d+):(\d+):\s*(.*)", re.MULTILINE)
+C_OCTO_ERROR = re.compile(r"^\((\d+):(\d+)\)\s*(.*)", re.MULTILINE)
+
+
+def check_result(
+    source: Path, output: Path, result: subprocess.CompletedProcess[str],
+    backend: str = "chiplet",
+) -> str | None:
+    binary = source.with_suffix(".ch8")
+    error = source.with_suffix(".err")
+    if binary.is_file() == error.is_file():
+        return "expected exactly one .ch8 or .err reference"
+    if binary.is_file():
+        if result.returncode != 0:
+            return f"compilation failed with return code {result.returncode}"
+        if not output.is_file():
+            return "compiler returned success without creating a binary"
+        expected, actual = binary.read_bytes(), output.read_bytes()
+        if expected != actual:
+            offset = next(
+                (index for index, pair in enumerate(zip(expected, actual))
+                 if pair[0] != pair[1]),
+                min(len(expected), len(actual)),
+            )
+            return (
+                f"binary differs at offset 0x{offset:X}; "
+                f"expected {len(expected)} bytes, got {len(actual)}"
+            )
+        return None
+    if result.returncode <= 0:
+        return f"expected an error exit, got return code {result.returncode}"
+    expected = EXPECTED_ERROR.fullmatch(
+        error.read_text(encoding="utf-8").strip()
+    )
+    if expected is None:
+        return "invalid .err reference; expected '(line:column) message'"
+    pattern = GENERATED_ERROR if backend == "chiplet" else C_OCTO_ERROR
+    generated = pattern.search(result.stderr)
+    if generated is None:
+        return "compiler did not report a source-positioned assembly error"
+    if expected[1] != generated[1]:
+        return f"expected error line {expected[1]}, got {generated[1]}"
+    if expected[3] != generated[3]:
+        return (
+            f"expected diagnostic: {expected[3]}\n"
+            f"  actual diagnostic: {generated[3]}"
+        )
+    # Preserve the existing suite's tolerance of differing column conventions.
+    if expected[2] != generated[2]:
+        print(
+            f"WARNING {source.name}: expected error column {expected[2]}, "
+            f"got {generated[2]}"
+        )
+    return None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument('assembler')
-    parser.add_argument('testdir')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("assembler")
+    parser.add_argument("testdir", type=Path)
+    parser.add_argument(
+        "--backend", choices=("chiplet", "c-octo", "octo-js"),
+        default="chiplet",
+        help="compiler command and diagnostic format (default: chiplet)",
+    )
+    parser.add_argument(
+        "--js-compiler", type=Path,
+        help="Octo compiler.js path (required for --backend octo-js)",
+    )
+    parser.add_argument(
+        "--filter", default="*.8o", help="source filename glob"
+    )
+    parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args(argv)
-
-    for source_file in Path(args.testdir).absolute().glob('*.8o'):
-        print(f"Testing '{source_file.name}'")
-        result = subprocess.run([args.assembler, '-o', 'temp.ch8', '--no-line-info', source_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        break_on_error = 0
-        if source_file.with_suffix('.ch8').exists():
-            # positive test
-            if result.stderr:
-                print(f"Error while assembling '{source_file}': {result.stderr.decode('utf-8')}")
-                if break_on_error:
-                    return result.returncode
-            elif not filecmp.cmp(source_file.with_suffix('.ch8'), 'temp.ch8'):
-                print(f"Reference binary doesn't match for '{source_file}'")
-                if break_on_error:
-                    return -1
-            elif result.returncode != 0:
-                print(f"Return code not null for '{source_file}'!")
-                if break_on_error:
-                    return result.returncode
-        elif source_file.with_suffix('.err').exists():
-            # negative test
-            if not result.stderr:
-                print(f"No error output for '{source_file}'!")
-                if break_on_error:
-                    return -1
-            with source_file.with_suffix('.err').open('r') as ref_err:
-                expected_msg = ref_err.read().rstrip()
-            expected = re.match(r"\((\d+):(\d+)\) \s*(.*)", expected_msg)
-            test_msg = result.stderr.decode('utf-8').rstrip()
-            generated = re.match(r".*?:(\d+):(\d+):\s*(.*)", test_msg)
-            if not expected:
-                print(f"Couldn't parse expected output for '{source_file}!\nreference: {expected_msg}")
-                if break_on_error:
-                    return -1
-            if not generated:
-                print(f"Couldn't parse generated output for '{source_file}!\ngenerated: {test_msg}")
-                if break_on_error:
-                    return -1
-            if expected.group(1) != generated.group(1):
-                print(f"Error line differs for '{source_file}'!\nreference: {expected_msg}\ngenerated: {test_msg}")
-                if break_on_error:
-                    return -1
-            if expected.group(2) != generated.group(2):
-                print(f"Warning: Error column differs for '{source_file}'!\nreference: {expected_msg}\ngenerated: {test_msg}")
-            if expected.group(3) != generated.group(3):
-                print(f"Error message differs for '{source_file}':\n  expected: {expected.group(3)}\n  got:      {generated.group(3)}")
-                if break_on_error:
-                    return -1
-            if result.returncode == 0:
-                print(f"Returncode was 0 for '{source_file}'!")
-                #return -1
-        else:
-            print(f"no reference file found for test {source_file}!", file=sys.stderr)
-    return 0
+    if args.backend == "octo-js" and args.js_compiler is None:
+        parser.error("--backend octo-js requires --js-compiler")
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("--timeout must be a positive finite number")
+    executable = shutil.which(args.assembler) or args.assembler
+    assembler = str(Path(executable).expanduser().resolve())
+    sources = sorted(
+        source for source in args.testdir.resolve().glob(args.filter)
+        if source.is_file() and source.suffix == ".8o"
+    )
+    if not sources:
+        print("ERROR: No matching .8o fixtures found.", file=sys.stderr)
+        return 2
+    failures = 0
+    try:
+        with tempfile.TemporaryDirectory(prefix="chiplet-assembler-") as path:
+            work_dir = Path(path)
+            for index, source in enumerate(sources):
+                output = work_dir / f"{index}.ch8"
+                command = (
+                    [assembler, str(source), str(output)]
+                    if args.backend == "c-octo"
+                    else [assembler, "-q", "-o", str(output),
+                          "--no-line-info", str(source)]
+                )
+                if args.backend == "octo-js":
+                    adapter = Path(__file__).with_name("octo-js-cli.cjs")
+                    command = [assembler, str(adapter.resolve()),
+                               str(args.js_compiler.resolve()),
+                               str(source), str(output)]
+                try:
+                    result = subprocess.run(
+                        command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        errors="replace",
+                        timeout=args.timeout,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    failures += 1
+                    print(f"FAIL {source.name}: compiler timed out")
+                    continue
+                problem = check_result(source, output, result, args.backend)
+                if problem is None:
+                    print(f"PASS {source.name}")
+                else:
+                    failures += 1
+                    print(f"FAIL {source.name}: {problem}")
+                    diagnostics = (result.stdout + result.stderr).strip()
+                    if diagnostics:
+                        print(diagnostics[:2000])
+    except (OSError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    print(
+        f"{len(sources) - failures}/{len(sources)} passed, {failures} failed"
+    )
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

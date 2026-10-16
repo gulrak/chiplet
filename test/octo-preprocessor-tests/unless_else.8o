@@ -1,0 +1,8 @@
+:const DISABLED 0
+: main
+:unless DISABLED
+    v1 := 3
+:else
+    v1 := 4
+:end
+return

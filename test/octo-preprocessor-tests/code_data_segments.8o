@@ -1,0 +1,9 @@
+: main
+clear
+
+:segment data
+: bytes
+0xaa 0xbb
+
+:segment code
+return

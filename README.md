@@ -152,6 +152,66 @@ enhancements of v1.1.0 Chiplet is able to round-trip every program
 file I could find that fits in 64k memory. (I currently only know of two
 MegaChip examples that don't.)
 
+### Relocating a Program
+
+Relocate a working CHIP-8 binary from its original load address (default `0x200`)
+using the disassembler's execution path tracing:
+
+```
+chiplet --relocate 0x600 -o program-eti.hex --hex program.ch8
+chiplet --start-address 0x600 --relocate 0x200 -o program.ch8 program-eti.hex
+```
+
+Relocation requires exactly one binary or Intel HEX input file and an output
+filename supplied with `-o`. `--hex` produces Intel HEX with relocated record
+addresses; otherwise output is binary. HEX input retains its record addresses,
+so set `--start-address` to the original entry address. Sparse HEX ranges remain
+sparse in HEX output; binary output fills gaps with zero bytes and begins at the
+relocated lowest input address.
+
+Only address operands in traced instructions are changed; other bytes, including
+sprite data that resembles instructions, are preserved. Addresses below the
+lowest input address are left unchanged as interpreter/system references; higher
+addresses move with the program, including references to scratch RAM beyond its
+end. Operands that would overflow their instruction's address range cause an
+error rather than being truncated. CHIP-8 addresses, XO-CHIP `i := long`, and
+MegaChip `ldhi` operands are supported.
+
+This is a best-effort relocation of a working program, not a repair of an already
+corrupted conversion. Self-modifying code, addresses built in registers or stored
+in data, computed jump targets and native machine code may need manual changes.
+Detected computed jumps, native calls and writes to traced code produce warnings.
+
+### Repairing Emma ETI-660 HEX Files
+
+For the old Emma conversions that relocated every aligned word resembling an
+address instruction, undo that transformation in Python, then use Chiplet's
+path tracer to relocate the recovered binary:
+
+```
+python3 tools/repair-emma-hex.py broken.hex -o repaired.hex
+python3 tools/repair-emma-hex.py broken.hex -o repaired.hex --reference original.ch8
+```
+
+The output is Intel HEX at the input's first address (normally `0x600`). The
+original binary address defaults to `0x200`; `--start-address` and `--relocate`
+override these addresses. The script finds a local native Chiplet build or uses
+PATH; `--chiplet` selects an executable explicitly. It accepts contiguous HEX
+and tolerates the converter's checksum `100` bug when the correct value is `00`.
+
+Overflow in the faulty converter discarded a hex digit, which cannot be
+recovered from the damaged word alone. Without a reference, the script warns
+and guesses zero (`--lost-nibble` changes that guess). `--tail byte` or
+`--tail word` resolves an ambiguous expanded final byte; automatic mode only
+folds the unambiguous `0400` case. A `--reference` binary resolves both forms of
+information loss, and is accepted only if the faulty converter reproduces the
+complete input payload from it. Originals are preserved; a failed Chiplet run
+also preserves any existing output file.
+
+The [comparison results](tools/repair-emma-hex-results.txt) record the trial
+against the existing ETI repair copies, with per-file details in the adjacent
+CSV. These are byte comparisons, not full gameplay checks.
+
 ### Analyzing a Binary or a Directory
 
 Analyzing a single binary or a directory of binaries, suppressing unneeded output:
