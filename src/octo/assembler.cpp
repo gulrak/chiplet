@@ -107,7 +107,7 @@ inline void pushLiteral(std::vector<MonitorField>& out,
     }
 }
 
-static constexpr uint8_t toUint8JS(double x) {
+static uint8_t toUint8JS(double x) {
     if (!std::isfinite(x) || x == 0.0)
         return 0;
     double narrowed = std::fmod(std::trunc(x), 256.0);
@@ -116,7 +116,7 @@ static constexpr uint8_t toUint8JS(double x) {
     return static_cast<uint8_t>(narrowed);
 }
 
-static constexpr int32_t toInt32JS(double x) noexcept
+static int32_t toInt32JS(double x) noexcept
 {
     if (!std::isfinite(x) || x == 0.0)
         return 0;
@@ -133,7 +133,7 @@ static constexpr int32_t toInt32JS(double x) noexcept
     return static_cast<int32_t>(narrowed);
 }
 
-[[nodiscard]] constexpr bool isTruthy(double val) noexcept
+[[nodiscard]] bool isTruthy(double val) noexcept
 {
     // NaN is never equal to itself in IEEE 754; +0.0 == -0.0 in C++
     return !std::isnan(val) && (val != 0.0);
