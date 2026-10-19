@@ -182,6 +182,28 @@ std::string fileOrPath(const std::string& file)
     return fullPath ? file : fs::path(file).filename().string();
 }
 
+// Scan output hint for programs no single variant supports, and for opcodes no variant knows
+std::string variantHint(const emu::Chip8Decompiler& dec, const emu::chip8::VariantSet& preferred)
+{
+    std::string hint;
+    if(dec.possibleVariants().is_empty()) {
+        auto cover = dec.variantCover(preferred);
+        if(cover.is_empty())
+            hint = ", doesn't seem to be supported by any know variant";
+        else {
+            hint = ", needs a combination of ";
+            bool first = true;
+            for(auto variant : cover) {
+                hint += (first ? "" : ", ") + emu::Chip8Decompiler::chipVariantName(variant).first;
+                first = false;
+            }
+        }
+    }
+    if(dec.unknownOpcodes())
+        hint += fmt::format(", {} unknown opcode{}", dec.unknownOpcodes(), dec.unknownOpcodes() == 1 ? "" : "s");
+    return hint;
+}
+
 void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>& data)
 {
     if(data.empty())
@@ -247,17 +269,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
         case eANALYSE:
             std::cout << "    " << fileOrPath(file);
             dec.decompile(file, startAddress, &std::cout, true);
-            if(!dec.possibleVariants().is_empty()) {
-                bool first = true;
-                for (auto variant : dec.possibleVariants()) {
-                    //std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(variant).first;
-                    first = false;
-                }
-                std::cout << std::endl;
-            }
-            else {
-                std::cout << ", doesn't seem to be supported by any know variant." << std::endl;
-            }
+            std::cout << variantHint(dec, allowedVariants) << std::endl;
             if(dec.usesOddPcAddress())
                 std::cout << "    Uses odd PC access." << std::endl;
             break;
@@ -317,7 +329,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
             else {
                 if(isChipRom(fs::path(file).extension().string())) {
                     std::cout << "    " << fileOrPath(file);
-                    std::cout << ", doesn't seem to be supported by any know variant." << std::endl;
+                    std::cout << variantHint(dec, allowedVariants) << std::endl;
                     extensionsUndetected.emplace(fs::path(file).extension().string());
                 }
             }

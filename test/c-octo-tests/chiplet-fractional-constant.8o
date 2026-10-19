@@ -1,0 +1,7 @@
+:calc FRACTION { 1.5 }
+:const COPY FRACTION
+: main
+:byte { COPY * 10 }
+:byte COPY
+v0 := COPY
+return

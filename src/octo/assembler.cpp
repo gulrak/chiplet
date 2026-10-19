@@ -64,21 +64,25 @@
 
 #include "assembler.hpp"
 
+#include <ghc/filesystem.hpp>
+
 #include <iostream>
 #include <ostream>
+
+namespace fs = ghc::filesystem;
 
 namespace octo
 {
 
 namespace detail {
 
-inline MonitorField::Type typeFromLen(unsigned len) {
+inline MonitorField::Type typeFromLen(std::size_t len) {
     switch (len) {
         case 1: return MonitorField::UINT8;
         case 2: return MonitorField::UINT16;
         case 3: return MonitorField::UINT24;
         case 4: return MonitorField::UINT32;
-        default: throw std::invalid_argument("format directive length must be 1..4 bytes");
+        default: return MonitorField::BYTES;
     }
 }
 
@@ -96,7 +100,7 @@ inline void pushLiteral(std::vector<MonitorField>& out,
                          std::string_view fmt,
                          std::size_t begin,
                          std::size_t end,
-                         uint8_t offset) {
+                         std::size_t offset) {
     if (end > begin) {
         out.push_back(MonitorField{
           .type   = MonitorField::STRING,
@@ -137,6 +141,45 @@ static int32_t toInt32JS(double x) noexcept
 {
     // NaN is never equal to itself in IEEE 754; +0.0 == -0.0 in C++
     return !std::isnan(val) && (val != 0.0);
+}
+
+std::u16string toUtf16(std::string_view text)
+{
+    std::u16string units;
+    std::size_t chunkBegin = 0;
+    std::size_t validEnd = 0;
+    unsigned state = fs::detail::S_STRT;
+    uint32_t codePoint = 0;
+    for (std::size_t index = 0; index < text.size();) {
+        const auto previousState = state;
+        state = fs::detail::consumeUtf8Fragment(state, static_cast<uint8_t>(text[index]), codePoint);
+        if (state == fs::detail::S_RJCT) {
+            units += fs::detail::fromUtf8<std::u16string>(text.substr(chunkBegin, validEnd - chunkBegin));
+            units.push_back(0xFFFD);
+            state = fs::detail::S_STRT;
+            // Node retries the rejecting byte after an incomplete sequence;
+            // ghc's default recovery would consume it along with the prefix.
+            if (previousState == fs::detail::S_STRT)
+                ++index;
+            chunkBegin = validEnd = index;
+        }
+        else {
+            ++index;
+            if (state == fs::detail::S_STRT)
+                validEnd = index;
+        }
+    }
+    units += fs::detail::fromUtf8<std::u16string>(text.substr(chunkBegin, validEnd - chunkBegin));
+    if (state != fs::detail::S_STRT)
+        units.push_back(0xFFFD);
+    return units;
+}
+
+std::string utf8Unit(char16_t unit)
+{
+    std::string text;
+    fs::detail::appendUTF8(text, fs::detail::is_surrogate(unit) ? 0xFFFD : unit);
+    return text;
 }
 
 } // namespace detail
@@ -235,14 +278,14 @@ void Assembler::eat()
 
 bool Assembler::isReserved(std::string_view name)
 {
-    return isKnownToken(name);
+    return name != "exit" && isKnownToken(name);
 }
 
 bool Assembler::check_name(std::string_view name, const char* kind)
 {
     if (_isError)
         return false;
-    if (strncmp("OCTO_", name.data(), 5) == 0 || isReserved(name)) {
+    if (name.starts_with("OCTO_") || isReserved(name)) {
         _isError = 1, _error = fmt::format("The name '{}' is reserved and cannot be used for a {}.", name, kind);
         return false;
     }
@@ -258,7 +301,7 @@ std::string_view Assembler::string()
         _isError = 1, _error = fmt::format("Expected a string, got {}.", (int)stringToken.numValue);
         return "";
     }
-    return stringToken.strValue;
+    return safeStringStringView(stringToken.strValue);
 }
 
 std::string_view Assembler::identifier(const char* kind)
@@ -272,7 +315,7 @@ std::string_view Assembler::identifier(const char* kind)
     }
     if (!check_name(stringToken.strValue, kind))
         return "";
-    return stringToken.strValue;
+    return safeStringStringView(stringToken.strValue);
 }
 
 void Assembler::expect(std::string_view name)
@@ -318,7 +361,7 @@ int Assembler::registerOrAlias()
     return isdigit(c) ? c - '0' : 10 + (c - 'a');
 }
 
-int Assembler::valueRange(int n, int mask)
+int Assembler::valueRange(double n, int mask)
 {
     if (mask == 0xF && (n < 0 || n > mask))
         _isError = 1, _error = fmt::format("Argument {} does not fit in 4 bits- must be in range [0,15].", n);
@@ -330,7 +373,20 @@ int Assembler::valueRange(int n, int mask)
         _isError = 1, _error = fmt::format("Argument {} does not fit in 16 bits.", n);
     if (mask == 0xFFFFFF && (n < 0 || n > mask))
         _isError = 1, _error = fmt::format("Argument {} does not fit in 24 bits.", n);
-    return n & mask;
+    return detail::toInt32JS(n) & mask;
+}
+
+int Assembler::checkedAddress(double value, int bits)
+{
+    if (_isError)
+        return 0;
+    const int maximum = (1 << bits) - 1;
+    if (!std::isfinite(value) || value < 0 || value > maximum) {
+        _isError = 1;
+        _error = fmt::format("Argument {} does not fit in {} bits.", value, bits);
+        return 0;
+    }
+    return static_cast<int>(value);
 }
 
 void Assembler::valueFail(const std::string_view& w, const std::string_view& n, bool undef)
@@ -351,12 +407,17 @@ int Assembler::value4bit()
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.numValue, 0xF);
+        return valueRange(t.numValue, 0xF);
     }
     auto& n = t.strValue;
+    valueFail("a 4-bit", n, false);
+    if (_isError)
+        return 0;
     auto iter = constants.find(n);
     if (iter != constants.end())
-        return valueRange((int)iter->second.value, 0xF);
+        return valueRange(iter->second.value, 0xF);
+    if (const auto label = _programLabels.find(n); label != _programLabels.end())
+        return valueRange(label->second, 0xF);
     return valueFail("a 4-bit", n, true), 0;
 }
 
@@ -366,12 +427,17 @@ int Assembler::value8bit()
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.numValue, 0xFF);
+        return valueRange(t.numValue, 0xFF);
     }
     auto& n = t.strValue;
-    auto iter = constants.find(t.strValue);
+    valueFail("an 8-bit", n, false);
+    if (_isError)
+        return 0;
+    auto iter = constants.find(n);
     if (iter != constants.end())
-        return valueRange((int)iter->second.value, 0xFF);
+        return valueRange(iter->second.value, 0xFF);
+    if (const auto label = _programLabels.find(n); label != _programLabels.end())
+        return valueRange(label->second, 0xFF);
     return valueFail("an 8-bit", t.strValue, true), 0;
 }
 
@@ -381,16 +447,18 @@ int Assembler::value12bit()
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.numValue, 0xFFF);
+        return valueRange(t.numValue, 0xFFF);
     }
     auto& n = t.strValue;
-    int proto_line = t.line, proto_pos = t.pos;
-    auto iter = constants.find(n);
-    if (iter != constants.end())
-        return valueRange((int)iter->second.value, 0xFFF);
     valueFail("a 12-bit", n, false);
     if (_isError)
         return 0;
+    int proto_line = t.line, proto_pos = t.pos;
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return valueRange(iter->second.value, 0xFFF);
+    if (const auto label = _programLabels.find(n); label != _programLabels.end())
+        return valueRange(label->second, 0xFFF);
     if (!check_name(n, "label"))
         return 0;
     addProtoRef(n, proto_line, proto_pos, here, 12);
@@ -403,16 +471,18 @@ int Assembler::value16bit(int can_forward_ref, int offset)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.numValue, 0xFFFF);
+        return valueRange(t.numValue, 0xFFFF);
     }
     auto& n = t.strValue;
-    int proto_line = t.line, proto_pos = t.pos;
-    auto iter = constants.find(n);
-    if (iter != constants.end())
-        return valueRange((int)iter->second.value, 0xFFFF);
     valueFail("a 16-bit", n, false);
     if (_isError)
         return 0;
+    int proto_line = t.line, proto_pos = t.pos;
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return valueRange(iter->second.value, 0xFFFF);
+    if (const auto label = _programLabels.find(n); label != _programLabels.end())
+        return valueRange(label->second, 0xFFFF);
     if (!check_name(n, "label"))
         return 0;
     if (!can_forward_ref) {
@@ -429,16 +499,18 @@ int Assembler::value24bit(int can_forward_ref, int offset)
         return 0;
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
-        return valueRange((int)t.numValue, 0xFFFFFF);
+        return checkedAddress(t.numValue, 24);
     }
     auto& n = t.strValue;
-    int proto_line = t.line, proto_pos = t.pos;
-    auto iter = constants.find(n);
-    if (iter != constants.end())
-        return valueRange((int)iter->second.value, 0xFFFFFF);
     valueFail("a 24-bit", n, false);
     if (_isError)
         return 0;
+    int proto_line = t.line, proto_pos = t.pos;
+    auto iter = constants.find(n);
+    if (iter != constants.end())
+        return checkedAddress(iter->second.value, 24);
+    if (const auto label = _programLabels.find(n); label != _programLabels.end())
+        return checkedAddress(label->second, 24);
     if (!check_name(n, "label"))
         return 0;
     if (!can_forward_ref) {
@@ -451,6 +523,7 @@ int Assembler::value24bit(int can_forward_ref, int offset)
 
 void Assembler::addProtoRef(std::string_view name, int line, int pos, int where, int8_t size)
 {
+    name = safeStringStringView(name);
     auto iter = protos.find(name);
     if (iter == protos.end()) {
         iter = protos.emplace(name, Prototype{line, pos}).first;
@@ -460,19 +533,28 @@ void Assembler::addProtoRef(std::string_view name, int line, int pos, int where,
 
 Constant Assembler::valueConstant()
 {
-    auto t = next();
+    const auto token = next();
     if (_isError)
         return {0, false};
-    if (t.type == Token::Type::NUMBER) {
-        return {static_cast<double>((int)t.numValue), false};
+    if (token.type == Token::Type::NUMBER)
+        return {token.numValue, false};
+    const auto name = token.strValue;
+    if (protos.contains(name)) {
+        _isError = 1;
+        _error = fmt::format("A constant reference to '{}' may not be forward-declared.", name);
     }
-    auto& n = t.strValue;
-    auto iter = constants.find(n);
-    if (iter != constants.end())
-        return {iter->second.value, false};
-    if (protos.count(n))
-        _isError = 1, _error = fmt::format("A constant reference to '{}' may not be forward-declared.", n);
-    valueFail("a constant", n, true);
+    else if (isReserved(name)) {
+        _isError = 1;
+        _error = fmt::format("Expected a constant name, but found the keyword '{}'. Missing a token?", name);
+    }
+    else if (const auto label = _programLabels.find(name); label != _programLabels.end())
+        return {static_cast<double>(label->second), false};
+    else if (const auto constant = constants.find(name); constant != constants.end())
+        return {constant->second.value, false};
+    else {
+        _isError = 1;
+        _error = fmt::format("Undefined constant name '{}'.", name);
+    }
     return {0, false};
 }
 
@@ -510,27 +592,30 @@ void Assembler::macroBody(const std::string_view& desc, const std::string_view& 
 double Assembler::calcTerminal(std::string_view name)
 {
     // NUMBER | CONSTANT | LABEL | VREGISTER | '(' expression ')'
-    if (peekIsRegister())
-        return registerOrAlias();
     if (match("PI"))
         return 3.141592653589793;
     if (match("E"))
         return 2.718281828459045;
     if (match("HERE"))
         return here;
+    if (peekIsRegister())
+        return registerOrAlias();
     auto t = next();
     if (t.type == Token::Type::NUMBER) {
         double r = t.numValue;
         return r;
     }
     auto& n = t.strValue;
+    if (auto number = parseCalculatedNumber(n); number && !std::isnan(*number))
+        return *number;
+    if (const auto iter = constants.find(n); iter != constants.end())
+        return iter->second.value;
+    if (const auto label = _programLabels.find(n); label != _programLabels.end())
+        return label->second;
     if (protos.count(n)) {
         _isError = 1, _error = fmt::format("Cannot use forward declaration '{}' when calculating constant '{}'.", n, name);
         return 0;
     }
-    auto iter = constants.find(n);
-    if (iter != constants.end())
-        return iter->second.value;
     if (n != "(") {
         _isError = 1, _error = fmt::format("Found undefined name '{}' when calculating constant '{}'.", n, name);
         return 0;
@@ -544,13 +629,13 @@ double Assembler::calcExpr(std::string_view name)
 {
     // UNARY expression
     if (match("strlen"))
-        return (double)string().length();
+        return static_cast<double>(detail::toUtf16(string()).size());
     if (match("-"))
         return -calcExpr(name);
     if (match("~"))
         return ~detail::toInt32JS(calcExpr(name));
     if (match("!"))
-        return !detail::toInt32JS(calcExpr(name));
+        return !detail::isTruthy(calcExpr(name));
     if (match("sin"))
         return sin(calcExpr(name));
     if (match("cos"))
@@ -587,17 +672,22 @@ double Assembler::calcExpr(std::string_view name)
     if (match("/"))
         return r / calcExpr(name);
     if (match("%"))
-        return ((int)r) % (detail::toInt32JS(calcExpr(name)));
+        return std::fmod(r, calcExpr(name));
     if (match("&"))
-        return ((int)r) & (detail::toInt32JS(calcExpr(name)));
+        return detail::toInt32JS(r) & detail::toInt32JS(calcExpr(name));
     if (match("|"))
-        return ((int)r) | (detail::toInt32JS(calcExpr(name)));
+        return detail::toInt32JS(r) | detail::toInt32JS(calcExpr(name));
     if (match("^"))
-        return ((int)r) ^ (detail::toInt32JS(calcExpr(name)));
-    if (match("<<"))
-        return ((int)r) << (detail::toInt32JS(calcExpr(name)));
-    if (match(">>"))
-        return ((int)r) >> (detail::toInt32JS(calcExpr(name)));
+        return detail::toInt32JS(r) ^ detail::toInt32JS(calcExpr(name));
+    if (match("<<")) {
+        const auto count = static_cast<uint32_t>(detail::toInt32JS(calcExpr(name))) & 31;
+        const auto bits = static_cast<uint32_t>(detail::toInt32JS(r)) << count;
+        return detail::toInt32JS(static_cast<double>(bits));
+    }
+    if (match(">>")) {
+        const auto count = static_cast<uint32_t>(detail::toInt32JS(calcExpr(name))) & 31;
+        return detail::toInt32JS(r) >> count;
+    }
     if (match("pow"))
         return pow(r, calcExpr(name));
     if (match("min"))
@@ -636,12 +726,12 @@ void Assembler::append(uint8_t byte)
 {
     if (_isError)
         return;
-    if (here >= RAM_MAX) {
+    if (here < 0 || here >= RAM_MAX) {
         _isError = 1;
         _error = "Supported ROM space is full (16MB).";
         return;
     }
-    if (here >= rom.size()) {
+    while (here >= rom.size()) {
         if (rom.size() < 1024 * 1024) {
             rom.resize(1024 * 1024, 0);
             used.resize(1024 * 1024, 0);
@@ -676,11 +766,17 @@ void Assembler::instruction(uint8_t a, uint8_t b)
 
 void Assembler::immediate(uint8_t op, int nnn)
 {
+    nnn = valueRange(nnn, 0xFFF);
+    if (_isError)
+        return;
     instruction(op | ((nnn >> 8) & 0xF), (nnn & 0xFF));
 }
 
 void Assembler::jump(int addr, int dest)
 {
+    if (_isError)
+        return;
+    dest = valueRange(dest, 0xFFF);
     if (_isError)
         return;
     rom[addr] = (0x10 | ((dest >> 8) & 0xF)), used[addr] = 1;
@@ -747,7 +843,7 @@ void Assembler::resolveLabel(int offset)
     auto n = identifier("label");
     if (_isError)
         return;
-    if (constants.count(n)) {
+    if (_programLabels.count(n)) {
         _isError = 1, _error = fmt::format("The name '{}' has already been defined.", n);
         return;
     }
@@ -760,7 +856,6 @@ void Assembler::resolveLabel(int offset)
         rom[startAddress] = 0, used[startAddress] = 0;
         rom[startAddress + 1] = 0, used[startAddress + 1] = 0;
     }
-    constants.insert_or_assign(n, Constant{static_cast<double>(target), false});
     _programLabels.insert_or_assign(n, target);
     auto iter = protos.find(n);
     if (iter == protos.end())
@@ -1216,70 +1311,113 @@ void Assembler::compile_statement()
 
 // Parses directives of the form: %<len?>[bixc]
 // - len omitted => 1
-// - len must be 1..4
-// - 'c' must have len == 1 (7-bit ASCII char stored in one byte)
-// Returns a sequence of literal and directive fields.
-// NOTE: Returned string_views reference `fmt`; keep it alive.
-inline std::vector<MonitorField> parseMonitorFormat(std::string_view fmt) {
-  std::vector<MonitorField> out;
-  std::size_t litBegin = 0;
-
-  unsigned offset = 0; // will be range-checked to uint8_t at each push
-
-  auto checkedOffset = [&]() -> uint8_t {
-    if (offset > std::numeric_limits<uint8_t>::max())
-      throw std::invalid_argument("total directive byte offset exceeds 255");
-    return static_cast<uint8_t>(offset);
-  };
-
-  for (std::size_t i = 0; i < fmt.size(); ++i) {
-    if (fmt[i] != '%') continue;
-
-    // Flush preceding literal text [lit_begin, i)
-    detail::pushLiteral(out, fmt, litBegin, i, checkedOffset());
-
-    // Parse directive starting at i
-    std::size_t j = i + 1;
-    if (j >= fmt.size())
-      throw std::invalid_argument("dangling '%' at end of format string");
-
-    unsigned len = 0;
-    while (j < fmt.size() && std::isdigit(static_cast<unsigned char>(fmt[j]))) {
-      len = len * 10u + static_cast<unsigned>(fmt[j] - '0');
-      if (len > 999u) break; // arbitrary guard; we validate 1..4 below anyway
-      ++j;
+// - positive lengths can span multiple characters or more than four bytes
+// Field text references the assembler's interned format string.
+inline std::vector<MonitorField> parseMonitorFormat(std::string_view format)
+{
+    std::vector<MonitorField> fields;
+    std::size_t literalBegin = 0;
+    std::size_t offset = 0;
+    for (std::size_t index = 0; index < format.size(); ++index) {
+        if (format[index] != '%')
+            continue;
+        detail::pushLiteral(fields, format, literalBegin, index, offset);
+        const auto countBegin = index + 1;
+        auto specIndex = countBegin;
+        std::size_t length = 0;
+        while (specIndex < format.size() && format[specIndex] >= '0' && format[specIndex] <= '9') {
+            const auto digit = static_cast<unsigned>(format[specIndex++] - '0');
+            if (length > (std::numeric_limits<std::size_t>::max() - digit) / 10)
+                throw std::invalid_argument("format byte count is too large.");
+            length = length * 10 + digit;
+        }
+        const auto spec = specIndex < format.size() ? format[specIndex] : '\0';
+        if (spec != 'c' && spec != 'i' && spec != 'b' && spec != 'x') {
+            const auto character = countBegin < format.size()
+                ? std::string(1, format[countBegin]) : std::string("undefined");
+            throw std::invalid_argument(fmt::format(
+                "Unknown format character %{}- should be %Nc,%Ni,%Nb, or %Nx.", character));
+        }
+        if (specIndex == countBegin)
+            length = 1;
+        else if (format.substr(countBegin, specIndex - countBegin) == "0")
+            throw std::invalid_argument("format byte count cannot be 0.");
+        fields.push_back(MonitorField{
+            .type = detail::typeFromLen(length),
+            .base = detail::baseFromSpec(spec),
+            .offset = offset,
+            .text = format.substr(index, specIndex + 1 - index),
+            .length = length,
+        });
+        if (offset > std::numeric_limits<std::size_t>::max() - length)
+            throw std::invalid_argument("format byte offset is too large.");
+        offset += length;
+        index = specIndex;
+        literalBegin = index + 1;
     }
-    if (len == 0) len = 1; // optional length omitted => 1
+    detail::pushLiteral(fields, format, literalBegin, format.size(), offset);
+    return fields;
+}
 
-    if (j >= fmt.size())
-      throw std::invalid_argument("format directive missing type specifier after length");
-
-    const char spec = fmt[j];
-    (void)detail::baseFromSpec(spec); // validates spec
-
-    if (spec == 'c' && len != 1)
-      throw std::invalid_argument("'%c' must have length 1 (a single 7-bit ASCII byte)");
-
-    const auto type = detail::typeFromLen(len);
-    const auto base = detail::baseFromSpec(spec);
-
-    out.push_back(MonitorField{
-      .type   = type,
-      .base   = base,
-      .offset = checkedOffset(),
-      .text   = fmt.substr(i, (j + 1) - i), // store the directive slice, e.g. "%2x"
-    });
-
-    offset += len;
-
-    // Continue after this directive
-    i = j;
-    litBegin = i + 1;
-  }
-
-  // Trailing literal
-  detail::pushLiteral(out, fmt, litBegin, fmt.size(), checkedOffset());
-  return out;
+bool Assembler::expandMacroOrStringMode()
+{
+    const auto token = peek();
+    if (_isError || !token.isText())
+        return false;
+    const auto name = token.strValue;
+    if (auto iter = macros.find(name); iter != macros.end()) {
+        next();
+        auto& macro = iter->second;
+        std::unordered_map<std::string_view, Token> bindings;
+        bindings.emplace("CALLS", Token(macro.calls++));
+        for (const auto argument : macro.args) {
+            if (is_end()) {
+                _isError = 1;
+                _errorLine = _sourceLine;
+                _errorPos = _sourcePos;
+                _error = fmt::format("Not enough arguments for expansion of macro '{}'.", name);
+                return true;
+            }
+            bindings.insert_or_assign(argument, next());
+        }
+        std::size_t insertion = 0;
+        for (const auto& bodyToken : macro.body) {
+            const auto binding = bodyToken.isText() ? bindings.find(bodyToken.strValue) : bindings.end();
+            tokens.insert(tokens.begin() + insertion++, binding != bindings.end() ? binding->second : bodyToken);
+        }
+        return true;
+    }
+    if (auto iter = stringModes.find(name); iter != stringModes.end()) {
+        next();
+        auto& mode = iter->second;
+        const auto textToken = peek();
+        const auto text = detail::toUtf16(string());
+        if (_isError)
+            return true;
+        std::size_t insertion = 0;
+        for (std::size_t index = 0; index < text.size(); ++index) {
+            const auto character = text[index];
+            const auto macro = mode.modes.find(character);
+            if (macro == mode.modes.end()) {
+                _isError = 1;
+                _errorLine = textToken.line;
+                _errorPos = textToken.pos + static_cast<int>(index) + 1;
+                _error = fmt::format("String mode '{}' is not defined for the character '{}'.", name, detail::utf8Unit(character));
+                return true;
+            }
+            std::unordered_map<std::string_view, Token> bindings;
+            bindings.emplace("CALLS", Token(mode.calls++));
+            bindings.emplace("CHAR", Token(static_cast<int>(character)));
+            bindings.emplace("INDEX", Token(static_cast<int>(index)));
+            bindings.emplace("VALUE", Token(mode.values.at(character)));
+            for (const auto& bodyToken : macro->second.body) {
+                const auto binding = bodyToken.isText() ? bindings.find(bodyToken.strValue) : bindings.end();
+                tokens.insert(tokens.begin() + insertion++, binding != bindings.end() ? binding->second : bodyToken);
+            }
+        }
+        return true;
+    }
+    return false;
 }
 
 void Assembler::compileStatement()
@@ -1290,8 +1428,14 @@ void Assembler::compileStatement()
         compileNativeBlock(next());
         return;
     }
-    int peek_line = peek().line, peek_pos = peek().pos;
-    if (peekIsRegister()) {
+    if (expandMacroOrStringMode())
+        return;
+    const auto statement = peek();
+    const auto statementId = statement.isText() ? tokenIdForText(statement.strValue) : statement.tid;
+    int peek_line = statement.line, peek_pos = statement.pos;
+    _errorLine = statement.line;
+    _errorPos = statement.pos;
+    if (statementId == TokenId::TOK_UNKNOWN && peekIsRegister()) {
         int r = registerOrAlias();
         if (match(":=")) {
             if (peekIsRegister())
@@ -1340,7 +1484,7 @@ void Assembler::compileStatement()
             fetchToken();
         if (is_end() || _isError)
             return;
-        switch (tokens.front().tid) {
+        switch (statementId) {
             case TokenId::COLON:
                 eat();
                 resolveLabel(0);
@@ -1371,29 +1515,28 @@ void Assembler::compileStatement()
                 break;
             case TokenId::MONITOR: {
                 eat();
-                auto n = peek().formatValue();
-                int type, base, len;
-                std::string format;
-                if (peekIsRegister()) {
-                    type = 0;  // register monitor
-                    base = registerOrAlias();
-                    if (peek().type == Token::Type::NUMBER)
-                        len = value4bit();
-                    else
-                        len = -1, format = string();
+                const auto nameToken = peek();
+                const auto name = safeStringStringView(nameToken.isText() ? nameToken.strValue : nameToken.formatValue());
+                const bool registerMonitor = peekIsRegister();
+                const auto base = registerMonitor ? registerOrAlias() : value16bit(0, 0);
+                const auto formatToken = peek();
+                const bool hasFormat = formatToken.isText() && formatToken.strValue.find('%') != std::string_view::npos;
+                const auto length = hasFormat ? -1 : registerMonitor ? value4bit() : value16bit(0, 0);
+                std::vector<MonitorField> fields;
+                if (hasFormat && !_isError) {
+                    const auto format = string();
+                    try {
+                        fields = parseMonitorFormat(format);
+                    }
+                    catch (const std::invalid_argument& error) {
+                        _isError = 1;
+                        _errorLine = formatToken.line;
+                        _errorPos = formatToken.pos;
+                        _error = error.what();
+                    }
                 }
-                else {
-                    type = 1;  // memory monitor
-                    base = value16bit(0, 0);
-                    if (peek().type == Token::Type::NUMBER)
-                        len = value16bit(0, 0);
-                    else
-                        len = -1, format = string();
-                }
-                if (!n.empty() && n.back() == '\'')
-                    n.pop_back();
-                auto nn = safeStringStringView(!n.empty() && n.front() == '\'' ? std::string_view(n).substr(1) : std::string_view(n));
-                monitors.insert_or_assign(nn, Monitor{type, base, len, parseMonitorFormat(safeStringStringView(format))});
+                if (!_isError)
+                    monitors.insert_or_assign(name, Monitor{registerMonitor ? 0 : 1, base, length, std::move(fields)});
                 break;
             }
             case TokenId::ASSERT: {
@@ -1415,7 +1558,7 @@ void Assembler::compileStatement()
             case TokenId::ALIAS: {
                 eat();
                 auto n = identifier("alias");
-                if (constants.count(n)) {
+                if (_programLabels.count(n)) {
                     _isError = 1, _error = fmt::format("The name '{}' is already used by a constant.", n);
                     return;
                 }
@@ -1436,52 +1579,60 @@ void Assembler::compileStatement()
             case TokenId::POINTER:
             case TokenId::POINTER16: {
                 eat();
-                int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value16bit(1, 0);
+                int a = peek_match("{", 0) ? detail::toInt32JS(calculated("ANONYMOUS")) : value16bit(1, 0);
                 instruction(a >> 8, a);
                 break;
             }
             case TokenId::POINTER24: {
                 eat();
-                int a = peek_match("{", 0) ? (int)calculated("ANONYMOUS") : (int)value24bit(1, 0);
+                int a;
+                if (peek_match("{", 0)) {
+                    const auto valuePos = _sourcePos;
+                    const auto value = calculated("ANONYMOUS");
+                    if (_isError)
+                        return;
+                    _errorPos = valuePos;
+                    a = checkedAddress(value, 24);
+                }
+                else
+                    a = value24bit(1, 0);
                 append(a >> 16);
                 instruction(a >> 8, a);
                 break;
             }
             case TokenId::ORG: {
                 eat();
-                int32_t new_address;
+                int newAddress;
                 if (peek_match("{", 0)) {
-                    auto pos = _sourcePos;
-                    new_address = detail::toInt32JS(calculated("ANONYMOUS"));
-                    if (new_address < 0) {
+                    const auto valuePos = _sourcePos;
+                    const auto value = calculated("ANONYMOUS");
+                    if (_isError)
+                        return;
+                    _errorPos = valuePos;
+                    if (value < 0) {
                         _isError = 1;
-                        _errorPos = pos;
                         _error = "Argument to :org is negative.";
                         return;
                     }
+                    newAddress = checkedAddress(value, 24);
                 }
                 else {
-                    new_address = value16bit(0, 0);
+                    newAddress = checkedAddress(valueConstant().value, 24);
                 }
-                if (new_address < here && used[new_address] && new_address != 0x200) {
+                if (_isError)
+                    return;
+                if (newAddress < here && newAddress < used.size() && used[newAddress] && newAddress != 0x200) {
                     _isError = 1;
-                    _error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - new_address, here);
+                    _error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - newAddress, here);
                 }
-                here = new_address;
+                here = newAddress;
                 break;
             }
             case TokenId::CALL: {
                 eat();
                 if (peek_match("{", 0)) {
-                    auto pos = _sourcePos;
-                    auto label = detail::toInt32JS(calculated("ANONYMOUS"));
-                    if (label < 0 || label > 0xFFF) {
-                        _isError = 1;
-                        _errorPos = pos;
-                        _error = fmt::format("Argument 4096 does not fit in 12 bits.", here);
-                        return;
-                    }
-                    immediate(0x20, label);
+                    const auto label = detail::toInt32JS(calculated("ANONYMOUS"));
+                    immediate(0x20, label & 0xFFF);
                 }
                 else {
                     immediate(0x20, value12bit());
@@ -1491,11 +1642,6 @@ void Assembler::compileStatement()
             case TokenId::CONST_DIRECTIVE: {
                 eat();
                 auto n = identifier("constant");
-                if (aliases.contains(n)) {
-                    _isError = 1;
-                    _error = fmt::format("The name '{}' is already used by an alias.", n);
-                    return;
-                }
                 if (constants.contains(n)) {
                     _isError = 1;
                     _error = fmt::format("The name '{}' has already been defined.", n);
@@ -1576,8 +1722,8 @@ void Assembler::compileStatement()
             case TokenId::PLANE: {
                 eat();
                 int n = value4bit();
-                if (n > 15)
-                    _isError = 1, _error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
+                if (n > 3)
+                    _isError = 1, _error = fmt::format("The plane bitmask must be [0,3], was {}.", n);
                 instruction(0xF0 | n, 0x01);
                 break;
             }
@@ -1655,6 +1801,11 @@ void Assembler::compileStatement()
                     _error = "This 'else' does not have a matching 'begin'.";
                     return;
                 }
+                if (std::string_view{branches.top().type} == "else") {
+                    _isError = 1;
+                    _error = "This 'if' already has an 'else' branch.";
+                    return;
+                }
                 jump(branches.top().addr, here + 2);
                 branches.pop();
                 branches.push({here, peek_line, peek_pos, "else"});
@@ -1730,21 +1881,21 @@ void Assembler::compileStatement()
                 if (_isError)
                     return;
                 auto& s = stringModes.try_emplace(n, StringMode()).first->second;
-                int alpha_base = _sourcePos, alpha_quote = peekChar() == '"';
-                auto alphabet = string();
-                Macro m;  // every stringmode needs its own copy of this
-                macroBody("string mode", n, m);
-                for (int z = 0; z < alphabet.length(); z++) {
-                    int c = 0xFF & alphabet[z];
-                    if (s.modes[c]) {
-                        _errorPos = alpha_base + z + (alpha_quote ? 1 : 0);
-                        _isError = 1, _error = fmt::format("String mode '{}' is already defined for the character '{:c}'.", n, c);
+                const auto alphabetToken = peek();
+                const auto alphabet = detail::toUtf16(string());
+                Macro macro;
+                macroBody("string mode", n, macro);
+                for (std::size_t index = 0; index < alphabet.size() && !_isError; ++index) {
+                    const auto character = alphabet[index];
+                    if (s.modes.contains(character)) {
+                        _errorLine = alphabetToken.line;
+                        _errorPos = alphabetToken.pos + static_cast<int>(index) + 1;
+                        _isError = 1;
+                        _error = fmt::format("String mode '{}' is already defined for the character '{}'.", n, detail::utf8Unit(character));
                         break;
                     }
-                    s.values[c] = (char)z;
-                    auto mm = std::make_unique<Macro>();
-                    mm->body = m.body;
-                    s.modes[c] = std::move(mm);
+                    s.values[character] = static_cast<int>(index);
+                    s.modes.emplace(character, macro);
                 }
                 break;
             }
@@ -1753,61 +1904,15 @@ void Assembler::compileStatement()
                 if (_isError)
                     return;
                 if (t.type == Token::Type::NUMBER) {
-                    int n = (int)t.numValue;
+                    const double n = t.numValue;
                     next();
                     if (n < -128 || n > 255) {
                         _isError = 1, _error = fmt::format("Literal value '{}' does not fit in a byte- must be in range [-128,255].", n);
                     }
-                    append(n);
+                    append(detail::toUint8JS(n));
                     return;
                 }
-                auto n = t.isText() ? t.strValue : std::string_view();
-                if (auto mi = macros.find(n); mi != macros.end()) {
-                    next();
-                    auto& m = mi->second;
-                    std::unordered_map<std::string_view, Token> bindings;  // name -> tok
-                    bindings.emplace("CALLS", Token(m.calls++));
-                    for (auto& arg : m.args) {
-                        if (is_end()) {
-                            _errorLine = _sourceLine, _errorPos = _sourcePos;
-                            _isError = 1, _error = fmt::format("Not enough arguments for expansion of macro '{}'.", n);
-                            break;
-                        }
-                        bindings.emplace(arg, next());
-                    }
-                    int splice_index = 0;
-                    for (int z = 0; z < m.body.size(); z++) {
-                        auto& bt = m.body[z];
-                        auto argIter = (bt.isText() ? bindings.find(bt.strValue) : bindings.end());
-                        tokens.insert(tokens.begin() + z, argIter != bindings.end() ? argIter->second : bt);
-                    }
-                }
-                else if (auto iter = stringModes.find(n); iter != stringModes.end()) {
-                    next();
-                    auto& s = iter->second;
-                    int text_base = _sourcePos, text_quote = peekChar() == '"';
-                    auto text = string();
-                    int splice_index = 0;
-                    for (int tz = 0; tz < text.length(); tz++) {
-                        int c = 0xFF & text[tz];
-                        if (!s.modes[c]) {
-                            _errorPos = text_base + tz + (text_quote ? 1 : 0);
-                            _isError = 1, _error = fmt::format("String mode '{}' is not defined for the character '{:c}'.", n, c);
-                            break;
-                        }
-                        std::unordered_map<std::string_view, Token> bindings;  // name -> tok
-                        bindings.emplace("CALLS", Token(s.calls++));           // expansion count
-                        bindings.emplace("CHAR", Token(c));                    // ascii value of current char
-                        bindings.emplace("INDEX", Token((int)tz));             // index of char in input string
-                        bindings.emplace("VALUE", Token(s.values[c]));         // index of char in class alphabet
-                        auto& sm = *s.modes[c];
-                        for (auto& bt : sm.body) {
-                            auto argIter = (bt.isText() ? bindings.find(bt.strValue) : bindings.end());
-                            tokens.insert(tokens.begin() + splice_index++, argIter != bindings.end() ? argIter->second : bt);
-                        }
-                    }
-                }
-                else if (!t.strValue.empty())
+                if (!t.strValue.empty())
                     immediate(0x20, value12bit());
                 else {
                     // Just drop it, this is the end.
@@ -1932,9 +2037,9 @@ bool Assembler::compile()
 
     if (has_main) {
         auto iter = constants.find("main");
-        if (iter == constants.end())
+        if (iter == constants.end() && !_programLabels.contains("main"))
             return _isError = 1, _error = "This program is missing a 'main' label.", false;
-        jump(startAddress, (int)iter->second.value);
+        jump(startAddress, iter != constants.end() ? detail::toInt32JS(iter->second.value) : _programLabels.at("main"));
     }
     if (!finishNativeBlocks())
         return false;

@@ -70,8 +70,8 @@ Chip8Decompiler::RelocationResult Chip8Decompiler::relocate(uint32_t entry, uint
         const auto opcode = readOpcode(original + offset);
         auto instruction = std::vector<uint8_t>(original + offset, original + offset + instructionSize);
         const auto family = opcode >> 12;
-        const bool colorOpcode = family == 0xB && !_possibleVariants.is_empty() &&
-                                 !_possibleVariants.containsAny(chip8::ALL_VARIANTS - C8V::CHIP_8X - C8V::CHIP_8X_TPD - C8V::HI_RES_CHIP_8X);
+        const bool colorOpcode = family == 0xB && !_traceVariants.is_empty() &&
+                                 !_traceVariants.containsAny(chip8::ALL_VARIANTS - C8V::CHIP_8X - C8V::CHIP_8X_TPD - C8V::HI_RES_CHIP_8X);
         if(family == 1 || family == 2 || family == 0xA || (family == 0xB && !colorOpcode)) {
             const auto address = relocateAddress(opcode & 0xFFF, 0xFFF, pc);
             instruction[0] = static_cast<uint8_t>((opcode & 0xF000) >> 8 | address >> 8);

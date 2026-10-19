@@ -1,0 +1,4 @@
+:macro m CALLS { :byte CALLS }
+: main
+m 7
+return

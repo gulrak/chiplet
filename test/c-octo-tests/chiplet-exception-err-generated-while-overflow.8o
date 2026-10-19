@@ -1,0 +1,6 @@
+: main
+:org 4090
+loop
+while v0 == 1
+clear
+again

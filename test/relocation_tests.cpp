@@ -1,4 +1,5 @@
 #include <chiplet/chip8decompiler.hpp>
+#include <chiplet/octocompiler.hpp>
 #include <doctest/doctest.h>
 
 using emu::Chip8Decompiler;
@@ -102,4 +103,34 @@ TEST_CASE("Relocation rejects incomplete tracing of overlapping instructions")
     const std::vector<uint8_t> input{0x30,0x00, 0x12,0x03, 0xA2,0x00, 0x12,0x06};
     Chip8Decompiler decoder(input, 0x200);
     CHECK_THROWS_AS(decoder.relocate(0x200, 0x600), std::runtime_error);
+}
+
+TEST_CASE("Decompiler keeps formatting programs that mix variants or contain unknown opcodes")
+{
+    using emu::C8V;
+    // hires (SCHIP/XO/MegaChip), plane 0 (XO-CHIP), 02A0 (MegaChip ldpal or CHIP-8X cycle-bgcol), unknown E123, jump to self
+    const std::vector<uint8_t> mixed{0x00,0xFF, 0xF0,0x01, 0x02,0xA0, 0xE1,0x23, 0x12,0x08};
+    Chip8Decompiler decoder(mixed, 0x200);
+    std::ostringstream os;
+    decoder.decompile("mixed.ch8", 0x200, &os);
+    const auto source = os.str();
+    CHECK(decoder.possibleVariants().is_empty());
+    CHECK(decoder.unknownOpcodes() == 1);
+    CHECK(decoder.variantCover(C8V::CHIP_8 | C8V::CHIP_8X | C8V::SCHIP_1_1 | C8V::MEGA_CHIP | C8V::XO_CHIP) == (C8V::MEGA_CHIP | C8V::XO_CHIP));
+    CHECK(source.find("        hires\n") != std::string::npos);
+    CHECK(source.find("        plane 0x0\n") != std::string::npos);
+    CHECK(source.find("        ldpal 0xa0\n") != std::string::npos);
+    CHECK(source.find("        0xE1 0x23\n") != std::string::npos);
+    CHECK(source.find(":macro ldpal nn { :byte 0x02 :byte nn }") != std::string::npos);
+
+    emu::OctoCompiler compiler;
+    REQUIRE(compiler.compile("mixed.8o", source, false).resultType == emu::CompileResult::eOK);
+    CHECK(std::vector<uint8_t>(compiler.code(), compiler.code() + compiler.codeSize()) == mixed);
+
+    // a single unknown opcode doesn't discard the detected variants
+    const std::vector<uint8_t> unknown{0x00,0xE0, 0xE1,0x23, 0x12,0x04};
+    Chip8Decompiler unknownDecoder(unknown, 0x200);
+    unknownDecoder.decompile("unknown.ch8", 0x200, nullptr, true, true);
+    CHECK(unknownDecoder.possibleVariants().contains(C8V::CHIP_8));
+    CHECK(unknownDecoder.unknownOpcodes() == 1);
 }

@@ -62,6 +62,7 @@
 //---------------------------------------------------------------------------------------
 
 #include "lexer.hpp"
+#include <limits>
 
 #include <algorithm>
 #include <charconv>
@@ -91,6 +92,125 @@ const std::unordered_map<std::string_view, TokenInfo> lexerTokenMap = {
 bool isKnownToken(std::string_view name)
 {
     return lexerTokenMap.count(name);
+}
+
+TokenId tokenIdForText(std::string_view text)
+{
+    const auto iter = lexerTokenMap.find(text);
+    return iter == lexerTokenMap.end() ? TokenId::TOK_UNKNOWN : iter->second.id;
+}
+
+namespace {
+
+std::optional<double> parseRadixDigits(std::string_view digits, unsigned radix)
+{
+    if (digits.empty())
+        return std::nullopt;
+    double value = 0;
+    uint64_t significand = 0;
+    int significantBits = 0;
+    int discardedBits = 0;
+    bool roundBit = false;
+    bool stickyBit = false;
+    for (unsigned char character : digits) {
+        unsigned digit = character >= '0' && character <= '9' ? character - '0'
+            : character >= 'a' && character <= 'f' ? character - 'a' + 10
+            : character >= 'A' && character <= 'F' ? character - 'A' + 10 : radix;
+        if (digit >= radix)
+            return std::nullopt;
+        if (radix == 10) {
+            value = value * radix + digit;
+            continue;
+        }
+        // Retain 53 significant bits and round once, rather than rounding
+        // after every digit. The latter disagrees with JS for large literals.
+        const int digitBits = radix == 2 ? 1 : radix == 8 ? 3 : 4;
+        for (int bitIndex = digitBits - 1; bitIndex >= 0; --bitIndex) {
+            const auto bit = (digit >> bitIndex) & 1;
+            if (significantBits == 0 && bit == 0)
+                continue;
+            if (significantBits < std::numeric_limits<double>::digits) {
+                significand = (significand << 1) | bit;
+                ++significantBits;
+            }
+            else {
+                if (discardedBits == 0)
+                    roundBit = bit;
+                else
+                    stickyBit = stickyBit || bit;
+                if (discardedBits < 1024)
+                    ++discardedBits;
+            }
+        }
+    }
+    if (radix == 10)
+        return value;
+    if (roundBit && (stickyBit || (significand & 1)))
+        ++significand;
+    return std::ldexp(static_cast<double>(significand), discardedBits);
+}
+
+std::optional<double> parseDecimalNumber(std::string_view text)
+{
+    if (text.starts_with('+')) {
+        text.remove_prefix(1);
+        if (text.starts_with('-') || text.starts_with('+'))
+            return std::nullopt;
+    }
+    if (text.empty())
+        return std::nullopt;
+    double value = 0;
+    const auto result = fast_float::from_chars(text.data(), text.data() + text.size(), value);
+    if (result.ptr != text.data() + text.size()
+        || (result.ec != std::errc{} && result.ec != std::errc::result_out_of_range))
+        return std::nullopt;
+    return value;
+}
+
+} // namespace
+
+std::optional<double> parseIntegerLiteral(std::string_view text)
+{
+    const auto original = text;
+    const bool negative = text.starts_with('-');
+    if (negative || text.starts_with('+'))
+        text.remove_prefix(1);
+    unsigned radix = 10;
+    if (text.starts_with("0b"))
+        radix = 2, text.remove_prefix(2);
+    else if (text.starts_with("0x") || text.starts_with("0X"))
+        radix = 16, text.remove_prefix(2);
+    auto value = parseRadixDigits(text, radix);
+    if (!value)
+        return std::nullopt;
+    if (radix == 10)
+        return parseDecimalNumber(original);
+    return negative ? -*value : *value;
+}
+
+std::optional<double> parseCalculatedNumber(std::string_view text)
+{
+    // Octo's expression terminals use JavaScript Number(), independently of
+    // the integer-only token grammar used for ordinary operands.
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
+        text.remove_prefix(1);
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+        text.remove_suffix(1);
+    if (text.empty())
+        return 0;
+    if (text == "Infinity" || text == "+Infinity")
+        return std::numeric_limits<double>::infinity();
+    if (text == "-Infinity")
+        return -std::numeric_limits<double>::infinity();
+    if (text.starts_with("0x") || text.starts_with("0X"))
+        return parseRadixDigits(text.substr(2), 16);
+    if (text.starts_with("0b") || text.starts_with("0B"))
+        return parseRadixDigits(text.substr(2), 2);
+    if (text.starts_with("0o") || text.starts_with("0O"))
+        return parseRadixDigits(text.substr(2), 8);
+    if (text.find_first_not_of("0123456789.eE+-") != std::string_view::npos)
+        return std::nullopt;
+    return parseDecimalNumber(text);
 }
 
 bool isPreprocessorDirective(std::string_view name)
@@ -250,7 +370,7 @@ void Lexer::skipWhitespace(bool resetPrefixAfterNewline)
                 nextChar();
             }
         }
-        else if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+        else if (c != ' ' && c != '\t' && c != '\r' && c != '\n' && c != '\v')
             break;
         nextChar();
     }
@@ -362,7 +482,7 @@ void Lexer::scanNextToken(octo::Token& t, bool resetPrefixAfterNewline)
     else {
         while (true) {
             char c = peekChar();
-            if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '#' || c == '\0')
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '#' || c == '"' || c == '\0')
                 break;
             nextChar();
             ++index;
@@ -383,57 +503,30 @@ void Lexer::scanNextToken(octo::Token& t, bool resetPrefixAfterNewline)
                 skipWhitespace();
             return;
         }
-        if(std::isdigit(static_cast<unsigned char>(*start)) || (*start == '-' && std::isdigit(static_cast<unsigned char>(start[1])))) {
-            double floatVal = 0;
-            int64_t temp = 0;
-            t.type = Token::Type::STRING;
-            auto fcr = fast_float::from_chars(start, start + index, floatVal);
-            if (fcr.ptr == start + index && fcr.ec == std::errc{}) {
-                t.type = Token::Type::NUMBER, t.numValue = floatVal;
-            }
-            else if (index > 2 && start[0] == '0' && start[1] == 'b') {
-                auto [ptr, ec] = std::from_chars(start + 2, start + index, temp, 2);
-                if(ptr == start + index && ec == std::errc{})
-                    t.type = Token::Type::NUMBER, t.numValue = static_cast<double>(temp);
-            }
-            else if (index > 2 && start[0] == '0' && start[1] == 'x') {
-                auto [ptr, ec] = std::from_chars(start + 2, start + index, temp, 16);
-                if(ptr == start + index && ec == std::errc{})
-                    t.type = Token::Type::NUMBER, t.numValue = static_cast<double>(temp);
-            }
-            else if (index > 3 && start[0] == '-' && start[1] == '0' && start[2] == 'b') {
-                auto [ptr, ec] = std::from_chars(start + 3, start + index, temp, 2);
-                if(ptr == start + index && ec == std::errc{})
-                    t.type = Token::Type::NUMBER, t.numValue = -static_cast<double>(temp);
-            }
-            else if (index > 3 && start[0] == '-' && start[1] == '0' && start[2] == 'x') {
-                auto [ptr, ec] = std::from_chars(start + 3, start + index, temp, 16);
-                if(ptr == start + index && ec == std::errc{})
-                    t.type = Token::Type::NUMBER, t.numValue = -static_cast<double>(temp);
-            }
-            if(t.type != Token::Type::NUMBER) {
-                t.type = Token::Type::IDENTIFIER;
-                t.strValue = {start, index};
-                t.tid = TokenId::TOK_UNKNOWN;
-            }
+        if (!index) {
+            t.type = Token::Type::END_OF_FILE;
+            t.rawValue = {};
+            return;
+        }
+        const auto text = std::string_view{start, index};
+        auto number = parseIntegerLiteral(text);
+        if (!number && _options.preprocessorMode
+            && text.find_first_not_of("0123456789.eE+-") == std::string_view::npos)
+            number = parseDecimalNumber(text);
+        if (number) {
+            t.type = Token::Type::NUMBER;
+            t.numValue = *number;
         }
         else {
-            if (!index) {
-                t.type = Token::Type::END_OF_FILE;
-                t.tid = TokenId::TOK_UNKNOWN;
-                t.rawValue = {};
-                return;
-            }
             t.type = Token::Type::IDENTIFIER;
-            t.strValue = {start, index};
-            auto iter = lexerTokenMap.find(t.strValue);
+            t.strValue = text;
+            auto iter = lexerTokenMap.find(text);
             if (iter != lexerTokenMap.end()) {
                 t.tid = iter->second.id;
                 t.type = iter->second.type;
                 if (t.type == Token::Type::PREPROCESSOR) {
-                    while (!t.prefix.empty() && (t.prefix.back() == ' ' || t.prefix.back() == '\t')) {
+                    while (!t.prefix.empty() && (t.prefix.back() == ' ' || t.prefix.back() == '\t'))
                         t.prefix.remove_suffix(1);
-                    }
                 }
             }
         }

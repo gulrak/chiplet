@@ -1,0 +1,5 @@
+:calc HERE { 1 }
+: main
+:byte HERE
+:byte { HERE & 255 }
+return

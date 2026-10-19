@@ -63,6 +63,7 @@
 #pragma once
 
 #include <array>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -209,6 +210,9 @@ struct LexerOptions
 };
 
 bool isKnownToken(std::string_view name);
+TokenId tokenIdForText(std::string_view text);
+std::optional<double> parseIntegerLiteral(std::string_view text);
+std::optional<double> parseCalculatedNumber(std::string_view text);
 bool isPreprocessorDirective(std::string_view name);
 
 class Lexer

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 
@@ -90,6 +91,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--filter", default="*.8o", help="source filename glob"
     )
+    parser.add_argument(
+        "--exclude", action="append", default=[],
+        help="exclude a source filename glob (repeatable)",
+    )
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args(argv)
     if args.backend == "octo-js" and args.js_compiler is None:
@@ -101,6 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sources = sorted(
         source for source in args.testdir.resolve().glob(args.filter)
         if source.is_file() and source.suffix == ".8o"
+        and not any(fnmatchcase(source.name, pattern) for pattern in args.exclude)
     )
     if not sources:
         print("ERROR: No matching .8o fixtures found.", file=sys.stderr)

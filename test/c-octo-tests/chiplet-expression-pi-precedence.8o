@@ -1,0 +1,5 @@
+:alias PI v0
+: main
+PI := 7
+:byte { PI }
+return

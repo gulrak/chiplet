@@ -106,8 +106,8 @@ struct Macro
 struct StringMode
 {
     int calls{};
-    char values[256]{};
-    std::array<std::unique_ptr<Macro>, 256> modes{};
+    std::unordered_map<char16_t, int> values;
+    std::unordered_map<char16_t, Macro> modes;
 };
 
 struct FlowControl
@@ -117,10 +117,11 @@ struct FlowControl
 };
 
 struct MonitorField {
-    enum Type { STRING, UINT8, UINT16, UINT24, UINT32 } type;
+    enum Type { STRING, UINT8, UINT16, UINT24, UINT32, BYTES } type;
     enum Base { CHAR, BINARY, DECIMAL, HEXADECIMAL } base;
-    uint8_t offset;
+    std::size_t offset;
     std::string_view text;
+    std::size_t length{1};
 };
 
 struct Monitor
@@ -156,6 +157,11 @@ public:
         return iter == breakpoints.end() ? "" : iter->second;
     }
     uint32_t lineForAddress(uint32_t addr) const { return !_isError && addr < romLineMap.size() ? romLineMap[addr] : 0xFFFFFFFF; }
+    const Monitor* monitorInfo(std::string_view name) const
+    {
+        const auto iter = monitors.find(name);
+        return iter == monitors.end() ? nullptr : &iter->second;
+    }
 
 private:
     static double sign(double x) { return (0.0 < x) - (x < 0.0); }
@@ -178,7 +184,8 @@ private:
     bool isRegister(std::string_view name);
     bool peekIsRegister();
     int registerOrAlias();
-    int valueRange(int n, int mask);
+    int valueRange(double n, int mask);
+    int checkedAddress(double value, int bits);
     void valueFail(const std::string_view& w, const std::string_view& n, bool undef);
     int value4bit();
     int value8bit();
@@ -199,6 +206,7 @@ private:
     void conditional(int negated);
     void resolveLabel(int offset);
     void compileStatement();
+    bool expandMacroOrStringMode();
     void compileNativeBlock(Token token);
     bool finishNativeBlocks();
     struct NativeBlock {

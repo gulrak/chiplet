@@ -1,0 +1,3 @@
+: main
+:monitor v0 "%2c"
+return

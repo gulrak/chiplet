@@ -1,0 +1,4 @@
+:macro m a a { :byte a }
+: main
+m 1 2
+return

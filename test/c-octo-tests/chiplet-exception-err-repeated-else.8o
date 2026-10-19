@@ -1,0 +1,8 @@
+: main
+if v0 == 1 begin
+clear
+else
+clear
+else
+clear
+end

@@ -4,6 +4,9 @@
 #include <doctest/doctest.h>
 
 #include <chiplet/utility.hpp>
+#include <chiplet/chip8variants.hpp>
+
+#include <vector>
 
 TEST_CASE("toOptionName - category transitions and kebab-case format")
 {
@@ -82,5 +85,49 @@ TEST_CASE("toJsonKey - category transitions and camelCase format")
     SUBCASE("Composite example") {
         CHECK(toJsonKey("someMixedNumb3rCase__42 andMore")
               == "someMixedNumb3RCase42AndMore");
+    }
+}
+
+TEST_CASE("VariantSet - iteration visits exactly the set variants")
+{
+    using emu::chip8::Variant;
+    using emu::chip8::VariantSet;
+
+    SUBCASE("Empty set yields no elements") {
+        VariantSet vs{};
+        CHECK(vs.begin() == vs.end());
+    }
+
+    SUBCASE("Variants across both words are visited in ascending order") {
+        VariantSet vs = Variant::CHIP_8 | Variant::CHIP_48 | Variant::MEGA_CHIP | Variant::COSMAC_VIP | Variant::CHIP_8_TPD_TS_COSMAC_VIP | Variant::GENERIC_CHIP_8;
+        std::vector<Variant> visited(vs.begin(), vs.end());
+        std::vector<Variant> expected{Variant::CHIP_8, Variant::CHIP_48, Variant::MEGA_CHIP, Variant::COSMAC_VIP, Variant::CHIP_8_TPD_TS_COSMAC_VIP, Variant::GENERIC_CHIP_8};
+        CHECK(visited == expected);
+    }
+
+    SUBCASE("Only upper word populated") {
+        VariantSet vs = Variant::CHIP_8_COSMAC_VIP | Variant::GENERIC_CHIP_8;
+        std::vector<Variant> visited;
+        for (auto v : vs) {
+            visited.push_back(v);
+        }
+        CHECK(visited == std::vector<Variant>{Variant::CHIP_8_COSMAC_VIP, Variant::GENERIC_CHIP_8});
+        CHECK(vs.lowestVariant() == Variant::CHIP_8_COSMAC_VIP);
+    }
+
+    SUBCASE("Iteration agrees with contains() for all variants") {
+        auto vs = emu::chip8::ALL_VARIANTS;
+        std::size_t count = 0;
+        for (auto v : vs) {
+            CHECK(vs.contains(v));
+            ++count;
+        }
+        std::size_t expectedCount = 0;
+        for (std::size_t i = 0; i < 128; ++i) {
+            if (vs.contains(static_cast<Variant>(i))) {
+                ++expectedCount;
+            }
+        }
+        CHECK(count == expectedCount);
     }
 }

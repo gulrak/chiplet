@@ -1,0 +1,6 @@
+: main
+:org 128
+: small
+:org 512
+v0 := small
+return

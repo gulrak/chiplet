@@ -1,0 +1,5 @@
+# The final character Á has alphabet index 128.
+:stringmode text " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁ" { :byte VALUE :byte { VALUE > 0 } :byte CHAR :byte INDEX }
+: main
+text "Á"
+return

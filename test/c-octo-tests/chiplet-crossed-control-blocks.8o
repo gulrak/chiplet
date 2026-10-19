@@ -1,0 +1,6 @@
+: main
+if v0 == 1 begin
+loop
+clear
+end
+again

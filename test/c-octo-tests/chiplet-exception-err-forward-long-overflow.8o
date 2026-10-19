@@ -1,0 +1,6 @@
+: main
+i := long target
+:org 65535
+:byte 0
+: target
+return

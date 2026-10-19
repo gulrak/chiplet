@@ -37,7 +37,8 @@ namespace emu {
 
 template<typename EnumT, size_t N = 64>
 class EnumSet {
-    using ArrayT = std::array<uint64_t,(N+63)/64>;
+    static constexpr std::size_t WORD_COUNT = (N + 63) / 64;
+    using ArrayT = std::array<uint64_t, WORD_COUNT>;
 public:
     using value_type = EnumT;
     constexpr EnumSet(EnumT val) {
@@ -63,7 +64,7 @@ public:
     }
 
     constexpr EnumT lowestVariant() const {
-        for (std::size_t i = 0; i < N; ++i) {
+        for (std::size_t i = 0; i < WORD_COUNT; ++i) {
             std::uint64_t w = _bits[i];
             if (w != 0) {
                 return static_cast<EnumT>((i << 6) + ghc::countr_zero(w));
@@ -195,7 +196,7 @@ public:
 
     private:
         void advance_to_next_nonzero() {
-            while (_wi < N) {
+            while (_wi < WORD_COUNT) {
                 _mask = (*_words)[_wi];
                 if (_mask) return;
                 ++_wi;
@@ -204,23 +205,23 @@ public:
         }
 
         void prime_current() {
-            if (_wi < N && _mask) {
+            if (_wi < WORD_COUNT && _mask) {
                 auto tz = static_cast<unsigned>(ghc::countr_zero(_mask));
                 _pos = (_wi << 6) + tz;
             } else {
-                _wi = N;
+                _wi = WORD_COUNT;
                 _pos = std::numeric_limits<std::size_t>::max();
             }
         }
 
         const ArrayT* _words = nullptr;
-        std::size_t _wi = N;
+        std::size_t _wi = WORD_COUNT;
         std::uint64_t _mask = 0;
         std::size_t _pos = std::numeric_limits<std::size_t>::max();
     };
 
     const_iterator begin() const { return const_iterator(&_bits, 0); }
-    const_iterator end()   const { return const_iterator(&_bits, N); }
+    const_iterator end()   const { return const_iterator(&_bits, WORD_COUNT); }
 private:
     constexpr void set(size_t idx, bool val = true) {
         if(val)
@@ -245,7 +246,7 @@ private:
         if (n & 0x5555555555555555) c -= 1;
         return c;
     }
-    std::array<uint64_t,(N+63)/64> _bits{};
+    ArrayT _bits{};
 };
 
 namespace chip8 {

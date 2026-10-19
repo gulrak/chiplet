@@ -1,0 +1,3 @@
+: main
+:monitor v0 "text %x"
+return
