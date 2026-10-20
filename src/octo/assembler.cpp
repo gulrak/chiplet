@@ -64,7 +64,7 @@
 
 #include "assembler.hpp"
 
-#include <ghc/filesystem.hpp>
+#include <ghc/fs_fwd.hpp>
 
 #include <iostream>
 #include <ostream>
