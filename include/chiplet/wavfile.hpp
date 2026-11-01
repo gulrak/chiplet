@@ -279,7 +279,7 @@ private:
         const uint64_t totalSamples = dataSize / bytesPerSample;
         const uint64_t totalFrames  = totalSamples / numChannels;
 
-        if (numChannels == 1 && (!sampleFreq || sampleFreq.value() != sampleRate)) {
+        if (numChannels == 1 && (!sampleFreq || sampleFreq.value() == sampleRate)) {
             if (bitsPerSample == 8 && sizeof(Sample) == 1) {
                 _samples.clear();
                 _samples.resize(totalFrames);

@@ -372,9 +372,11 @@ be used:
   image size and at most 15 pixels high.
 * `[<color> ...]` - A palette to be used by theimporter. The colors must be given
   as hex values in the way used in e.g. CSS, so either `RRGGBB` or `RGB`, and the
-  latter gets expanded by doubling the nibbles as in CSS. For XO-CHIP like color
+  latter gets expanded by doubling the nibbles as in CSS. The brackets may be
+  attached to the colors (`[000 FFF]`) or separated by whitespace (`[ 000 FFF ]`),
+  and the list may span several lines. For XO-CHIP like color
   support the number of colors needs to be a power of two from 2 to 16. For
-  `megachip` any non empty number of colors up to 255 is allowed. In that mode
+  `megachip` 2 to 254 colors are allowed. In that mode
   the palette is internally prefixed with a transparent black, and all transparent
   pixels are mapped to that in import.
 * `dither` - The image will be Floyd-Steinberg dithered when reducing it to the
@@ -416,6 +418,38 @@ sizes must be valid integer divisors of the image size or an error will
 be reported.
 
 ### Inclusion of External Files
+
+Binary files with the extension `.bin` or `.ch8` are included as data bytes:
+
+```
+:include "<path-to-file>.bin" [no-labels]
+```
+
+The bytes are prefixed by a label with the base name of the file, unless
+`no-labels` is given.
+
+### Inclusion of Sound Files
+
+WAV files (`.wav`, PCM with 8 or 16 bit, or 32 bit float, mono or stereo) are
+included as unsigned 8-bit mono samples, centered at 128:
+
+```
+:include "<path-to-file>.wav" [<sample-rate>] [megachip] [no-labels]
+```
+
+* `<sample-rate>` - Resample the sound to this rate in Hz. Without it, the rate
+  of the file is kept. The rate must be given on the line of the `:include`, a
+  number on a later line is data.
+* `megachip` - Prefix the samples with the six byte header of the MegaChip
+  `digisnd` instruction: the sample rate (16 bit, so at most 65535 Hz), the
+  number of samples (24 bit) and a zero byte.
+* `no-labels` - Don't generate the label with the base name of the file.
+
+Example, a sound for `ldhi` and `digisnd`:
+
+```
+:include "explosion.wav" 8000 megachip
+```
 
 ---
 

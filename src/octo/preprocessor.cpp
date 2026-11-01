@@ -308,6 +308,9 @@ const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::strin
                         else if (extension == ".bin" || extension == ".ch8") {
                             token = includeBinary(newFile.string());
                         }
+                        else if (extension == ".wav") {
+                            token = includeWav(newFile.string());
+                        }
                         else {
                             flushSegment();
                             auto oldSeg = _currentSegment;
@@ -599,38 +602,40 @@ Preprocessor::SourceToken::Type Preprocessor::includeImage(std::string filename)
                 colors.reserve(256);
                 colors.push_back({0,0,0,0});
             }
-            auto sv = lex.token().rawValue;
-            if (sv.length() > 1) {
-                sv.remove_prefix(1);
+            auto addColor = [&](std::string_view sv) {
                 auto col = parseHexColor(sv);
                 if (!col)
                     error(fmt::format("Bad color value for image include: '{}'", sv));
                 colors.push_back(*col);
-                while (true) {
-                    token = lex.nextToken(true);
-                    if (token == SourceToken::Type::END_OF_FILE)
-                        break;
-                    if (token == SourceToken::Type::RSQUARE)
-                        break;
-                    if (endsWith(lex.token().rawValue, "]")) {
-                        auto sv = lex.token().rawValue;
-                        sv.remove_suffix(1);
-                        col = parseHexColor(sv);
-                        if (!col)
-                            error(fmt::format("Bad color value for image include: '{}'", sv));
-                        colors.push_back(*col);
-                        break;
-                    }
-                    auto sv = lex.token().rawValue;
-                    if (sv.length() > 1) {
-                        col = parseHexColor(sv);
-                        if (!col)
-                            error(fmt::format("Bad color value for image include: '{}'", sv));
-                        colors.push_back(*col);
-                    }
-                }
+            };
+            // The first color may follow the bracket directly ("[000 FFF]") or
+            // after whitespace ("[ 000 FFF ]"), the list ends with a "]" that is
+            // attached to the last color or separate.
+            auto sv = lex.token().rawValue;
+            sv.remove_prefix(1);
+            bool closed = endsWith(sv, "]");
+            if (closed)
+                sv.remove_suffix(1);
+            if (!sv.empty())
+                addColor(sv);
+            while (!closed) {
+                token = lex.nextToken(true);
+                if (token == SourceToken::Type::END_OF_FILE || token == SourceToken::Type::RSQUARE)
+                    break;
+                sv = lex.token().rawValue;
+                closed = endsWith(sv, "]");
+                if (closed)
+                    sv.remove_suffix(1);
+                if (!sv.empty())
+                    addColor(sv);
             }
-            if (auto n = colors.size(); (megaChip && n > 2 && n < 256) || (n != 0 && (n & (n - 1)) == 0 && n >= 2 && n <= 16))
+            auto n = colors.size();
+            if (megaChip) {
+                if (n < 3 || n > 255)
+                    error(fmt::format("Invalid color palette for mega-chip image include, must have between 2 and 254 entries"));
+                palette = colors;
+            }
+            else if (n != 0 && (n & (n - 1)) == 0 && n >= 2 && n <= 16)
                 palette = colors;
             else
                 error(fmt::format("Invalid color palette for image include, must be power of two and between 2 and 16 entries"));
@@ -765,38 +770,66 @@ Preprocessor::SourceToken::Type Preprocessor::includeBinary(std::string filename
     for (auto byte : *data) {
         formatter.write(fmt::format(" 0x{:02x}", byte));
     }
-    return lexer().nextToken(true);
+    return token;
 }
 
 Preprocessor::SourceToken::Type Preprocessor::includeWav(std::string filename)
 {
     auto& lex = lexer();
+    auto includeLine = lex.token().line;
     auto token = lex.nextToken(true);
     std::optional<uint32_t> frequencyOverride{};
+    bool genLabels = true;
+    bool megaChip = false;
     while(token != SourceToken::Type::END_OF_FILE) {
-        if(token == SourceToken::Type::NUMBER)
+        // A sample rate must be on the line of the include, a number on the
+        // next line is data.
+        if(token == SourceToken::Type::NUMBER && lex.token().line == includeLine)
         {
             if (lex.token().numValue <= 0 || lex.token().numValue > 96000)
                 error(fmt::format("Invalid frequency value for audio include: '{}'.", lex.token().rawValue));
             frequencyOverride = lex.token().numValue;
+        }
+        else if (token == SourceToken::Type::IDENTIFIER && lex.token().strValue == "no-labels") {
+            genLabels = false;
+        }
+        else if (token == SourceToken::Type::IDENTIFIER && lex.token().strValue == "megachip") {
+            megaChip = true;
         }
         else {
             break;
         }
         token = lex.nextToken(true);
     }
+    std::vector<uint8_t> samples;
+    uint32_t sampleRate = 0;
     try {
         WavFile<uint8_t> wav(filename, frequencyOverride);
-        DataBlockFormatter formatter{[this](std::string_view sv){writeGenerated(sv);}};
-        const auto& samples = wav.samples();
-        for (auto sample : samples) {
-            formatter.write(fmt::format(" 0x{:02x}", sample));
-        }
+        samples = wav.samples();
+        sampleRate = wav.sampleRate();
     }
     catch(std::exception& ex) {
         error(fmt::format("Couldn't read audio file '{}': {}", filename, ex.what()));
     }
-    return lexer().nextToken(true);
+    auto name = ghc::filesystem::path(filename).filename().stem().string();
+    if(genLabels)
+        writeGenerated(fmt::format(": {}", name));
+    DataBlockFormatter formatter{[this](std::string_view sv){writeGenerated(sv);}};
+    if (megaChip) {
+        // MegaChip digisnd header: sample rate (16 bit), number of samples (24 bit), 0
+        if (sampleRate > 0xFFFF)
+            error(fmt::format("Sample rate of '{}' is {} Hz, a mega-chip sound needs at most 65535 Hz (give a lower rate to resample).", filename, sampleRate));
+        if (samples.size() > 0xFFFFFF)
+            error(fmt::format("Audio file '{}' is too long for a mega-chip sound.", filename));
+        auto length = static_cast<uint32_t>(samples.size());
+        for (auto byte : {sampleRate >> 8, sampleRate & 0xFF, length >> 16, (length >> 8) & 0xFF, length & 0xFF, 0u}) {
+            formatter.write(fmt::format(" 0x{:02x}", byte));
+        }
+    }
+    for (auto sample : samples) {
+        formatter.write(fmt::format(" 0x{:02x}", sample));
+    }
+    return token;
 }
 
 void Preprocessor::dumpSegments(std::ostream& output)
