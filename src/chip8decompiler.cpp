@@ -137,6 +137,7 @@ std::pair<std::string,std::string> Chip8Decompiler::chipVariantName(chip8::Varia
         case C8V::CHIP_8_SRV: return {"chip-8-srv", "CHIP-8 modification for saving and restoring variables"};
         case C8V::CHIP_8_SRV_I: return {"chip-8-srv-i", "Improved CHIP-8 modification for saving and restoring variables"};
         case C8V::CHIP_8_RB: return {"chip-8-rb", "CHIP-8 modification with relative branching"};
+        case C8V::CHIP_8_R: return {"chip-8-r", "CHIP-8 with PC relative jumps, call through I and 16 bit I load"};
         case C8V::CHIP_8_ARB: return {"chip-8-arb", "Another CHIP-8 modification with relative branching"};
         case C8V::CHIP_8_FSD: return {"chip-8-fsb", "CHIP-8 modification with fast, single-dot DXYN"};
         case C8V::CHIP_8_IOPD: return {"chip-8-iopd", "CHIP-8 with I/O port driver routine"};

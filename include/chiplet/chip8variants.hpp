@@ -311,6 +311,7 @@ enum class Variant {
     SCHIP_MODERN = 0x37,       // Modern SCHIP as defined by Octo
     SCHIP_1_0_BETA = 0x38,     // SUPER-CHIP 1.0 Beta (with the wrong big-font function)
     CHIP_8_TPD_TS = 0x39,      // Two-page display for CHIP-8 modyfied by Tom Swan for "PIPS for VIPS"
+    CHIP_8_R = 0x3A,           // CHIP-8 with PC relative jumps, call through I and 16 bit I load (Cadmium research)
     COSMAC_VIP = 0x40,           // A pure COSMAC VIP without CHIP-8
     CHIP_8_COSMAC_VIP = 0x41,    // CHIP-8 on emulated COSMAC VIP
     CHIP_8_TPD_COSMAC_VIP = 0x42,// CHIP-8 Two Page Display on emulated COSMAC VIP
@@ -360,8 +361,8 @@ static constexpr VariantSet ALL_VARIANTS =
     chip8::Variant::SCHIP_1_1_SCRUP | chip8::Variant::CHIP8RUN | chip8::Variant::MEGA_CHIP |
     chip8::Variant::XO_CHIP | chip8::Variant::OCTO | chip8::Variant::CHIP_8_CL_COL |
     chip8::Variant::SCHIP_MODERN | chip8::Variant::SCHIP_1_0_BETA | chip8::Variant::CHIP_8_TPD_TS |
-    chip8::Variant::CHIP_8_TPD_TS_COSMAC_VIP | chip8::Variant::COSMAC_VIP | chip8::Variant::CHIP_8_COSMAC_VIP |
-    chip8::Variant::CHIP_8_TPD_COSMAC_VIP | chip8::Variant::GENERIC_CHIP_8;
+    chip8::Variant::CHIP_8_R | chip8::Variant::CHIP_8_TPD_TS_COSMAC_VIP | chip8::Variant::COSMAC_VIP |
+    chip8::Variant::CHIP_8_COSMAC_VIP | chip8::Variant::CHIP_8_TPD_COSMAC_VIP | chip8::Variant::GENERIC_CHIP_8;
 
 static constexpr VariantSet C8VG_COSMAC =
     chip8::Variant::CHIP_8 | chip8::Variant::CHIP_8_1_2 | chip8::Variant::CHIP_8_I |
@@ -373,7 +374,7 @@ static constexpr VariantSet C8VG_COSMAC =
     chip8::Variant::CHIP_8E | chip8::Variant::CHIP_8_IBNNN | chip8::Variant::CHIP_8_SCROLL |
     chip8::Variant::CHIP_8X | chip8::Variant::CHIP_8X_TPD | chip8::Variant::HI_RES_CHIP_8X |
     chip8::Variant::CHIP_8Y | chip8::Variant::CHIP_8_CtS | chip8::Variant::CHIP_BETA |
-    chip8::Variant::CHIP_8M | chip8::Variant::CHIP_8_TPD_TS |
+    chip8::Variant::CHIP_8M | chip8::Variant::CHIP_8_TPD_TS | chip8::Variant::CHIP_8_R |
     chip8::Variant::CHIP_8_TPD_TS_COSMAC_VIP | chip8::Variant::COSMAC_VIP | chip8::Variant::CHIP_8_COSMAC_VIP |
     chip8::Variant::CHIP_8_TPD_COSMAC_VIP;
 
@@ -391,6 +392,7 @@ inline std::string romExtension(const chip8::Variant& variant)
         case chip8::Variant::CHIP_8E: return ".c8e";
         case chip8::Variant::CHIP_8X: return ".c8x";
         case chip8::Variant::CHIP_8_RB: return ".c8rb";
+        case chip8::Variant::CHIP_8_R: return ".c8r";
         case chip8::Variant::CHIP_8_TPD: return ".c8tpd";
         case chip8::Variant::HI_RES_CHIP_8: return ".c8fpd";
         case chip8::Variant::CHIP_48: return ".ch48";
