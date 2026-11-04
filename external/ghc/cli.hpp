@@ -242,7 +242,7 @@ private:
                         if (info._noNo)
                             *std::get<bool*>(info.valPtr) = true;
                         else
-                            *std::get<bool*>(info.valPtr) = !name.starts_with("--no-");
+                            *std::get<bool*>(info.valPtr) = !isNegatedBool;
                     }
                     if(info.triggerCallback)
                         info.triggerCallback(name);

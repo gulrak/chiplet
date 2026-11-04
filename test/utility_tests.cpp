@@ -4,8 +4,11 @@
 #include <doctest/doctest.h>
 
 #include <chiplet/utility.hpp>
+#include <chiplet/chip8meta.hpp>
 #include <chiplet/chip8variants.hpp>
+#include <ghc/cli.hpp>
 
+#include <string>
 #include <vector>
 
 TEST_CASE("toOptionName - category transitions and kebab-case format")
@@ -130,4 +133,39 @@ TEST_CASE("VariantSet - iteration visits exactly the set variants")
         }
         CHECK(count == expectedCount);
     }
+}
+
+TEST_CASE("OpcodeSet formats Bxnn with its full address")
+{
+    using emu::chip8::Variant;
+    for (const auto variant : {Variant::CHIP_48, Variant::SCHIP_1_0, Variant::SCHIP_1_1, Variant::SCHIP_1_1_SCRUP, Variant::SCHIP_MODERN}) {
+        const emu::detail::OpcodeSet opcodes{emu::chip8::VariantSet(variant)};
+        const auto [size, opcode, text] = opcodes.formatOpcode(0xB216);
+        CHECK(text == "jump0 0x216 + v2");
+    }
+}
+
+TEST_CASE("CLI bool options follow their --no- form")
+{
+    std::vector<std::string> args{"test", "--plain", "--negated", "--no-set", "--no-unset", "--explicit", "false", "--no-callback", "--no-enabled"};
+    std::vector<char*> argv;
+    for (auto& arg : args)
+        argv.push_back(arg.data());
+    bool plain = false, negated = false, set = true, unset = false, isExplicit = true, enabled = false, callback = true;
+    ghc::CLI cli(static_cast<int>(argv.size()), argv.data());
+    cli.option({"--plain"}, plain);
+    cli.option({"--negated"}, negated);
+    cli.option({"--set"}, set);
+    cli.option({"--unset"}, unset);
+    cli.option({"--explicit"}, isExplicit);
+    cli.option<bool>({"--callback"}, [&callback](const std::string&, bool& value) { callback = value; });
+    cli.optionEnable({"--no-enabled"}, enabled);
+    cli.parse();
+    CHECK(plain);
+    CHECK(negated);
+    CHECK_FALSE(set);
+    CHECK_FALSE(unset);
+    CHECK_FALSE(isExplicit);
+    CHECK_FALSE(callback);
+    CHECK(enabled);
 }

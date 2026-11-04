@@ -108,7 +108,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FxyF, 0x9000, 2, "sne vX,vY", "if vX == vY then", C8VG_BASE, "skip next opcode if vX != vY (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_Fnnn, 0xA000, 2, "ld i,NNN", "i := NNN", C8VG_BASE, "set I to NNN" },
     { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE - C8V::CHIP_8_I - C8V::CHIP_8_R - C8V::CHIP_8X - C8V::CHIP_8X_TPD - C8V::HI_RES_CHIP_8X - C8V::CHIP_48 - C8V::SCHIP_1_0 - C8V::SCHIP_1_1 - C8V::SCHIP_1_1_SCRUP - C8V::SCHIP_MODERN, "jump to address NNN + v0" },
-    { OT_Fxnn, 0xB000, 2, "jp vX,NNN", "jump0 NNN + vX", C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIP_MODERN, "jump to address XNN + vX" },
+    { OT_Fxnn, 0xB000, 2, "jp vX,NNN", "jump0 XNN + vX", C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIP_MODERN, "jump to address XNN + vX" },
     { OT_FFnn, 0xB000, 2, "dw #b0NN", "0xb0 0xNN", C8V::CHIP_8_I, "output NN to port"},
     { OT_FFnn, 0xBB00, 2, "dw #bbNN", "0xbb 0xNN", C8V::CHIP_8_RB|C8V::CHIP_8E|C8V::CHIP_8_R, "jump backward to address of this instruction minus NN, bb00 is self-jump"},
     { OT_FFnn, 0xBF00, 2, "dw #bfNN", "0xbf 0xNN", C8V::CHIP_8_RB|C8V::CHIP_8E|C8V::CHIP_8_R, "jump forward to address of this instruction plus NN, bf00 is self-jump"},
