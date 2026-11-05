@@ -25,6 +25,7 @@
 //---------------------------------------------------------------------------------------
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -279,7 +280,7 @@ protected:
     uint16_t _height{};
     bool _is89a{};
     bool _isSorted{false};
-    uint8_t _colorResolution{};
+    uint8_t _colorResolution{8};  // bits per primary color, 1-8
     uint8_t _backgroundIndex{};
     uint8_t _aspectRatio{};
     std::string _comment;
@@ -349,7 +350,7 @@ inline bool GifImage::decode(GifImage::ByteView gifData)
     bool hasGCT = *data >> 7;
     _isSorted = (*data >> 3) & 1;
     size_t sizeCT = 1 << ((*data & 7) + 1);
-    _colorResolution = 1 << (((*data++ >> 4) & 7) + 1);
+    _colorResolution = ((*data++ >> 4) & 7) + 1;
     _backgroundIndex = *data++;
     _aspectRatio = *data++;
     if(hasGCT) {
@@ -411,9 +412,9 @@ inline bool GifImage::decode(GifImage::ByteView gifData)
                 frame._isInterlaced = (p & 0x40) != 0;
                 frame._isSorted = (p & 0x20) != 0;
                 if (p & 0x80) {
-                    size_t sizeLCT = 1 << ((*data & 7) + 1);
+                    size_t sizeLCT = 1 << ((p & 7) + 1);
                     for (size_t i = 0; i < sizeLCT; ++i, data += 3) {
-                        frame._palette.push_back((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | 255);
+                        frame._palette.push_back((data[0] << 16) | (data[1] << 8) | data[2]);
                     }
                 }
 #ifdef GIF_DEBUG_OUTPUT
@@ -422,6 +423,9 @@ inline bool GifImage::decode(GifImage::ByteView gifData)
                 std::cout << "Image Data:" << std::endl;
 #endif
                 auto minCode = *data++;
+                if(minCode < 1 || minCode > 11) {
+                    return false;  // can't work with codes of at most 12 bit, a corrupted file
+                }
 #if 1
                 ByteView comp{};
                 SubblockReader sbr(ByteView{data, end});
@@ -493,12 +497,12 @@ inline bool GifImage::encode(GifImage::ByteArray& out)
     // Logical Screen Descriptor
     appendU16(out, _width);
     appendU16(out, _height);
-    int colBitsG = _palette.size() ? std::ceil(std::log(_palette.size()) / std::log(2)) : 1;
+    int colBitsG = _palette.size() ? std::max(1, static_cast<int>(std::ceil(std::log(_palette.size()) / std::log(2)))) : 1;
     appendU8(out, (_palette.size() ? 0x80 : 0) | ((_colorResolution - 1) << 4) | (colBitsG - 1) | (_isSorted ? 8 : 0));
     appendU8(out, _backgroundIndex);
     appendU8(out, _aspectRatio);
     // Global Color Table
-    for(int i = 0; i < (1u<<colBitsG); ++i) {
+    for(int i = 0; !_palette.empty() && i < (1u<<colBitsG); ++i) {
         if(i < _palette.size()) {
             appendU8(out, {static_cast<uint8_t>((_palette[i] >> 16) & 0xff), static_cast<uint8_t>((_palette[i] >> 8u) & 0xffu), static_cast<uint8_t>(_palette[i] & 0xffu)});
         }
@@ -531,7 +535,7 @@ inline bool GifImage::encode(GifImage::ByteArray& out)
             appendU8(out, (frame._isInterlaced ? 0x40 : 0) | (frame._isSorted ? 0x20 : 0));
         }
         else {
-            colBitsL = std::ceil(std::log(frame._palette.size()) / std::log(2));
+            colBitsL = std::max(1, static_cast<int>(std::ceil(std::log(frame._palette.size()) / std::log(2))));
             appendU8(out, (frame._palette.size() ? 0x80 : 0) | (colBitsL - 1) | (frame._isInterlaced ? 0x40 : 0) | (frame._isSorted ? 0x20 : 0));
             // Local Color Table
             for (int i = 0; i < (1u << colBitsL); ++i) {
@@ -544,7 +548,13 @@ inline bool GifImage::encode(GifImage::ByteArray& out)
             }
         }
         // Image Data
-        auto minCodeSize = (frame._palette.empty() ? colBitsG : colBitsL);
+        auto minCodeSize = std::max(2, frame._palette.empty() ? colBitsG : colBitsL);  // GIF doesn't allow less than 2
+        // pixels may be outside of the color table, e.g. when used as the transparent index
+        for(auto pixel : frame._pixels) {
+            while(pixel >= (1u << minCodeSize)) {
+                ++minCodeSize;
+            }
+        }
         appendU8(out, minCodeSize);
         SubblockInserter sbi(out); // Generates sequence of [<lengh> <data>]* 00
         ghc::compression::LzwEncoder lzw(sbi, minCodeSize);

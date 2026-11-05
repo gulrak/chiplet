@@ -453,6 +453,21 @@ Example, a sound for `ldhi` and `digisnd`:
 
 ---
 
+## Cartridges
+
+An Octo cartridge is a GIF file holding a program together with its quirks,
+speed, colors and rotation, so the configuration can't get separated from the
+program:
+
+```
+chiplet --cartridge-label "MY GAME" --cartridge-variant xo-chip -o game.gif game.8o
+```
+
+With `--hex`, the cartridge holds a hex dump of the assembled program instead of
+its source, so emulators can read it without an assembler. See
+[cartridge-format.md](cartridge-format.md) for the format, written for emulator
+authors, and [tools/octocart.py](tools/octocart.py) for a reference decoder.
+
 ## Compiling from Source
 
 _Chiplet_ is written in C++17 and uses CMake as a build solution. To build it,

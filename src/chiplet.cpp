@@ -451,6 +451,7 @@ int main(int argc, char* argv[])
     bool scan = false;
     bool dumpDoubles = false;
     bool cartridgeBuild = false;
+    bool originalCart = false;
     std::string cartridgeLabel;
     std::string cartridgeImage;
     std::string cartridgeOptions;
@@ -470,13 +471,14 @@ int main(int argc, char* argv[])
     cli.option({"-I", "--include-path"}, includePaths, "add directory to include search path");
     cli.option({"-D", "--define"}, defineList, "add a defined option to the preprocessor");
     cli.option({"-o", "--output"}, outputFile, "name of output file, default stdout for preprocessor, a.out.ch8 for binary");
-    cli.option({"--hex"}, hexOutput, "write Intel HEX output instead of raw binary when compiling or relocating");
+    cli.option({"--hex"}, hexOutput, "write Intel HEX output instead of raw binary when compiling or relocating, with a cartridge output, store a hex dump of the assembled program instead of its source");
     cli.option({"--start-address"}, startAddress, "the address the program will be loaded to, the ': main' label address, default is 512");
     cli.optionEnable({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
     cli.option({"--cartridge-label"}, cartridgeLabel, "generate an Octo compatible cartridge gif with the given text label");
     cli.option({"--cartridge-image"}, cartridgeImage, "generate an Octo compatible cartridge gif with the given image as label");
     cli.option({"--cartridge-options"}, cartridgeOptions, "specifies a JSON file that contains the options to use for the cartridge");
     cli.option({"--cartridge-variant"}, cartridgeVariant, "specifies a CHIP-8 variant that will be used to set the options (chip-8, schip, octo, xo-chip)");
+    cli.option({"--original-cart"}, originalCart, "use the original Octo cartridge image for the generated gif instead of the CD48 one");
 
     cli.category("Disassembler/Analyzer");
     cli.option({"--relocate"}, relocateAddress, "relocate one binary or HEX program to this address using execution path tracing").range(0, 0xFFFF);
@@ -536,6 +538,18 @@ int main(int argc, char* argv[])
     }
     else if(!cartridgeLabel.empty() && !cartridgeImage.empty()) {
         std::cerr << "ERROR: Only either --cartridge-label or --cartridge-image, not both are supported!" << std::endl;
+        exit(1);
+    }
+    if(!cartridgeImage.empty()) {
+        std::cerr << "ERROR: --cartridge-image is not supported yet, use --cartridge-label." << std::endl;
+        exit(1);
+    }
+    if(cartridgeBuild && hexOutput && startAddress != 0x200) {
+        std::cerr << "ERROR: A cartridge with --hex is always loaded at address 0x200, --start-address can't change that." << std::endl;
+        exit(1);
+    }
+    if(!cartridgeBuild && (originalCart || !cartridgeOptions.empty() || !cartridgeVariant.empty())) {
+        std::cerr << "ERROR: --original-cart, --cartridge-options and --cartridge-variant need --cartridge-label." << std::endl;
         exit(1);
     }
     if(modes > 1) {
@@ -679,23 +693,24 @@ int main(int argc, char* argv[])
         }
         try {
             if (preprocess || cartridgeBuild) {
-                result = compiler.preprocessFiles(inputList);
+                // a binary only cartridge stores the assembled program, so it has to assemble
+                const bool binaryCartridge = cartridgeBuild && hexOutput;
+                result = binaryCartridge ? compiler.compile(inputList) : compiler.preprocessFiles(inputList);
                 if (result.resultType == emu::CompileResult::eOK) {
-                    std::ostringstream os;
-                    if(cartridgeBuild) {
-                        compiler.dumpSegments(os);
-                    }
-                    if (outputFile.empty())
-                        compiler.dumpSegments(std::cout);
-                    else {
-                        std::ofstream out(outputFile);
-                        compiler.dumpSegments(out);
-                    }
-                    if (outputFile.empty()) {
-                        std::cerr << "ERROR: No output filename given for cartridge output (use -o/--output)." << std::endl;
-                        return 1;
-                    }
                     if (cartridgeBuild) {
+                        if (outputFile.empty()) {
+                            std::cerr << "ERROR: No output filename given for cartridge output (use -o/--output)." << std::endl;
+                            return 1;
+                        }
+                        std::string program;
+                        if(binaryCartridge) {
+                            program = emu::OctoCartridge::binarySource({compiler.code(), compiler.codeSize()});
+                        }
+                        else {
+                            std::ostringstream os;
+                            compiler.dumpSegments(os);
+                            program = os.str();
+                        }
                         emu::OctoCartridge cart(outputFile);
                         if(!cartridgeOptions.empty()) {
                             if(!fs::exists(cartridgeOptions) || fs::is_directory(cartridgeOptions)) {
@@ -715,14 +730,25 @@ int main(int argc, char* argv[])
                             }
                         }
                         else if(!cartridgeVariant.empty()) {
-
+                            if(!cart.setOptionsFromVariant(cartridgeVariant)) {
+                                std::cerr << "ERROR: Unknown cartridge variant '" << cartridgeVariant << "' (use chip-8, schip, octo or xo-chip)." << std::endl;
+                                return 1;
+                            }
                         }
                         else if(result.config) {
                             cart.setOptions(result.config->at("options"));
                         }
-                        cart.saveCartridge(os.str(), cartridgeLabel, {});
-                        // TODO: Finish cartridge generation
-                        return -1;
+                        if(!cart.saveCartridge(program, cartridgeLabel, {}, originalCart ? emu::OctoCartridge::BaseImage::OCTO : emu::OctoCartridge::BaseImage::CD48)) {
+                            std::cerr << "ERROR: Failed to write cartridge file '" << outputFile << "'." << std::endl;
+                            return 1;
+                        }
+                        return 0;
+                    }
+                    if (outputFile.empty())
+                        compiler.dumpSegments(std::cout);
+                    else {
+                        std::ofstream out(outputFile);
+                        compiler.dumpSegments(out);
                     }
                     return 0;
                 }

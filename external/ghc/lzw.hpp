@@ -201,12 +201,13 @@ public:
     {
         assert(numBits <= 16);
         Code result{};
-        if(_from == _to)
-            return {};
         while (_from != _to && _size < numBits) {
             _value |= static_cast<uint32_t>(*_from++) << _size;
             _size += 8;
         }
+        // complete codes may still be buffered when the input is exhausted, a partial one is dropped
+        if (_size < numBits)
+            return {};
         result = _value & ((1 << numBits) - 1);
         _value >>= numBits;
         _size -= numBits;
@@ -243,6 +244,10 @@ public:
     {
         if (_i) {
             write(*_i, _codeSize);
+            // the decoder adds one more entry after this last code and may widen before reading the end code
+            if (_dict.nextCode() == (1u << _codeSize) && _codeSize < 12) {
+                ++_codeSize;
+            }
         }
         write(_dict.endCode(), _codeSize);
         flush();
@@ -250,7 +255,7 @@ public:
     void encode(ByteView bytes)
     {
         for (auto c : bytes) {
-            if(c > (1u<<_minCodeSize)) {
+            if(c >= (1u<<_minCodeSize)) {
                 std::cerr << "ERROR: Data contains values larger than minCodeSize allows!" << std::endl;
                 return;
             }
@@ -267,10 +272,10 @@ public:
                 ++_codeSize;
             }
             if (nextCode >= detail::LzwDict::MAX_ENTRIES) {
+                // the clear code still uses the full width and the stream stays unaligned
+                write(_dict.clearCode(), _codeSize);
                 _dict.reset();
                 _codeSize = _minCodeSize + 1;
-                write(_dict.clearCode(), _codeSize);
-                flush();
             }
         }
     }

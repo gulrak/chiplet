@@ -253,6 +253,7 @@ NLOHMANN_JSON_SERIALIZE_ENUM(OctoOptions::Font, {
     {OctoOptions::Font::Octo, "octo"},
     {OctoOptions::Font::Vip, "vip"},
     {OctoOptions::Font::Dream6800, "dream6800"},
+    {OctoOptions::Font::Eti660, "eti660"},
     {OctoOptions::Font::SChip, "schip"},
     {OctoOptions::Font::FishNChips, "fish"}
 })
@@ -303,6 +304,17 @@ void from_json(const nlohmann::json& j, OctoOptions& opt)
     opt.colors[3] = colorFromJson(j, "blendColor", opt.colors[3]);
     opt.colors[4] = colorFromJson(j, "quietColor", opt.colors[4]);
     opt.colors[5] = colorFromJson(j, "buzzColor", opt.colors[5]);
+    // The palette is an addition for programs with four planes, it wins over the four colors above.
+    if(j.contains("palette") && j["palette"].is_array()) {
+        opt.palette.clear();
+        for(const auto& entry : j["palette"]) {
+            if(opt.palette.size() == OctoOptions::MAX_PALETTE_SIZE)
+                break;
+            opt.palette.push_back(entry.is_string() ? OctoCartridge::getColorFromName(entry.get<std::string>(), 0) : 0);
+        }
+        for(size_t i = 0; i < 4 && i < opt.palette.size(); ++i)
+            opt.colors[i] = opt.palette[i];
+    }
     opt.qShift = boolFromJson(j, "shiftQuirks", opt.qShift);
     opt.qLoadStore = boolFromJson(j, "loadStoreQuirks", opt.qLoadStore);
     opt.qClip = boolFromJson(j, "clipQuirks", opt.qClip);
@@ -332,6 +344,8 @@ void from_json(const nlohmann::json& j, OctoOptions& opt)
 
 void to_json(nlohmann::json& j, const OctoOptions& opt)
 {
+    // Octo only knows the first four colors, they always come from the palette if there is one.
+    auto color = [&opt](size_t index) { return fmt::format("#{:06x}", (index < opt.palette.size() ? opt.palette[index] : opt.colors[index]) & 0xFFFFFF); };
     j = nlohmann::json{
         {"tickrate", opt.tickrate},
         {"shiftQuirks", opt.qShift},
@@ -344,13 +358,19 @@ void to_json(nlohmann::json& j, const OctoOptions& opt)
         {"maxSize", opt.maxRom},
         {"touchInputMode", opt.touchMode},
         {"fontStyle", opt.font},
-        {"fillColor", fmt::format("#{:06x}", opt.colors[1])},
-        {"fillColor2", fmt::format("#{:06x}", opt.colors[2])},
-        {"blendColor", fmt::format("#{:06x}", opt.colors[3])},
-        {"backgroundColor", fmt::format("#{:06x}", opt.colors[0])},
-        {"buzzColor", fmt::format("#{:06x}", opt.colors[5])},
-        {"quietColor", fmt::format("#{:06x}", opt.colors[4])}
+        {"fillColor", color(1)},
+        {"fillColor2", color(2)},
+        {"blendColor", color(3)},
+        {"backgroundColor", color(0)},
+        {"buzzColor", fmt::format("#{:06x}", opt.colors[5] & 0xFFFFFF)},
+        {"quietColor", fmt::format("#{:06x}", opt.colors[4] & 0xFFFFFF)}
     };
+    if(!opt.palette.empty()) {
+        auto palette = nlohmann::json::array();
+        for(size_t i = 0; i < opt.palette.size() && i < OctoOptions::MAX_PALETTE_SIZE; ++i)
+            palette.push_back(fmt::format("#{:06x}", opt.palette[i] & 0xFFFFFF));
+        j["palette"] = palette;
+    }
 }
 
 uint32_t emu::OctoCartridge::getColorFromName(const std::string& name, uint32_t defaultColor)
@@ -368,6 +388,21 @@ uint32_t emu::OctoCartridge::getColorFromName(const std::string& name, uint32_t 
     return defaultColor;
 }
 
+std::string OctoCartridge::binarySource(const DataSpan& code)
+{
+    static constexpr size_t BYTES_PER_LINE = 16;
+    static constexpr char HEX_DIGITS[] = "0123456789abcdef";
+    std::string result = ": main\n";
+    result.reserve(result.size() + code.size() * 5 + 1);
+    for(size_t i = 0; i < code.size(); ++i) {
+        result += "0x";
+        result += HEX_DIGITS[code[i] >> 4];
+        result += HEX_DIGITS[code[i] & 15];
+        result += (i + 1 == code.size() || (i + 1) % BYTES_PER_LINE == 0) ? '\n' : ' ';
+    }
+    return result;
+}
+
 char OctoCartridge::getCartByte(size_t& offset) const
 {
     int size = _width * _height;
@@ -378,6 +413,9 @@ char OctoCartridge::getCartByte(size_t& offset) const
     }
     const auto& frame = _frames[frameNum];
     auto& pal = frame._palette.empty() ? _palette : frame._palette;
+    if(frame._pixels[index] >= pal.size() || frame._pixels[index+1] >= pal.size()) {
+        return 0;
+    }
     uint32_t ca = pal[frame._pixels[index] & 0xff], cb = pal[frame._pixels[index+1] & 0xff];
     uint8_t a=((ca>>13)&8)|((ca>>7)&6)|(ca&1);
     uint8_t b=((cb>>13)&8)|((cb>>7)&6)|(cb&1);
@@ -387,15 +425,58 @@ char OctoCartridge::getCartByte(size_t& offset) const
 
 bool OctoCartridge::loadCartridge()
 {
-    decodeFile(_filename);
+    if(!_filename.empty()) {
+        decodeFile(_filename);
+    }
+    if(_frames.empty() || !_width || !_height) {
+        return false;
+    }
+    // frames covering only a part of the image get composited on the previous one, like Octo and C-Octo do
+    const size_t imageSize = size_t(_width) * _height;
+    for(size_t n = 0; n < _frames.size(); ++n) {
+        auto& frame = _frames[n];
+        if(frame._pixels.size() == imageSize && !frame._left && !frame._top) {
+            continue;
+        }
+        auto pixels = n ? _frames[n - 1]._pixels : std::vector<uint8_t>(imageSize, 0);
+        for(size_t y = 0; y < frame._height && y + frame._top < _height; ++y) {
+            for(size_t x = 0; x < frame._width && x + frame._left < _width; ++x) {
+                const auto src = y * frame._width + x;
+                if(src < frame._pixels.size()) {
+                    pixels[(y + frame._top) * _width + x + frame._left] = frame._pixels[src];
+                }
+            }
+        }
+        frame._pixels = std::move(pixels);
+        frame._left = frame._top = 0;
+        frame._width = _width;
+        frame._height = _height;
+    }
     std::string jsonString;
     size_t offset = 0, length = 0;
     for (int z = 0; z < 4; z++) {
         length = (length << 8) | (getCartByte(offset) & 0xff);
     }
+    if(length + 4 > _frames.size() * imageSize / 2) {
+        return false;  // not a cartridge, this length doesn't fit into the frames
+    }
     for (int z = 0; z < length; z++)
         jsonString.push_back(getCartByte(offset));
     try {
+        if(!nlohmann::json::accept(jsonString)) {
+            // Octo stores one byte per character, so non-ASCII text from there arrives as Latin-1
+            std::string utf8;
+            for(unsigned char c : jsonString) {
+                if(c < 0x80) {
+                    utf8.push_back(static_cast<char>(c));
+                }
+                else {
+                    utf8.push_back(static_cast<char>(0xC0 | (c >> 6)));
+                    utf8.push_back(static_cast<char>(0x80 | (c & 0x3F)));
+                }
+            }
+            jsonString = std::move(utf8);
+        }
         _jsonStr = jsonString;
         auto result = nlohmann::json::parse(jsonString);
         _options = result.value("options", _options);
@@ -406,7 +487,7 @@ bool OctoCartridge::loadCartridge()
     return !_source.empty();
 }
 
-void OctoCartridge::printLabel(const std::string& label)
+void OctoCartridge::printLabel(const std::string& label, uint8_t color)
 {
     // code copied verbatim from c-octo `octo_cartridge.h` by John Earnest:
     // a whimsically impressionistic imitation
@@ -429,9 +510,9 @@ void OctoCartridge::printLabel(const std::string& label)
         else {
             for (int x = 0; x < 6; x++)
                 for (int y = 0; y < 8; y++) {
-                    if ((x + cx > _width - 16) || (y + cy > _height) || ((rand() % 100) > 95) || (!((octo_cart_label_font[(a * 6) + x] >> (7 - y)) & 1)))
+                    if ((x + cx > _width - 16) || (y + cy >= _height) || ((rand() % 100) > 95) || (!((octo_cart_label_font[(a * 6) + x] >> (7 - y)) & 1)))
                         continue;
-                    _frames.back()._pixels[(x + cx) + _width * (y + cy)] = 1;
+                    _frames.back()._pixels[(x + cx) + _width * (y + cy)] = color;
                 }
             cx += 6;
         }
@@ -440,25 +521,40 @@ void OctoCartridge::printLabel(const std::string& label)
     }
 }
 
-bool OctoCartridge::saveCartridge(std::string_view programSource, const std::string& label, const DataSpan& image)
+bool OctoCartridge::saveCartridge(std::string_view programSource, const std::string& label, const DataSpan& image, BaseImage base)
 {
-    decode(ByteView{octo_cart_base_image, octo_cart_base_image + sizeof(octo_cart_base_image)});
+    _frames.clear();
+    _palette.clear();
+    _appExtension.clear();
+    const bool isOctoBase = base == BaseImage::OCTO;
+    const auto baseImage = isOctoBase ? ByteView{octo_cart_base_image, sizeof(octo_cart_base_image)} : ByteView{cd48cart, sizeof(cd48cart)};
+    if(!decode(baseImage) || _frames.empty()) {
+        return false;
+    }
+    _is89a = true;
+    _colorResolution = 8;
     _comment = "made with Chiplet";
     if(!label.empty()){
-        printLabel(label);
+        // the label window of the CD48 image is filled with color 1, so it needs a different ink
+        printLabel(label, isOctoBase ? 1 : 2);
     }
-    auto numColors = std::min(_palette.size(),static_cast<std::vector<uint32_t>::size_type>(16));
-    for (int c = 0; c < numColors; c++) {
+    const auto basePalette = _palette;
+    _palette.assign(basePalette.size() * 16, 0);
+    for (size_t c = 0; c < basePalette.size(); ++c) {
         // use 1 bit from the red/blue channels and 2 from the green channel to store data:
         for (int x = 0; x < 16; x++) {
-            _palette[(16 * c) + x] = (_palette[c] & 0xFEFCFE) | ((x & 0x8) << 13) | ((x & 0x6) << 7) | (x & 1);
+            _palette[(16 * c) + x] = (basePalette[c] & 0xFEFCFE) | ((x & 0x8) << 13) | ((x & 0x6) << 7) | (x & 1);
         }
     }
+    auto baseFrame = std::move(_frames.front());
+    baseFrame._controlExtension = Frame::ControlExtension{Frame::ControlExtension::doNotDispose, false, false, 1, 0};
+    _frames.clear();
     auto json = nlohmann::json{
         {"options", _options},
         {"program", programSource}
     };
-    auto jsonStr = "    " + json.dump();
+    // ASCII only, as Octo maps the payload bytes directly to characters when reading
+    auto jsonStr = "    " + json.dump(-1, ' ', true, nlohmann::json::error_handler_t::replace);
     jsonStr[0] = ((jsonStr.size() - 4) >> 24) & 0xff;
     jsonStr[1] = ((jsonStr.size() - 4) >> 16) & 0xff;
     jsonStr[2] = ((jsonStr.size() - 4) >> 8) & 0xff;
@@ -466,16 +562,15 @@ bool OctoCartridge::saveCartridge(std::string_view programSource, const std::str
     auto frameSize = _width * _height;
     auto frameCount = std::ceil((jsonStr.size() * 2.0) / frameSize);
     for (int z = 0; z < frameCount; ++z) {
-        if (z) {
-            _frames.push_back(_frames.front());
-        }
+        _frames.push_back(baseFrame);
+        auto& pixels = _frames.back()._pixels;
         for (int i = 0; i < frameSize; i++) {
-            auto src = (i + frameSize * z) / 2;                                                    // every byte in the payload becomes 2 pixels
-            auto nibble = src >= jsonStr.size() ? 0 : (jsonStr[src] >> (i % 2 == 0 ? 4 : 0));         // alternate high, low nibbles
-            _frames.back()._pixels[i] = ((_frames.front()._pixels[i] & 0xf) * 16) + (nibble & 0xf);  // multiply out colors and mix in data
+            auto src = (i + frameSize * z) / 2;                                               // every byte in the payload becomes 2 pixels
+            auto nibble = src >= jsonStr.size() ? 0 : (jsonStr[src] >> (i % 2 == 0 ? 4 : 0));  // alternate high, low nibbles
+            pixels[i] = ((baseFrame._pixels[i] & 0xf) * 16) + (nibble & 0xf);                  // multiply out colors and mix in data
         }
     }
-    return false;
+    return writeToFile(_filename);
 }
 
 std::vector<uint32_t> OctoCartridge::getImage() const
@@ -487,7 +582,8 @@ std::vector<uint32_t> OctoCartridge::getImage() const
     for(size_t y = 0; y < _height; ++y) {
         for(size_t x = 0; x < _width; ++x) {
             auto col = frame._pixels[y * _width + x];
-            image[y * _width + x] = ghc::native_to_be(((_palette[col] << 8u) | 255u));
+            const auto& pal = frame._palette.empty() ? _palette : frame._palette;
+            image[y * _width + x] = ghc::native_to_be(((pal[col] << 8u) | 255u));
         }
     }
     return image;
@@ -506,6 +602,28 @@ void OctoCartridge::setOptions(nlohmann::json& options)
 void OctoCartridge::setOptions(OctoOptions& options)
 {
     _options = options;
+}
+
+bool OctoCartridge::setOptionsFromVariant(std::string_view variant)
+{
+    // the compatibility profiles of the Octo options dialog
+    OctoOptions options;
+    if(variant == "chip-8") {
+        options.qClip = options.qLogic = options.qVBlank = true;
+        options.maxRom = 3232;
+    }
+    else if(variant == "schip") {
+        options.qShift = options.qLoadStore = options.qClip = options.qJump0 = true;
+        options.maxRom = 3583;
+    }
+    else if(variant == "xo-chip") {
+        options.maxRom = 65024;
+    }
+    else if(variant != "octo") {
+        return false;
+    }
+    _options = options;
+    return true;
 }
 
 const std::string& OctoCartridge::getSource() const

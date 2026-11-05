@@ -1722,8 +1722,8 @@ void Assembler::compileStatement()
             case TokenId::PLANE: {
                 eat();
                 int n = value4bit();
-                if (n > 3)
-                    _isError = 1, _error = fmt::format("The plane bitmask must be [0,3], was {}.", n);
+                if (n > 15)
+                    _isError = 1, _error = fmt::format("The plane bitmask must be [0,15], was {}.", n);
                 instruction(0xF0 | n, 0x01);
                 break;
             }
