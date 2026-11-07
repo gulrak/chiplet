@@ -1,0 +1,4 @@
+: main
+return
+
+:include "assets/tone96k.wav" megachip
