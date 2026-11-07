@@ -30,9 +30,12 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
+#include <cmath>
 #include <charconv>
 #include <memory>
 
+#include "octo/assembler.hpp"
 #include "octo/assembly_session.hpp"
 #include "octo/preprocessor.hpp"
 
@@ -231,6 +234,101 @@ uint32_t OctoCompiler::lineForAddr(uint32_t addr) const
 std::string_view OctoCompiler::breakpointForAddr(uint32_t addr) const
 {
     return _assemblySession ? _assemblySession->breakpointForAddr(addr) : "";
+}
+
+std::vector<OctoCompiler::MonitorInfo> OctoCompiler::monitors() const
+{
+    std::vector<MonitorInfo> result;
+    if (!_assemblySession || isError())
+        return result;
+    _assemblySession->forEachMonitor([&](std::string_view name, const octo::Monitor& monitor) {
+        MonitorInfo info{.name = std::string(name), .source = monitor.type == 0 ? MonitorInfo::eREGISTER : MonitorInfo::eMEMORY,
+                         .base = static_cast<uint32_t>(monitor.base), .length = monitor.len};
+        for (const auto& field : monitor.format) {
+            auto kind = MonitorInfo::Field::eTEXT;
+            if (field.type != octo::MonitorField::STRING) {
+                switch (field.base) {
+                    case octo::MonitorField::CHAR: kind = MonitorInfo::Field::eCHAR; break;
+                    case octo::MonitorField::BINARY: kind = MonitorInfo::Field::eBINARY; break;
+                    case octo::MonitorField::DECIMAL: kind = MonitorInfo::Field::eDECIMAL; break;
+                    case octo::MonitorField::HEXADECIMAL: kind = MonitorInfo::Field::eHEX; break;
+                }
+            }
+            info.format.push_back({.kind = kind, .text = std::string(field.text), .length = kind == MonitorInfo::Field::eTEXT ? 0 : field.length});
+        }
+        result.push_back(std::move(info));
+    });
+    return result;
+}
+
+std::vector<std::pair<std::string, int64_t>> OctoCompiler::symbolValues() const
+{
+    std::vector<std::pair<std::string, int64_t>> result;
+    if (!_assemblySession || isError())
+        return result;
+    _assemblySession->forEachSymbol([&](std::string_view name, double value) {
+        if (std::isfinite(value) && value == std::floor(value) && std::abs(value) < 9.0e15)
+            result.emplace_back(std::string(name), static_cast<int64_t>(value));
+    });
+    std::ranges::sort(result);
+    return result;
+}
+
+std::string OctoCompiler::MonitorInfo::render(const std::function<uint8_t(uint32_t index)>& read, const std::function<std::string(std::string_view text)>& text) const
+{
+    static constexpr char HEX_DIGITS[] = "0123456789ABCDEF";
+    std::string result;
+    auto appendHex = [&](uint8_t value) {
+        result += HEX_DIGITS[value >> 4];
+        result += HEX_DIGITS[value & 15];
+    };
+    if (format.empty()) {
+        // Octo slices the 16 registers, so a register monitor never shows more than are left
+        const auto count = source == eREGISTER ? std::min(length, 16 - static_cast<int>(std::min(base, 16u))) : length;
+        if (source == eREGISTER)
+            result += "0x";
+        for (int i = 0; i < count; ++i) {
+            if (source == eMEMORY) {
+                if (i)
+                    result += ' ';
+                result += "0x";
+            }
+            appendHex(read(base + i));
+        }
+        return result;
+    }
+    uint32_t index = base;
+    for (const auto& field : format) {
+        switch (field.kind) {
+            case Field::eTEXT:
+                result += text ? text(field.text) : field.text;
+                break;
+            case Field::eCHAR:
+                for (std::size_t i = 0; i < field.length; ++i)
+                    result += static_cast<char>(read(index++) & 0x7F);
+                break;
+            case Field::eBINARY:
+                for (std::size_t i = 0; i < field.length; ++i) {
+                    const auto value = read(index++);
+                    for (int bit = 7; bit >= 0; --bit)
+                        result += (value >> bit) & 1 ? '1' : '0';
+                }
+                break;
+            case Field::eDECIMAL: {
+                // Octo shifts a JavaScript number, so it keeps the last four bytes as int32
+                uint32_t value = 0;
+                for (std::size_t i = 0; i < field.length; ++i)
+                    value = (value << 8) | read(index++);
+                result += std::to_string(static_cast<int32_t>(value));
+                break;
+            }
+            case Field::eHEX:
+                for (std::size_t i = 0; i < field.length; ++i)
+                    appendHex(read(index++));
+                break;
+        }
+    }
+    return result;
 }
 
 void OctoCompiler::reset()

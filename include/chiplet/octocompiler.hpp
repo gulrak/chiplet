@@ -25,7 +25,9 @@
 //---------------------------------------------------------------------------------------
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <string>
 #include <string_view>
 #include <memory>
 #include <optional>
@@ -58,6 +60,29 @@ public:
         SymbolType type;
         Value value;
     };
+    // A `:monitor` directive, see the Octo manual. Fields of a format are consecutive bytes
+    // starting at the base, an index past the registers or memory reads as 0.
+    struct MonitorInfo
+    {
+        enum Source { eMEMORY, eREGISTER };
+        struct Field
+        {
+            enum Kind { eTEXT, eCHAR, eBINARY, eDECIMAL, eHEX };
+            Kind kind{eTEXT};
+            std::string text;     // the literal for eTEXT, the directive (like `%2i`) otherwise
+            std::size_t length{0}; // bytes used by the field, 0 for eTEXT
+        };
+        std::string name;
+        Source source{eMEMORY};
+        uint32_t base{0};  // address or register index
+        int length{-1};    // bytes/registers shown, -1 when the format is used
+        std::vector<Field> format;
+        // Renders like Octo: memory as `0x12 0x34`, registers as `0x1234`, formats with `%i` as
+        // big-endian signed 32 bit, `%x`/`%b` zero padded per byte and `%c` as 7 bit ASCII.
+        // `read(index)` gets base + offset and returns the memory byte or register for the source.
+        // `text`, if given, formats the literal parts, so a debugger can expand `{...}` in them.
+        std::string render(const std::function<uint8_t(uint32_t index)>& read, const std::function<std::string(std::string_view text)>& text = {}) const;
+    };
     enum Mode { eC_OCTO };
     explicit OctoCompiler(Mode mode = eC_OCTO);
     ~OctoCompiler();
@@ -85,6 +110,9 @@ public:
     std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
     uint32_t lineForAddr(uint32_t addr) const;
     std::string_view breakpointForAddr(uint32_t addr) const;
+    std::vector<MonitorInfo> monitors() const;  // in order of definition, empty after an error
+    // Labels and constants with an integer value, empty after an error
+    std::vector<std::pair<std::string, int64_t>> symbolValues() const;
 
 private:
     const CompileResult& doCompileOcto(const std::string& filename, const char* source, const char* end);

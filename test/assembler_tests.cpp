@@ -8,6 +8,7 @@
 
 #include "../src/octo/assembler.hpp"
 #include "../src/octo/preprocessor.hpp"
+#include <chiplet/octocompiler.hpp>
 
 using Data = std::vector<uint8_t>;
 
@@ -181,6 +182,132 @@ return
             CHECK(assembler.errorLine() == 2);
             CHECK(assembler.errorPos() == 13);
         }
+    }
+
+    TEST_CASE("OctoCompiler lists monitors in definition order and renders them like Octo")
+    {
+        // monitors can't reference labels that are defined later, the jump to main puts data at 0x202
+        const std::string source = R"(
+: data
+: text
+0 0
+: main
+:monitor v0 "x:%i y:%2i"
+:monitor data 4
+:monitor v2 3
+:monitor text "%3c|%x|%b"
+:monitor v0 "again %x"
+:monitor data "%4i"
+return
+)";
+        emu::OctoCompiler compiler;
+        compiler.compile("monitors.8o", std::span<const char>{source.data(), source.size()});
+        INFO(compiler.compileResult().errorMessage);
+        REQUIRE_FALSE(compiler.isError());
+        const auto monitors = compiler.monitors();
+        REQUIRE(monitors.size() == 4);
+        // a redefinition replaces the monitor but keeps its place
+        CHECK(monitors[0].name == "v0");
+        CHECK(monitors[0].source == emu::OctoCompiler::MonitorInfo::eREGISTER);
+        CHECK(monitors[1].name == "data");
+        CHECK(monitors[1].source == emu::OctoCompiler::MonitorInfo::eMEMORY);
+        CHECK(monitors[1].base == 0x202);
+        CHECK(monitors[2].name == "v2");
+        CHECK(monitors[2].length == 3);
+        CHECK(monitors[3].name == "text");
+        REQUIRE(monitors[3].format.size() == 5);
+        CHECK(monitors[3].format[0].kind == emu::OctoCompiler::MonitorInfo::Field::eCHAR);
+        CHECK(monitors[3].format[0].length == 3);
+        CHECK(monitors[3].format[1].kind == emu::OctoCompiler::MonitorInfo::Field::eTEXT);
+        CHECK(monitors[3].format[1].text == "|");
+
+        const uint8_t v[16] = {0x12, 0xAB, 0x01, 0x02, 0x03};
+        auto reg = [&](uint32_t index) -> uint8_t { return index < 16 ? v[index] : 0; };
+        auto mem = [](uint32_t index) -> uint8_t { return index == 0x202 ? 0xFF : static_cast<uint8_t>('A' + (index - 0x202)); };
+        CHECK(monitors[0].render(reg) == "again 12");
+        CHECK(monitors[1].render(mem) == "-12434620");  // 0xFF424344 as int32
+        CHECK(monitors[2].render(reg) == "0x010203");
+        CHECK(monitors[3].render(mem) == "\x7F" "BC|44|01000101");
+
+        emu::OctoCompiler::MonitorInfo memory{.name = "m", .source = emu::OctoCompiler::MonitorInfo::eMEMORY, .base = 0x202, .length = 3};
+        CHECK(memory.render(mem) == "0xFF 0x42 0x43");
+        emu::OctoCompiler::MonitorInfo tail{.name = "v14", .source = emu::OctoCompiler::MonitorInfo::eREGISTER, .base = 14, .length = 4};
+        CHECK(tail.render(reg) == "0x0000");  // only v14 and v15, like Octo's slice
+        emu::OctoCompiler::MonitorInfo decimal{.name = "v0", .source = emu::OctoCompiler::MonitorInfo::eREGISTER, .base = 0,
+                                               .format = {{.kind = emu::OctoCompiler::MonitorInfo::Field::eDECIMAL, .text = "%2i", .length = 2}}};
+        CHECK(decimal.render(reg) == "4779");  // 0x12AB
+    }
+
+    TEST_CASE("monitor formats keep {} placeholders as text, also without a %")
+    {
+        const std::string source = R"(
+: data
+	1 2 3
+: main
+:monitor data "a{v1:%2i}b%i{{c}}"
+:monitor v3 "only {v3:02x}"
+return
+)";
+        emu::OctoCompiler compiler;
+        compiler.compile("placeholders.8o", std::span<const char>{source.data(), source.size()});
+        INFO(compiler.compileResult().errorMessage);
+        REQUIRE_FALSE(compiler.isError());
+        const auto monitors = compiler.monitors();
+        REQUIRE(monitors.size() == 2);
+        using Field = emu::OctoCompiler::MonitorInfo::Field;
+        REQUIRE(monitors[0].format.size() == 3);
+        CHECK(monitors[0].format[0].kind == Field::eTEXT);
+        CHECK(monitors[0].format[0].text == "a{v1:%2i}b");
+        CHECK(monitors[0].format[1].kind == Field::eDECIMAL);
+        CHECK(monitors[0].format[1].length == 1);
+        CHECK(monitors[0].format[2].text == "{{c}}");
+        REQUIRE(monitors[1].format.size() == 1);
+        CHECK(monitors[1].format[0].text == "only {v3:02x}");
+        CHECK(monitors[1].length == -1);
+
+        auto mem = [](uint32_t index) -> uint8_t { return static_cast<uint8_t>(index & 0xFF); };
+        CHECK(monitors[0].render(mem) == "a{v1:%2i}b2{{c}}");  // data is at 0x202 after the jump to main
+        auto upper = [](std::string_view text) { return "<" + std::string(text) + ">"; };
+        CHECK(monitors[0].render(mem, upper) == "<a{v1:%2i}b>2<{{c}}>");
+    }
+
+    TEST_CASE("OctoCompiler exports labels and integer constants")
+    {
+        const std::string source = R"(
+:const SPEED 3
+:calc HALF { 1 / 2 }
+:calc STEPS { SPEED * 4 }
+: main
+	jump main
+: ship
+	0xFF
+)";
+        emu::OctoCompiler compiler;
+        compiler.compile("symbols.8o", std::span<const char>{source.data(), source.size()});
+        INFO(compiler.compileResult().errorMessage);
+        REQUIRE_FALSE(compiler.isError());
+        const auto symbols = compiler.symbolValues();
+        auto find = [&](std::string_view name) -> std::optional<int64_t> {
+            for (const auto& [symbol, value] : symbols)
+                if (symbol == name)
+                    return value;
+            return std::nullopt;
+        };
+        CHECK(find("SPEED") == 3);
+        CHECK(find("STEPS") == 12);
+        CHECK(find("main") == 0x200);
+        CHECK(find("ship") == 0x202);
+        CHECK_FALSE(find("HALF").has_value());
+        CHECK(std::ranges::is_sorted(symbols));
+    }
+
+    TEST_CASE("OctoCompiler has no monitors after an error")
+    {
+        const std::string source = ":monitor v0 \"%q\"\n: main\nreturn\n";
+        emu::OctoCompiler compiler;
+        compiler.compile("broken.8o", std::span<const char>{source.data(), source.size()});
+        CHECK(compiler.isError());
+        CHECK(compiler.monitors().empty());
     }
 
     TEST_CASE("Octo stringmode expands supplementary characters as UTF-16 units")

@@ -65,6 +65,7 @@
 #include <cmath>
 #include <array>
 #include <deque>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <stack>
@@ -162,6 +163,19 @@ public:
         const auto iter = monitors.find(name);
         return iter == monitors.end() ? nullptr : &iter->second;
     }
+    // Monitor names in the order of their first definition, like Octo lists them.
+    const std::vector<std::string_view>& monitorNames() const { return monitorOrder; }
+    // Program labels and constants (`:const`, `:calc` with their final value), a constant wins
+    // over a label of the same name like in value lookups.
+    void forEachSymbol(const std::function<void(std::string_view name, double value)>& visitor) const
+    {
+        for (const auto& [name, address] : _programLabels) {
+            if (!constants.contains(name))
+                visitor(name, address);
+        }
+        for (const auto& [name, constant] : constants)
+            visitor(name, constant.value);
+    }
 
 private:
     static double sign(double x) { return (0.0 < x) - (x < 0.0); }
@@ -250,6 +264,7 @@ private:
     // debugging
     std::unordered_map<uint32_t, std::string_view> breakpoints{};
     std::unordered_map<std::string_view, Monitor> monitors{};
+    std::vector<std::string_view> monitorOrder{};
 
 };
 

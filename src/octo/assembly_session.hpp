@@ -25,12 +25,16 @@
 //---------------------------------------------------------------------------------------
 #pragma once
 
+#include <functional>
 #include <string>
+#include <string_view>
 #include <memory>
 
 #include "chiplet/sha1.hpp"
 
 namespace octo {
+
+struct Monitor;
 
 class AssemblySession
 {
@@ -51,6 +55,8 @@ public:
     std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
     uint32_t lineForAddr(uint32_t addr) const;
     std::string_view breakpointForAddr(uint32_t addr) const;
+    void forEachMonitor(const std::function<void(std::string_view name, const Monitor& monitor)>& visitor) const;
+    void forEachSymbol(const std::function<void(std::string_view name, double value)>& visitor) const;
 
 private:
     void updateHash();

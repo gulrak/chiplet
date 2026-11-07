@@ -1312,6 +1312,8 @@ void Assembler::compile_statement()
 // Parses directives of the form: %<len?>[bixc]
 // - len omitted => 1
 // - positive lengths can span multiple characters or more than four bytes
+// - `{...}` placeholders are a Chiplet extension evaluated by the debugger, they stay
+//   part of the literal text, including a `%` inside them; `{{` is a literal brace
 // Field text references the assembler's interned format string.
 inline std::vector<MonitorField> parseMonitorFormat(std::string_view format)
 {
@@ -1319,6 +1321,15 @@ inline std::vector<MonitorField> parseMonitorFormat(std::string_view format)
     std::size_t literalBegin = 0;
     std::size_t offset = 0;
     for (std::size_t index = 0; index < format.size(); ++index) {
+        if (format[index] == '{') {
+            if (index + 1 < format.size() && format[index + 1] == '{') {
+                ++index;
+            }
+            else if (const auto close = format.find('}', index + 1); close != std::string_view::npos) {
+                index = close;
+            }
+            continue;
+        }
         if (format[index] != '%')
             continue;
         detail::pushLiteral(fields, format, literalBegin, index, offset);
@@ -1520,7 +1531,9 @@ void Assembler::compileStatement()
                 const bool registerMonitor = peekIsRegister();
                 const auto base = registerMonitor ? registerOrAlias() : value16bit(0, 0);
                 const auto formatToken = peek();
-                const bool hasFormat = formatToken.isText() && formatToken.strValue.find('%') != std::string_view::npos;
+                // Octo takes a string as format only when it has a `%`, a string without one is a
+                // Chiplet extension (only `{...}` placeholders), anything else is a length
+                const bool hasFormat = formatToken.type == Token::Type::STRING;
                 const auto length = hasFormat ? -1 : registerMonitor ? value4bit() : value16bit(0, 0);
                 std::vector<MonitorField> fields;
                 if (hasFormat && !_isError) {
@@ -1535,8 +1548,8 @@ void Assembler::compileStatement()
                         _error = error.what();
                     }
                 }
-                if (!_isError)
-                    monitors.insert_or_assign(name, Monitor{registerMonitor ? 0 : 1, base, length, std::move(fields)});
+                if (!_isError && monitors.insert_or_assign(name, Monitor{registerMonitor ? 0 : 1, base, length, std::move(fields)}).second)
+                    monitorOrder.push_back(name);
                 break;
             }
             case TokenId::ASSERT: {

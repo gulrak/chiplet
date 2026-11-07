@@ -118,6 +118,22 @@ std::string_view AssemblySession::breakpointForAddr(uint32_t addr) const
     return "";
 }
 
+void AssemblySession::forEachMonitor(const std::function<void(std::string_view name, const Monitor& monitor)>& visitor) const
+{
+    if (!_impl->_assembler || isError())
+        return;
+    for (const auto name : _impl->_assembler->monitorNames()) {
+        if (const auto* monitor = _impl->_assembler->monitorInfo(name))
+            visitor(name, *monitor);
+    }
+}
+
+void AssemblySession::forEachSymbol(const std::function<void(std::string_view name, double value)>& visitor) const
+{
+    if (_impl->_assembler && !isError())
+        _impl->_assembler->forEachSymbol(visitor);
+}
+
 void AssemblySession::updateHash()
 {
     char hex[SHA1_HEX_SIZE];

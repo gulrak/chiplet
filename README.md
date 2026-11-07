@@ -540,3 +540,80 @@ cmake --build build-w64dev
   O. Smith III
 * [tl::expected](https://github.com/TartanLlama/expected) - A lightweight
   implementation of the C++23 std::expected type for error handling by TartanLlama.
+
+
+Experimental hybrid ROM assembly
+-------------------------------
+
+Chiplet accepts inline CDP1802 assembly in Octo programs:
+
+```octo
+:const BG_PORT 1
+
+: main
+    native inc_bgcol
+    loop again
+
+: inc_bgcol
+    :asm cdp1802 {
+        SEX R9
+        OUT BG_PORT
+        SEP R4
+    }
+```
+
+The block emits its native bytes at the current Octo address. It does not
+insert a call, return, alignment, or padding. Use Octo's `native label` for a
+CHIP-8 `0nnn` call, and the target interpreter's return convention inside the
+block. `SEP R4` is appropriate for the ETI-660 example; the convention is not
+chosen automatically from the CPU name.
+
+The existing CDP1802 assembler handles native syntax. Statements are separated
+by newlines or semicolons; hexadecimal numbers use `#39` or `X'39'`; native
+comments start with `..`. Octo `#` comments, directives, macros, and macro
+argument substitutions are not interpreted inside the block. Braces inside
+native strings and comments do not terminate the block. The preprocessor
+preserves the complete block, including in included files and Octo macros.
+Each expansion of a block gets independent native local symbols.
+
+Previously defined Octo numeric constants, calculated values, and labels are
+readable inside the block. Their values are captured at that occurrence of the
+block. Forward references to Octo labels are also supported, including labels
+in later native routines. Forward references to later `:const`/`:calc`
+definitions are not supported. Native names use letters, digits, and
+underscores, starting with a letter or underscore. Shared symbol spelling is
+case-sensitive; CPU mnemonics and register names are case-insensitive. CPU
+register names are reserved within native assembly. Imported values must be
+finite integers that fit the operand being encoded.
+
+Native labels (`name:`) and equates (`name = expression`, `name EQU expression`)
+are local to their block and may shadow imported symbols. They are never
+exported into Octo. Put an outer Octo label before each block for externally
+callable entry points. Native expressions use the CDP1802 expression grammar,
+including `+`, `-`, the current statement address `*`/`$`, and `A.1(expr)` /
+`A.0(expr)` to select an address's high / low byte.
+
+This first version accepts only `cdp1802` and requires contiguous blocks with a
+fixed size in the 16-bit address space. Native `ORG`, `PAGE`, and `END` are
+rejected; use outer Octo `:org` for placement. No instruction relaxation is
+performed. Short branches must target the page containing their operand;
+otherwise use a long branch. Data width is explicit: bare `DB`/`DC` expressions
+and `A.0`/`A.1` emit one byte, `A(expr)` emits a two-byte big-endian address,
+and text emits its bytes. An out-of-range byte is an error instead of widening
+it after layout.
+
+Octo reserves a native block's size during layout and reassembles it at its
+actual address once the program's labels are known. Errors point into the
+native source, including included files; source maps cover individual native
+instructions.
+
+The example `test/hybrid/wipeout-eti660.8o` reconstructs W. F. Kreykes's
+ETI-660 Wipeout hybrid using three native blocks and symbolic CHIP-8 references:
+
+```sh
+chiplet --start-address 1536 -o wipeout.ch8 test/hybrid/wipeout-eti660.8o
+```
+
+The result is exactly 606 bytes, identical to the supplied original image:
+SHA-256 `e7c71e4f3fd9839204429f6d00b1361b83ceb71fd4c6c08aae4db5fa46e13913`.
+The original-image comparison is included in the hybrid regression tests.
