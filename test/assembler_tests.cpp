@@ -3,6 +3,7 @@
 //
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <numeric>
 #include <sstream>
 
