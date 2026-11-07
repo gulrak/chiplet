@@ -16,6 +16,7 @@ _A commandline multitool for CHIP-8 variant development_
     * [Conditional Assembly](#conditional-assembly)
     * [Inclusion of Files](#inclusion-of-files)
     * [Inclusion of Images](#inclusion-of-images)
+  * [Cartridges](#cartridges)
   * [Compiling from Source](#compiling-from-source)
     * [Linux / macOS](#linux--macos)
     * [Windows](#windows)
