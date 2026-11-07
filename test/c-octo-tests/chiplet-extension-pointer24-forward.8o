@@ -1,0 +1,5 @@
+: main
+:pointer24 target
+:org { 65536 }
+: target
+return

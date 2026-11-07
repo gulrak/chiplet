@@ -1,0 +1,3 @@
+: main
+:monitor v0 "%5x"
+return

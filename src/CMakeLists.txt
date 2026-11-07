@@ -1,26 +1,51 @@
 set(CHIPLET_LIBRARY_SOURCE
-    ../include/chiplet/chip8compiler.hpp
     ../include/chiplet/chip8decompiler.hpp
     ../include/chiplet/chip8meta.hpp
     ../include/chiplet/chip8variants.hpp
+    ../include/chiplet/compileresult.hpp
+    ../include/chiplet/hexfile.hpp
     ../include/chiplet/octocompiler.hpp
     ../include/chiplet/octocartridge.hpp
+    ../include/chiplet/chunkedmemory.hpp
+    ../include/chiplet/decoder/saturndecoder.hpp
 
-    octo_compiler.cpp
-    chip8compiler.cpp
+    octo/lexer.cpp
+    octo/lexer.hpp
+    octo/preprocessor.cpp
+    octo/preprocessor.hpp
+    octo/assembler.cpp
+    octo/assembly_session.hpp
+    octo/assembly_session.cpp
+    cdp1802/lexer.cpp
+    cdp1802/lexer.hpp
+    cdp1802/assembler.cpp
+    cdp1802/assembler.hpp
+    cdp1802/assembly_session.cpp
+    cdp1802/assembly_session.hpp
     chip8decompiler.cpp
     octocompiler.cpp
     octocartridge.cpp
+    chunkedmemory.cpp
+    stb_image.cpp
+    decoder/saturndecoder.cpp
 )
 
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -fsanitize=undefined -fsanitize=address")
 
 add_library(chiplet-lib STATIC ${CHIPLET_LIBRARY_SOURCE})
+if (WIN32)
+    target_compile_definitions(chiplet-lib PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
 target_include_directories(chiplet-lib PUBLIC ${PROJECT_SOURCE_DIR}/include/)
-target_link_libraries(chiplet-lib PUBLIC ghc_filesystem fmt::fmt fast_float)
+target_link_libraries(chiplet-lib PUBLIC ghc_filesystem fmt::fmt fast_float libresample tl::expected)
 #target_link_options(chiplet-lib
 #        BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address
 #)
+
+
+add_library(chiplet-utility INTERFACE)
+target_include_directories(chiplet-utility INTERFACE ${PROJECT_SOURCE_DIR}/include/ ${PROJECT_SOURCE_DIR}/external)
+target_link_libraries(chiplet-utility INTERFACE ghc_filesystem)
 
 add_executable(chiplet chiplet.cpp)
 target_compile_definitions(chiplet PUBLIC CHIPLET_VERSION="${PROJECT_VERSION}" CHIPLET_HASH="${GIT_COMMIT_HASH}")

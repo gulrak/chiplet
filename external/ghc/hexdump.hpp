@@ -27,10 +27,10 @@
 //---------------------------------------------------------------------------------------
 #pragma once
 
+#include <cstdint>
 #include <iomanip>
 #include <ostream>
 #include <string>
-#include <cstdint>
 
 namespace ghc {
 

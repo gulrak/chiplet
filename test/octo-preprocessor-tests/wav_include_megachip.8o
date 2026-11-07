@@ -1,0 +1,7 @@
+: main
+i := tone
+return
+
+:segment data
+:include "assets/tone.wav" megachip
+0xAA

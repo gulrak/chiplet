@@ -1,0 +1,4 @@
+:macro v0 { clear }
+: main
+v0
+return

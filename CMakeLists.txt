@@ -6,13 +6,17 @@ cmake_policy(VERSION 3.16)
 include(cmake/BuildSettings.cmake)
 include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
 
+add_compile_definitions(NOMINMAX)
+
 include_directories(${PROJECT_SOURCE_DIR}/external)
 add_subdirectory(external/ghc/test)
+add_subdirectory(external/libresample)
 
 enable_testing()
 
 add_subdirectory(src)
 add_subdirectory(test)
+add_subdirectory(tools)
 
 get_directory_property(hasParent PARENT_DIRECTORY)
 if(NOT hasParent)

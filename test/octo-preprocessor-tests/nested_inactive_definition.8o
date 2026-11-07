@@ -1,0 +1,14 @@
+:const OFF 0
+:const ON 1
+: main
+:if OFF
+    :if ON
+        :const LEAKED 1
+    :end
+:end
+:if LEAKED
+    v0 := 9
+:else
+    v0 := 1
+:end
+return

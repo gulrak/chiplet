@@ -1,0 +1,5 @@
+: main
+:org 4096
+if v0 == 1 begin
+clear
+end

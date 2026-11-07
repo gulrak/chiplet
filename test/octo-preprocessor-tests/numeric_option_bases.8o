@@ -1,0 +1,14 @@
+:const HEX 0x1
+:const BIN 0b1
+:const NEGATIVE -1
+: main
+:if HEX
+    v0 := 1
+:end
+:if BIN
+    v1 := 2
+:end
+:if NEGATIVE
+    v2 := 3
+:end
+return

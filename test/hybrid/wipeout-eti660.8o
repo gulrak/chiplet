@@ -1,0 +1,460 @@
+# WIPEOUT for the ETI-660, by W. F. Kreykes (1982).
+# Experimental mixed Octo / CDP1802 source for Chiplet.
+# Transcribed from wipeout-eti660-hybrid.lst.
+# Build: chiplet --start-address 1536 -o wipeout.ch8 wipeout-eti660.8o
+# Exactly 606 bytes at 0x0600..0x085D.
+# SHA-256: e7c71e4f3fd9839204429f6d00b1361b83ceb71fd4c6c08aae4db5fa46e13913
+# Native routines use SEP R4 to return to ETI's CHIP-8 interpreter.
+# FX00 tone-latch instructions are emitted as two raw bytes.
+# Two instruction bytes also serve as sprites; preserve their locations.
+
+:const BG_PORT 1
+:const PIA_CTRL_PORT 2
+:const COLOR_PORT 3
+
+
+: main
+    color_setup                         # CHIP-8 call to color_setup at 0x822; replacing with 00FF omits color setup
+    v0 := 0x00
+    store_high_score
+
+: new_game
+    clear                               # clear bitmap; color RAM remains set up by the preceding call
+    vc := 0x0a
+    vd := 0x00
+    i := marker_sprite
+    sprite vc vd 0x6
+    vc := 0x1e
+    sprite vc vd 0x6
+    vc := 0x32
+    sprite vc vd 0x6
+    i := divider_sprite
+    vd := 0x06
+    jump draw_divider_row
+
+: divider_rows
+    i := dot_row_sprite                 # sprite source is byte 0x6B5, inside a CHIP-8 instruction
+
+: draw_divider_row
+    vc := 0x00
+
+: draw_divider_dot
+    sprite vc vd 0x1
+    vc += 0x08
+    0xfd 0x00                           # ETI tone latch := vd; native OUT 4 (two-byte instruction)
+    buzzer := vd
+    if vc != 0x40 then
+    jump draw_divider_dot
+    vd += 0x03
+    if vd != 0x27 then
+    jump divider_rows
+    v0 := 0xfe
+    i := bat_sprite
+    save v0                             # mutable bat sprite at 0x7A5
+    i := bat_sprite
+    v8 := 0x1c
+    v9 := 0x2e
+    sprite v8 v9 0x1
+    v7 := 0x0f
+    vd := 0x00
+    load_high_score
+    v6 := 0x00
+    show_balls
+
+: prepare_serve
+    v3 := 0x2c
+    vb := 0x3e
+    vb &= v8
+    if v7 == 0x00 then
+    jump game_over
+
+: wait_launch
+    vf := key
+    if vf == 0x0a then
+    jump serve
+    if vf != 0x0d then
+    jump wait_launch
+
+: serve
+    show_round_score
+    vd := 0x00
+    show_balls
+    v7 += 0xff
+    show_balls
+
+: draw_ball
+    i := ball_sprite                    # ball sprite source 0x6D2 is also a CHIP-8 opcode byte
+    sprite vb v3 0x1
+    v5 := 0xff
+    v4 := random 0x01
+    if v4 != 0x01 then
+    v4 := 0xff
+
+: move_bat
+    i := bat_sprite
+    vc := 0x00
+    ve := 0x0a
+    if ve key then
+    jump move_left
+    ve := 0x0d
+    if ve -key then
+    jump check_collision
+    if v8 == 0x3a then
+    jump check_collision
+    sprite v8 v9 0x1
+    vc += 0x02
+    jump redraw_bat
+
+: move_left
+    if v8 == 0x00 then
+    jump check_collision
+    sprite v8 v9 0x1
+    vc += 0xfe
+
+: redraw_bat
+    v8 += vc
+    sprite v8 v9 0x1
+
+: check_collision
+    if vf == 0x01 then
+    jump hit_bat
+    if vb == 0x00 then
+    v4 := 0x01
+    if vb == 0x3e then
+    v4 := 0xff
+    if v3 == 0x06 then
+    v5 := 0x01
+    if v3 == 0x2e then
+    jump ball_lost
+    i := ball_sprite
+    sprite vb v3 0x1
+:next dot_row_sprite                    # low byte of the following instruction
+    vb += v4                            # byte 0x6B5 (54) doubles as the dot-row sprite
+    v3 += v5
+    sprite vb v3 0x1
+    if vf != 0x01 then
+    jump move_bat
+    if v3 == 0x2e then
+    jump hit_bat
+    0xfb 0x00                           # ETI tone latch := vb; native OUT 4 (two-byte instruction)
+    va := 0x02
+    buzzer := va
+    vd += 0x01
+    if vd == 0x0a then
+    award_balls
+    if vd == 0x14 then
+    award_balls
+
+: ball_sprite
+    v0 := vd                            # byte 0x6D2 (80) doubles as the ball sprite
+    v0 += v6
+    if v0 == 0xc8 then
+    jump final_score
+    if v0 != 0x64 then
+    jump restart_ball
+    i := bat_sprite
+    sprite v8 v9 0x1
+    va := 0x05
+    v1 := 0x10
+    0xfa 0x00                           # ETI tone latch := va; native OUT 4 (two-byte instruction)
+    buzzer := v1
+    v0 := 0xf8
+    save v0
+    i := bat_sprite
+    sprite v8 v9 0x1
+
+: restart_ball
+    i := ball_sprite
+    sprite vb v3 0x1
+    v4 := random 0x01
+    if v4 != 0x01 then
+    v4 := 0xff
+    v5 := random 0x01
+    if v5 != 0x01 then
+    v5 := 0xff
+    jump move_bat
+
+: hit_bat
+    0xf9 0x00                           # ETI tone latch := v9; native OUT 4 (two-byte instruction)
+    va := 0x03
+    buzzer := va
+    i := ball_sprite
+    sprite vb v3 0x1
+    v3 += 0xff
+    jump draw_ball
+
+: ball_lost
+    i := ball_sprite
+    sprite vb v3 0x1
+    commit_score
+    jump prepare_serve
+
+: commit_score
+    show_round_score
+    show_total
+    v6 += vd
+
+: show_total
+    ve := 0x23
+    v0 := v6
+
+: show_number
+    va := 0x00                          # three decimal score digits are written to 0x7AD..0x7AF
+    i := color_args
+    bcd v0
+    load v2
+    if v0 == 0x00 then
+    jump skip_leading_zeros
+    i := hex v0
+    draw_digit
+
+: show_tens
+    i := hex v1
+    draw_digit
+
+: show_units
+    i := hex v2
+
+: draw_digit
+    sprite ve va 0x5
+    ve += 0x05
+    return
+
+: skip_leading_zeros
+    if v1 != 0x00 then
+    jump show_tens
+    if v2 != 0x00 then
+    jump show_units
+    return
+
+: show_round_score
+    ve := 0x00
+    v0 := vd
+    jump show_number
+
+: award_balls
+    show_balls
+    if vd != 0x0a then
+    v7 += 0x01
+    v7 += 0x01
+
+: show_balls
+    ve := 0x38
+    v0 := v7
+    jump show_number
+
+: final_score
+    commit_score
+
+: game_over
+    i := bat_sprite
+    sprite v8 v9 0x1
+    i := high_score
+    load v0
+    v0 -= v6
+    if vf == 0x00 then
+    update_high_score
+    va := 0x00
+    i := bat_sprite
+
+: wipe_bat
+    sprite va v9 0x1
+    va += 0x08
+    if va != 0x40 then
+    jump wipe_bat
+
+: wait_wipe
+    v7 := 0x03
+    delay := v7
+
+: wait_timer
+    v7 := delay
+    0xfa 0x00                           # ETI tone latch := va; native OUT 4 (two-byte instruction)
+    buzzer := va
+    if v7 != 0x00 then
+    jump wait_timer
+    i := ball_sprite
+    sprite va v9 0x1
+    va += 0xff
+    if va != 0x00 then
+    jump wait_wipe
+    jump new_game
+
+: update_high_score
+    load_high_score
+    v0 := v6
+
+: store_high_score
+    i := high_score
+    save v0
+
+: load_high_score
+    i := high_score
+    load v0
+    ve := 0x0f
+    jump show_number
+
+: divider_sprite
+    0xBA                                # divider sprite
+
+: bat_sprite
+    0xAA                                # bat sprite; changed at runtime to FE, then F8 as bat shrinks
+
+: marker_sprite
+    0x60                                # six-byte marker sprite: 60 F0 F0 F0 60 00
+    0xF0
+    0xF0
+    0xF0
+    0x60
+    0x00
+
+: high_score
+    0x00                                # mutable high score
+
+: color_args
+    0x00                                # shared scratch: BCD digits or saved v0/color
+    0x00                                # shared scratch: BCD digits or saved v1/column
+    0x00                                # shared scratch: BCD digits or saved v2/row
+
+: set_color_cell
+    i := color_args                     # save v0, v1, v2 to scratch for the native routine
+    save v2
+    native write_color_cell             # 0NNN native call to 0x7C8, not a CHIP-8 2NNN call
+    return                              # CHIP-8 return to the caller of the wrapper
+
+: enable_color
+    :asm cdp1802 {
+        LDI #39                         .. RF := 0x0439 using interpreter RAM-page register R6
+        PLO RF
+        GHI R6
+        PHI RF
+        SEX RF
+        LDI #2C                         .. PIA value 2C is 34 after the board reverses the data bits
+        STR RF
+        OUT PIA_CTRL_PORT               .. OUT 2 at 0x439 selects PIA control A; CA2 low enables color
+        DEC RF                          .. OUT incremented RF to 0x43A; restore scratch address 0x439
+        LDI #20                         .. PIA value 20 is 04 after bit reversal; select the port-A data register
+        STR RF
+        OUT PIA_CTRL_PORT
+        SEP R4                          .. resume interpreter fetch via R4; CHIP-8 continues at 0x826
+    }
+
+
+: write_color_cell
+    :asm cdp1802 {
+        LDI A.1(color_args)             .. RE := 0x07AD, the saved v0..v2 argument block
+        PHI RE
+        LDI A.0(color_args)
+        PLO RE
+        SEX RE
+        LDXA                            .. read color and advance RE to saved column at 0x7AE
+        ANI #07                         .. color &= 7
+        PHI RF                          .. keep color in the high byte of RF
+        LDX                             .. read saved column
+        ANI #07                         .. column &= 7
+        STR RE
+        INC RE                          .. RE := 0x07AF (saved row)
+        LDX
+        ANI #1F                         .. row &= 31
+        SHL                             .. four shifts compute row * 16; DF retains the upper carry
+        SHL
+        SHL
+        SHL
+        STR RE
+        LDI #0C                         .. build RD := 0x0C80 + ((row & 31) << 4) + (column & 7)
+        ADCI #00
+        PHI RD
+        LDI #80
+        ADD                             .. add low row offset to 0x80
+        PLO RF
+        GHI RD
+        ADCI #00                        .. propagate carry into the destination high byte
+        PHI RD
+        GLO RF
+        DEC RE                          .. RE := 0x07AE, the masked column
+        ADD                             .. add column to low address byte
+        PLO RD
+        SEX RD
+        GHI RF                          .. retrieve color from RF high byte
+        STR RD                          .. stage color at the decoded color-cell address in ordinary RAM
+        OUT COLOR_PORT                  .. OUT 3 latches color; address is RD before its OUT increment
+        SEX R2                          .. restore interpreter stack as X
+        SEP R4                          .. resume interpreter; CHIP-8 continues at wrapper return 0x7B6
+    }
+
+
+: inc_bgcol
+    :asm cdp1802 {
+        SEX R9                          .. select an output source register; OUT 1 ignores the byte value
+        OUT BG_PORT                     .. advance CDP1864 background once (power-on blue -> black)
+        SEP R4                          .. resume interpreter; CHIP-8 continues at 0x824
+    }
+
+
+: color_row
+    vf := 0x01                          # default row count = 1; 0x7FC is an alternate entry preserving vf
+
+: color_rows
+    v1 := 0x00
+
+: color_row_loop
+    set_color_cell                      # write eight color cells across a row via the native wrapper
+    v1 += 0x01
+    if v1 != 0x08 then
+    jump color_row_loop
+    v2 += 0x01
+    vf += 0xff
+    if vf != 0x00 then
+    jump color_rows
+    return
+
+: header_column
+    v2 := 0x00                          # color one three-row header column, then advance column
+    vf := 0x03
+
+: header_column_loop
+    set_color_cell
+    v2 += 0x01
+    vf += 0xff
+    if vf != 0x00 then
+    jump header_column_loop
+    v1 += 0x01
+    return
+
+: color_setup
+    native inc_bgcol                    # 0NNN native call to the embedded background routine at 0x7F7
+    native enable_color                 # 0NNN native call to the embedded PIA routine at 0x7B8
+    v1 := 0x00
+    v0 := 0x07                          # white hit count
+    header_column
+    v0 := 0x06                          # cyan divider / first marker
+    header_column
+    v0 := 0x03                          # magenta high score
+    header_column
+    header_column
+    v0 := 0x04                          # green progressive score
+    header_column
+    header_column
+    v0 := 0x05                          # yellow divider / third marker
+    header_column
+    v0 := 0x01                          # red remaining-ball count
+    header_column
+    v2 := 0x03                          # color the dot rows, cycling white through red and skipping black
+
+: band_begin
+    v0 := 0x07
+
+: band_row
+    color_row
+    v0 += 0xff
+    if v2 == 0x13 then
+    jump bat_color
+    if v0 != 0x00 then
+    jump band_row
+    jump band_begin
+
+: bat_color
+    vf := 0x04                          # color four additional rows with the current color
+    color_rows
+    v0 := 0x01                          # red bat region
+    jump color_row                      # tail jump to the one-row color routine; its return completes setup

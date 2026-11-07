@@ -1,0 +1,3 @@
+:const FRACTION 1.5
+: main
+return

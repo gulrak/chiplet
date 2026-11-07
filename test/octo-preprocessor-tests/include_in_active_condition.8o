@@ -1,0 +1,6 @@
+:const ON 1
+: main
+:if ON
+    :include "assets/inline.8o"
+:end
+return

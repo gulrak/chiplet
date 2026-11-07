@@ -1,0 +1,7 @@
+: "hello\nworld"
+return
+: "other-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nlabel"
+return
+: main
+:call "hello\nworld"
+return

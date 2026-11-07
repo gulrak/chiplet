@@ -1,0 +1,12 @@
+:const ON 1
+:const OFF 0
+: main
+v0 := 0
+:unless ON
+    :unless OFF
+        v0 := 9
+    :end
+:else
+    v0 := 1
+:end
+return

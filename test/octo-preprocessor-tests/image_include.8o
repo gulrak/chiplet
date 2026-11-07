@@ -1,0 +1,6 @@
+: main
+clear
+return
+
+:segment data
+:include "assets/stripes.bmp" 8x2 [000 FFF] no-labels

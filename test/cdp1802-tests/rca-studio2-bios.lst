@@ -1,0 +1,1084 @@
+0000 ;              0001   .. *****************************************************************************
+0000 ;              0002   .. *****************************************************************************
+0000 ;              0003   ..
+0000 ;              0004   ..               SYSTEM BIOS / INTERPRETER : RCA STUDIO II
+0000 ;              0005   ..
+0000 ;              0006   ..          Reverse engineered by Paul Robson (autismuk@aol.com)
+0000 ;              0007   ..
+0000 ;              0008   ..     (Converted to RCA Assembler source by Steffen "Gulrak" Schümann)
+0000 ;              0009   ..
+0000 ;              0010   .. *****************************************************************************
+0000 ;              0011   .. *****************************************************************************
+0000 ;              0012   ..
+0000 ;              0013   ..       R1      Video Interrupt Address
+0000 ;              0014   ..       R2      Stack Pointer (initialised to $08BF)
+0000 ;              0015   ..       R3      Sub  PC : Interpreting an Instruction
+0000 ;              0016   ..       R4      Main PC : Interpreter Loop
+0000 ;              0017   ..       R5      Interpreter Program Pointer
+0000 ;              0018   ..       R6      Addr first variable (R0-RF)
+0000 ;              0019   ..       R7      Addr second variable (R0-RF)
+0000 ;              0020   ..       R8      Accessing system memory
+0000 ;              0021   ..       R9      Random Seed
+0000 ;              0022   ..       RA      Index Register
+0000 ;              0023   ..       RB      Low = Vertical scroll position
+0000 ;              0024   ..       RF.0    Current Instruction (Byte 1)
+0000 ;              0025   ..
+0000 ;              0026   ..       0800-087F               Sprite Graphic Buffers
+0000 ;              0027   ..       0880-08B0 (approx)      Working Memory Space
+0000 ;              0028   ..       08xx-08BF               1802 Stack
+0000 ;              0029   ..       08C0-08CF               Variables (16 off)
+0000 ;              0030   ..       08C9                    Sprite Number [R9]
+0000 ;              0031   ..       08CA                    Keypad Select [RA] (0=P1,1=P2)
+0000 ;              0032   ..       08CB                    Carry [RB]
+0000 ;              0033   ..       08CC                    Direction [RC]
+0000 ;              0034   ..       08CD                    Beep length counter [RD]
+0000 ;              0035   ..       08CE,F                  Counters [RD,RF]
+0000 ;              0036   ..       08D0-08D7               Sprites (Position)
+0000 ;              0037   ..       08D8-08DF               Sprites (Height, Flip)
+0000 ;              0038   ..       08E0-08E7               Direction
+0000 ;              0039   ..       08E8-08EF               1-Screen Position (internal ?)
+0000 ;              0040   ..       08F0-08F7               Move counter
+0000 ;              0041   ..       08F8-08FF               Working Memory Space
+0000 ;              0042   ..
+0000 ;              0043   ..       0xxx    Call 1802 code at xxx
+0000 ;              0044   ..                       0066    Turn the video on.
+0000 ;              0045   ..       1xxx    Jump to xxx
+0000 ;              0046   ..       2xxx    Call Subroutine at xxx
+0000 ;              0047   ..       3raa    Jump to aa (short) if r <> 0
+0000 ;              0048   ..       4raa    Jump to aa (short) if r == 0
+0000 ;              0049   ..       5rnn    Skip instruction if Register <> nn
+0000 ;              0050   ..       6rnn    Load constant nn to r
+0000 ;              0051   ..       70aa    Decrement R0,short jump if not zero
+0000 ;              0052   ..       7rnn    Add constant nn to r (NOT r = 0)
+0000 ;              0053   ..       8xyf    Arithmetic and logic operations, all set carry register RB
+0000 ;              0054   ..               if not specified then unpredictable.
+0000 ;              0055   ..                       8xy0    RX := RY,
+0000 ;              0056   ..                       8xy1    RX := RX or RY
+0000 ;              0057   ..                       8xy2    RX := RX and RY
+0000 ;              0058   ..                       8xy3    RX := RX xor RY
+0000 ;              0059   ..                       8xy4    RX := RX + RY, RB Carry
+0000 ;              0060   ..                       8xy5    RX := RY - RX, RB Not Borrow
+0000 ;              0061   ..                       8xy6    RX := RX >> 1, RB LSB
+0000 ;              0062   ..                       8xy7    RX := RX - RY, RB Not Borrow
+0000 ;              0063   ..                       8xyE    RX := RX << 1, RB MSB
+0000 ;              0064   ..       9xy0    Skip instruction if RX <> RY
+0000 ;              0065   ..       9xyf    System Memory operations (the lowest set bit decides function)
+0000 ;              0066   ..                       9xy1    RX := RY                (also 3,5,7,9,B,D,F)
+0000 ;              0067   ..                       9xy2    RX := Memory[RY]        (also 6,A,E)
+0000 ;              0068   ..                       9xy4    Memory[RY] := RX        (also 4,C)
+0000 ;              0069   ..                       9xy8    RX -> Memory[RY..RY+2] as BCD, adds 3 to RY
+0000 ;              0070   ..       Annn    Load index register with nnn
+0000 ;              0071   ..       Bcnn    Store nn at index register, add c to it (LSB only, wraps)
+0000 ;              0072   ..       C0xx    Return from subroutine
+0000 ;              0073   ..       Crnn    Register r = Random Number & nn
+0000 ;              0074   ..       Dkaa    Check if key k pressed (if F then key in RB), if so
+0000 ;              0075   ..               short jump to aa and set RB = Key Number. RA is player selector
+0000 ;              0076   ..       E0      Clear Graphic Buffer for given sprite [Sprite No in R9]
+0000 ;              0077   ..       E1      Move Sprite in given direction (also 3,5,7,9,B,D,F)
+0000 ;              0078   ..       E2      Move sprite in direction in RC (also 6,10,E)
+0000 ;              0079   ..       E4      XOR Data at Index into current picture, Index incremented by Height
+0000 ;              0080   ..       E8aa    Draw Sprite on screen ; short jump to aa on collision.
+0000 ;              0081   ..       Frnn    General function nn [0rnn equivalent]
+0000 ;              0082   ..                       FrA6    Read Memory[Index] into Rr
+0000 ;              0083   ..                       FrA9    Write Rr to Memory[Index]
+0000 ;              0084   ..                       FrAC    Read Memory[Index] into Rr and inc. index
+0000 ;              0085   ..                       FrAF    Write Rr to Memory[Index] and inc. index
+0000 ;              0086   ..                       FrB3    Set LSB of Index to Register r
+0000 ;              0087   ..                       FrB6    And Register r with 15, then or with index LSB
+0000 ;              0088   ..                       F?F2    Short delay based on LSB of Index, 0->Index
+0000 ;              0089   ..
+0000 ;              0090   .. *****************************************************************************
+0000 ;              0091   
+0000 ;              0092           ORG #0000               .. Starts at base address 0.
+0000 ;              0093   
+0000 ;              0094   Memory  = #0800                 .. System/Data memory page
+0000 ;              0095   VideoMem = #0900                .. Video Memory Page
+0000 ;              0096   
+0000 ;              0097   MemStack = Memory+#0BF          .. Initial stack value
+0000 ;              0098   
+0000 ;              0099   Variables = Memory+#0C0         .. Variables (16 off,last 3 counters)
+0000 ;              0100   Carry = Memory+#0CB             .. Carry Flag
+0000 ;              0101   Direction = Memory+#0CC         .. Direction override flag
+0000 ;              0102   Player = Memory+#0CA            .. Keypad/Player Selector
+0000 ;              0103   SpriteID = Memory+#0C9          .. Sprite Number
+0000 ;              0104   CountEnd = Memory+#0CF          .. Counters decremented at 50hz
+0000 ;              0105   CountStart = Memory+#0CD        .. till zero (3 off)
+0000 ;              0106   SoundCounter = Memory+#0CD      .. Sound Counter
+0000 ;              0107   
+0000 ;              0108   Program = #0300                 .. Interpreted program starts here
+0000 ;              0109   .. Must be on page boundary
+0000 ;              0110   
+0000 ;              0111   .. *****************************************************************************
+0000 ;              0112   ..
+0000 ;              0113   ..       Come here at reset. Initialise everything, start the
+0000 ;              0114   ..       main interpreting loop.
+0000 ;              0115   ..
+0000 ;              0116   .. *****************************************************************************
+0000 ;              0117   
+0000 ;              0118   Reset:
+0000 90;            0119           ghi r0                  .. Clear accumulator (D=0 on reset)
+0001 B1;            0120           phi r1                  .. R1.High = Interrupt Routine
+0002 B4;            0121           phi r4                  .. R4.High = Interpreter Loop
+0003 A5;            0122           plo r5                  .. R5.Low = Program Pointer
+0004 AB;            0123           plo rb                  .. RB.Low = Vertical Scroll
+0005 ;              0124   
+0005 F808;          0125           ldi A.1(Memory)         .. D = System Memory Page
+0007 B2;            0126           phi r2                  .. R2.High = Stack Base
+0008 B6;            0127           phi r6
+0009 B8;            0128           phi r8
+000A F81C;          0129           ldi A.0(VideoInt)       .. R1.Low = Interrupt Routine
+000C A1;            0130           plo r1
+000D F8BF;          0131           ldi A.0(MemStack)       .. R2.Low = Stack Base
+000F A2;            0132           plo r2
+0010 F86B;          0133           ldi A.0(MainLoop)       .. R4.Low = Interpreter Loop
+0012 A4;            0134           plo r4
+0013 F803;          0135           ldi A.1(Program)        .. R5.High = Program Pointer
+0015 B5;            0136           phi r5
+0016 D4;            0137           sep r4                  .. Go to main interpreter loop
+0017 ;              0138   
+0017 ;              0139   .. *****************************************************************************
+0017 ;              0140   ..
+0017 ;              0141   ..       Exit from video interrupt.
+0017 ;              0142   ..
+0017 ;              0143   .. *****************************************************************************
+0017 ;              0144   
+0017 ;              0145   RetNoSound:
+0017 7A;            0146           req                     .. Turn off sound
+0018 ;              0147   RetSoundCont:
+0018 42;            0148           lda r2                  .. D = Data flag byte
+0019 F6;            0149           shr                     .. Shift into DF
+001A 42;            0150           lda r2                  .. Restore D
+001B 70;            0151           ret                     .. And return to caller.
+001C ;              0152   
+001C ;              0153   .. *****************************************************************************
+001C ;              0154   ..
+001C ;              0155   ..       Video interrupt. See Bill Richman's Elf Pages for more
+001C ;              0156   ..       information at http://incolor.intenebr.com/bill_r
+001C ;              0157   ..
+001C ;              0158   .. *****************************************************************************
+001C ;              0159   
+001C ;              0160   VideoInt:
+001C 22;            0161           dec r2                  .. Save (X,P) at R2-1 (stack)
+001D 78;            0162           sav
+001E 22;            0163           dec r2                  .. Save D at R2-1 (stack)
+001F 73;            0164           stxd
+0020 C00023;        0165           lbr WasteCycles         .. Waste a few cycles for video
+0023 ;              0166   WasteCycles:
+0023 7E;            0167           shlc                    .. D bit 0 now contains the DF Flag
+0024 52;            0168           str r2                  .. Save DF at R2 (stack)
+0025 ;              0169   
+0025 19;            0170           inc r9                  .. Change Random Seed
+0026 ;              0171   
+0026 F809;          0172           ldi A.1(VideoMem)       .. R0.High points to video
+0028 B0;            0173           phi r0
+0029 ;              0174   
+0029 F8D0;          0175           ldi A.0(CountEnd)+1     .. R8 points to 08D0h
+002B A8;            0176           plo r8
+002C 8B;            0177           glo rb                  .. Get start of display position
+002D ;              0178   
+002D A0;            0179           plo r0
+002E E2;            0180           sex r2                  .. 8 DMA Cycles
+002F ;              0181   Refresh:
+002F 20;            0182           dec r0
+0030 A0;            0183           plo r0
+0031 E2;            0184           sex r2                  .. 8 DMA Cycles
+0032 20;            0185           dec r0
+0033 A0;            0186           plo r0
+0034 E2;            0187           sex r2                  .. 8 DMA Cycles
+0035 20;            0188           dec r0
+0036 A0;            0189           plo r0
+0037 80;            0190           glo r0                  .. 8 DMA Cycles
+0038 20;            0191           dec r0
+0039 A0;            0192           plo r0
+003A 3C2F;          0193           bn1 Refresh             .. Not end of this frame
+003C ;              0194   WaitEnd:
+003C 20;            0195           dec r0                  .. Tidy up
+003D A0;            0196           plo r0
+003E 343C;          0197           b1  WaitEnd             .. Wait for end of display pulse
+0040 ;              0198   
+0040 ;              0199   _CountCheck:
+0040 28;            0200           dec r8                  .. Look at next byte of counters
+0041 08;            0201           ldn r8                  .. Decrement if non-zero
+0042 3247;          0202           bz  _CountIsZero
+0044 FF01;          0203           smi #001
+0046 58;            0204           str r8
+0047 ;              0205   _CountIsZero:
+0047 88;            0206           glo r8                  .. Has counter reached $00000
+0048 FBCD;          0207           xri A.0(CountStart)
+004A 3A40;          0208           bnz _CountCheck         .. if not, keep going
+004C ;              0209   
+004C 08;            0210           ldn r8                  .. Is the counter zero ?
+004D 3217;          0211           bz  RetNoSound          .. if so, sound off
+004F 7B;            0212           seq                     .. sound on
+0050 3018;          0213           br  RetSoundCont        .. and exit
+0052 ;              0214   ..
+0052 ;              0215   ..       Code for Crnn, Random number generator.
+0052 ;              0216   ..
+0052 ;              0217   _Random:
+0052 19;            0218           inc r9                  .. Bump the random pointer
+0053 89;            0219           glo r9                  .. RE := $00.R9Low
+0054 AE;            0220           plo re
+0055 93;            0221           ghi r3
+0056 BE;            0222           phi re
+0057 99;            0223           ghi r9                  .. D := R9High
+0058 EE;            0224           sex re
+0059 F4;            0225           add                     .. Calc R9.1 + Mem[R9.Low]
+005A 56;            0226           str r6                  .. Save in the register specified
+005B F6;            0227           shr                     .. Add half the value to it
+005C E6;            0228           sex r6
+005D F4;            0229           add
+005E B9;            0230           phi r9                  .. Tweak the MSB of random pointer
+005F 56;            0231           str r6                  .. Update the value
+0060 45;            0232           lda r5                  .. Get the AND mask
+0061 F2;            0233           and                     .. AND with the random value
+0062 56;            0234           str r6                  .. Write it back
+0063 D4;            0235           sep r4                  .. Next instruction
+0064 ;              0236   
+0064 00;            0237           idl                     .. Wasted space ?
+0065 00;            0238           idl
+0066 ;              0239   ..
+0066 ;              0240   ..       Turn on the video display
+0066 ;              0241   ..
+0066 E2;            0242           sex r2                  .. Make space for INP command
+0067 22;            0243           dec r2
+0068 69;            0244           inp 1                   .. INP1 turns video on
+0069 12;            0245           inc r2                  .. Fix Stack
+006A D4;            0246           sep r4                  .. Next Instruction
+006B ;              0247   
+006B ;              0248   .. *****************************************************************************
+006B ;              0249   ..
+006B ;              0250   ..                               Main interpreter loop
+006B ;              0251   ..
+006B ;              0252   .. *****************************************************************************
+006B ;              0253   
+006B ;              0254   MainLoop:                       .. Main interpreter loop
+006B 96;            0255           ghi r6                  .. Set 2nd variable High
+006C B7;            0256           phi r7
+006D 94;            0257           ghi r4                  .. RC.High := $00
+006E BC;            0258           phi rc
+006F 45;            0259           lda r5                  .. Read instruction, adv R5
+0070 AC;            0260           plo rc                  .. RC.Low := Instruction
+0071 AF;            0261           plo rf                  .. RF.Low := Instruction
+0072 F6;            0262           shr                     .. Put 4 MSB of instruction into D
+0073 F6;            0263           shr
+0074 F6;            0264           shr
+0075 F6;            0265           shr
+0076 3294;          0266           bz  CodeExec            .. If zero, exec as code
+0078 ;              0267   
+0078 F9E0;          0268           ori A.0(AddrTable)      .. D := E1-EF (depends on inst MSN)
+007A AC;            0269           plo rc                  .. RC points to instr addr table
+007B 8F;            0270           glo rf                  .. D = original instruction
+007C FA0F;          0271           ani #00F                .. D = C0-CF (inst LSB)
+007E F9C0;          0272           ori A.0(Variables)
+0080 A6;            0273           plo r6                  .. R6.Low = C0-CF (Instr Byte1 LSN)
+0081 ;              0274   
+0081 05;            0275           ldn r5                  .. Get instruction 2nd byte
+0082 F6;            0276           shr                     .. Isolate MS Nibble
+0083 F6;            0277           shr
+0084 F6;            0278           shr
+0085 F6;            0279           shr
+0086 F9C0;          0280           ori  A.0(Variables)     .. R7.Low = C0-CF (Instr Byte2 MSN)
+0088 A7;            0281           plo r7
+0089 ;              0282   
+0089 4C;            0283           lda rc                  .. Read Instruction Addr High
+008A B3;            0284           phi r3                  .. Into R3.High
+008B 8C;            0285           glo rc                  .. Add 15 to address table now
+008C FC0F;          0286           adi #00F                .. F1-FF [16 total with LDA]
+008E AC;            0287           plo rc
+008F 4C;            0288           lda rc                  .. Read Instruction Addr Low
+0090 ;              0289   _Execute:
+0090 A3;            0290           plo r3                  .. Exec Addr.Low := R3
+0091 D3;            0291           sep r3                  .. And jump there
+0092 306B;          0292           br  MainLoop            .. Loop back on return
+0094 ;              0293   ..
+0094 ;              0294   ..       Execute instructions as code.
+0094 ;              0295   ..
+0094 ;              0296   CodeExec:
+0094 8F;            0297           glo rf                  .. Get Instruction Byte
+0095 FA0F;          0298           ani #00F                .. Get Addr 4 MSB
+0097 B3;            0299           phi r3                  .. Put in R3
+0098 45;            0300           lda r5                  .. Get Low Byte of Address
+0099 3090;          0301           br  _Execute            .. and Jump there
+009B ;              0302   ..
+009B ;              0303   ..       8XYF    RX := RX (function) RY [see above for functions]
+009B ;              0304   ..
+009B ;              0305   Cmd_ALU:
+009B 22;            0306           dec r2                  .. Make space on stack
+009C E2;            0307           sex r2                  .. Write to stack area
+009D F8D3;          0308           ldi #0D3                .. Last instruction "SEP 3"
+009F 73;            0309           stxd
+00A0 45;            0310           lda r5                  .. Make MSNibble byte 1 into a
+00A1 F9F0;          0311           ori #0F0                .. 1802 ALU Instruction
+00A3 52;            0312           str r2                  .. Save that
+00A4 E6;            0313           sex r6                  .. R(X) is now the first register
+00A5 47;            0314           lda r7                  .. Read the second register
+00A6 D2;            0315           sep r2                  .. Do the instruction, fixes R2 too
+00A7 56;            0316           str r6                  .. Save the result back
+00A8 F8CB;          0317           ldi A.0(Carry)          .. R6 := $08CB, Register B
+00AA A6;            0318           plo r6
+00AB 91;            0319           ghi r1                  .. D = 0
+00AC 7E;            0320           shlc                    .. D = Carry value
+00AD 56;            0321           str r6                  .. Save carry value
+00AE D4;            0322           sep r4                  .. Return
+00AF ;              0323   ..
+00AF ;              0324   ..       C0xx, return from subroutine, Crxx Register r = Random & 255
+00AF ;              0325   ..
+00AF ;              0326   Cmd_Ret:
+00AF 86;            0327           glo r6                  .. Get the address of MSN Byte 1
+00B0 FBC0;          0328           xri A.0(Variables)      .. Check it is C0
+00B2 3A52;          0329           bnz _Random             .. No, go to random number bit
+00B4 42;            0330           lda r2                  .. Pop MSB off stack
+00B5 B5;            0331           phi r5
+00B6 42;            0332           lda r2                  .. Pop LSB off stack
+00B7 A5;            0333           plo r5
+00B8 D4;            0334           sep r4                  .. Next instruction
+00B9 ;              0335   ..
+00B9 ;              0336   ..       6RNN    Load R Immediate with NN
+00B9 ;              0337   ..
+00B9 ;              0338   Cmd_LAcc:
+00B9 45;            0339           lda r5                  .. Get the 2nd byte (data)
+00BA 56;            0340           str r6                  .. Store in register
+00BB D4;            0341           sep r4                  .. Next instruction
+00BC ;              0342   ..
+00BC ;              0343   ..       Powers of 10 Data Table (used in BCD conversion)
+00BC ;              0344   ..
+00BC ;              0345   Power10:
+00BC 64;            0346           DB #64                  .. 100
+00BD 0A;            0347           DB #0A                  .. 10
+00BE 01;            0348           DB #01                  .. 1
+00BF ;              0349   ..
+00BF ;              0350   ..       3RAA    Short jump to AA if R <> 0
+00BF ;              0351   ..
+00BF ;              0352   Cmd_Jnz:
+00BF 06;            0353           ldn r6                  .. Read the register
+00C0 3AC7;          0354           bnz _Jump0              .. If non zero jump
+00C2 15;            0355   _Skip0: inc r5                  .. Advance past address
+00C3 D4;            0356           sep r4                  .. and exit
+00C4 ;              0357   ..
+00C4 ;              0358   ..       4RAA    Short jump to AA if R = 0
+00C4 ;              0359   ..
+00C4 ;              0360   Cmd_Jz:
+00C4 06;            0361           ldn r6                  .. Read the register
+00C5 3AC2;          0362           bnz _Skip0              .. If non zero skip
+00C7 ;              0363   _Jump0:
+00C7 05;            0364           ldn r5                  .. Get address
+00C8 A5;            0365           plo r5                  .. Update Interpreter Address
+00C9 D4;            0366           sep r4                  .. Next Instruction
+00CA ;              0367   ..
+00CA ;              0368   ..       2XXX    Call subroutine at xxx
+00CA ;              0369   ..
+00CA ;              0370   Cmd_Call:
+00CA 15;            0371           inc r5                  .. R5 points to next instruction
+00CB 85;            0372           glo r5                  .. save LSB it on the stack
+00CC 22;            0373           dec r2
+00CD 52;            0374           str r2
+00CE 95;            0375           ghi r5                  .. Save MSB of return address
+00CF 22;            0376           dec r2
+00D0 52;            0377           str r2
+00D1 25;            0378           dec r5                  .. Restore R5 so GOTO works
+00D2 ;              0379   ..
+00D2 ;              0380   ..       1xxx    Jump Command
+00D2 ;              0381   ..
+00D2 ;              0382   Cmd_Jump:
+00D2 45;            0383           lda r5                  .. Get LSB and advance pointer
+00D3 A5;            0384           plo r5                  .. Update LSB Interpreter
+00D4 86;            0385           glo r6                  .. R6 := 08Cx, x is Nibl of MSB
+00D5 FA0F;          0386           ani #00F                .. Strip off the rest
+00D7 B5;            0387           phi r5                  .. Put into MSB Interpreter
+00D8 D4;            0388           sep r4                  .. Next instruction
+00D9 ;              0389   ..
+00D9 ;              0390   ..       2xxx    Set Index Register Command
+00D9 ;              0391   ..
+00D9 ;              0392   Cmd_LIndex:
+00D9 86;            0393           glo r6                  .. Get MSB and strip off MSN
+00DA FA0F;          0394           ani #00F
+00DC BA;            0395           phi ra                  .. Put in High Byte Index
+00DD 45;            0396           lda r5                  .. Get LSB and advance pointer
+00DE AA;            0397           plo ra                  .. Put in Low Byte Index
+00DF D4;            0398           sep r4                  .. Next Instruction
+00E0 ;              0399   
+00E0 ;              0400   .. *****************************************************************************
+00E0 ;              0401   ..
+00E0 ;              0402   ..       Instruction Address Table. First 16 bytes are High byte, Second
+00E0 ;              0403   ..       16 are Low Byte
+00E0 ;              0404   ..
+00E0 ;              0405   .. *****************************************************************************
+00E0 ;              0406   
+00E0 ;              0407   AddrTable:
+00E0 00;            0408           DB 0                    .. 0xxx Machine Call, (seperate)
+00E1 00;            0409           DB A.1(Cmd_Jump)        .. 1xxx Jump to xxx
+00E2 00;            0410           DB A.1(Cmd_Call)        .. 2xxx Call Subroutine at xxx
+00E3 00;            0411           DB A.1(Cmd_Jnz)         .. 3raa Short Jump if r <> 0
+00E4 00;            0412           DB A.1(Cmd_Jz)          .. 4raa Short Jump if r == 0
+00E5 02;            0413           DB A.1(Cmd_SkipN)       .. 5rxx Skip if r <> xx
+00E6 00;            0414           DB A.1(Cmd_LAcc)        .. 6rnn Load r with nn (imm)
+00E7 02;            0415           DB A.1(Cmd_Add)         .. 7rnn Add nn to r (70xx different)
+00E8 00;            0416           DB A.1(Cmd_ALU)         .. 8xyf X := X (function) Y
+00E9 02;            0417           DB A.1(Cmd_Mem)         .. 9xyf Memory functions
+00EA 00;            0418           DB A.1(Cmd_LIndex)      .. Axxx Load Index with xxx
+00EB 02;            0419           DB A.1(Cmd_LCI)         .. Bcnn Store constant and bump
+00EC 00;            0420           DB A.1(Cmd_Ret)         .. Cxxx Return and Random Number
+00ED 02;            0421           DB A.1(Cmd_Key)         .. Dkaa Check key and branch
+00EE 01;            0422           DB A.1(Cmd_Draw)
+00EF 02;            0423           DB A.1(Cmd_F)           .. Frxx General funcs (jump to 02xx)
+00F0 ;              0424   ..
+00F0 00;            0425           DB 0                    .. 0xxx
+00F1 D2;            0426           DB A.0(Cmd_Jump)        .. 1xxx
+00F2 CA;            0427           DB A.0(Cmd_Call)        .. 2xxx
+00F3 BF;            0428           DB A.0(Cmd_Jnz)         .. 3xxx
+00F4 C4;            0429           DB A.0(Cmd_Jz)          .. 4xxx
+00F5 4E;            0430           DB A.0(Cmd_SkipN)       .. 5xxx
+00F6 B9;            0431           DB A.0(Cmd_LAcc)        .. 6xxx
+00F7 3D;            0432           DB A.0(Cmd_Add)         .. 7xxx
+00F8 9B;            0433           DB A.0(Cmd_ALU)         .. 8xxx
+00F9 56;            0434           DB A.0(Cmd_Mem)         .. 9xxx
+00FA D9;            0435           DB A.0(Cmd_LIndex)      .. Axxx
+00FB E5;            0436           DB A.0(Cmd_LCI)         .. Bxxx
+00FC AF;            0437           DB A.0(Cmd_Ret)         .. Cxxx
+00FD BF;            0438           DB A.0(Cmd_Key)         .. Dxxx
+00FE 00;            0439           DB A.0(Cmd_Draw)        .. Exxx
+00FF A4;            0440           DB A.0(Cmd_F)           .. Fxxx
+0100 ;              0441   
+0100 ;              0442   .. *****************************************************************************
+0100 ;              0443   ..
+0100 ;              0444   ..       Drawing code.
+0100 ;              0445   ..
+0100 ;              0446   ..       Offsets (Table at $08D0 onwards) :-
+0100 ;              0447   ..
+0100 ;              0448   ..       $00     Screen Physical Position
+0100 ;              0449   ..       $08     Height: Bits 0..3. Bit 7 switches the bytes around (flip ?)
+0100 ;              0450   ..       $10     Direction
+0100 ;              0451   ..       $18     1-Screen Position (no idea why)
+0100 ;              0452   ..       $20     Horizontal Move Counter
+0100 ;              0453   ..
+0100 ;              0454   ..       Each of the 8 sprites has a picture buffer at $0800 + n * 16.
+0100 ;              0455   ..       These are alternating 8 byte values, one for the left, one
+0100 ;              0456   ..       for the right.
+0100 ;              0457   ..
+0100 ;              0458   ..       $E0     Clear sprite picture buffer
+0100 ;              0459   ..       $E1     Move
+0100 ;              0460   ..       $E2     Move in direction in RC
+0100 ;              0461   ..       $E4     XOR Plot data at Index (changed) into sprite picture buffer
+0100 ;              0462   ..               for height given.
+0100 ;              0463   ..       $E8aa   Draw on screen ; short jump if collision.
+0100 ;              0464   ..
+0100 ;              0465   .. *****************************************************************************
+0100 ;              0466   
+0100 ;              0467   Cmd_Draw:
+0100 F8C9;          0468           ldi A.0(SpriteID)       .. R7 now accesses IR9, Sprite ID
+0102 A7;            0469           plo r7
+0103 07;            0470           ldn r7                  .. Read register IR9
+0104 FE;            0471           shl                     .. Multiply by 16
+0105 FE;            0472           shl
+0106 FE;            0473           shl                     .. Sets up the sprite data pointer
+0107 FE;            0474           shl
+0108 A6;            0475           plo r6                  .. R6.0 := $0800+ Sprite# * 16
+0109 ;              0476   
+0109 F8D0;          0477           ldi #0D0                .. Calculate IR9+0D0h
+010B E7;            0478           sex r7
+010C F4;            0479           add
+010D A7;            0480           plo r7                  .. R7 now points to $08D0+IR9
+010E ;              0481   .. the sprite base address
+010E ;              0482   
+010E F802;          0483           ldi A.1(PointRFTo)      .. RC := $0292, the set up pointer
+0110 BC;            0484           phi rc                  .. routine. This sets RF equal to
+0111 F892;          0485           ldi A.0(PointRFTo)      .. the base pointer in R7.0 added
+0113 AC;            0486           plo rc                  .. to the following byte
+0114 ;              0487   
+0114 DC;            0488           sep rc                  .. Point to offset $10
+0115 10;            0489           DB     #10
+0116 0F;            0490           ldn rf                  .. Read offset $10
+0117 BD;            0491           phi rd                  .. Save in RD.1
+0118 ;              0492   
+0118 DC;            0493           sep rc                  .. Point to offset $08, Height
+0119 08;            0494           DB #08
+011A 0F;            0495           ldn rf                  .. Read offset $08
+011B FA0F;          0496           ani #00F                .. only the lower 4 bits matter
+011D AE;            0497           plo re                  .. Save in RE.0
+011E ;              0498   
+011E 0F;            0499           ldn rf                  .. Re read offset $08
+011F FA80;          0500           ani #080                .. Keep bit 7 only
+0121 BE;            0501           phi re                  .. Save in RE.1
+0122 ;              0502   
+0122 07;            0503           ldn r7                  .. Read offset $00
+0123 AD;            0504           plo rd                  .. Save in RD.0
+0124 ;              0505   
+0124 25;            0506           dec r5                  .. Re-read the first byte of the
+0125 45;            0507           lda r5                  .. opcode
+0126 ;              0508   
+0126 F6;            0509           shr                     .. Bit 0 set
+0127 334E;          0510           bdf _Move
+0129 F6;            0511           shr                     .. Bit 1 set
+012A 3349;          0512           bdf _MoveC
+012C F6;            0513           shr                     .. Bit 2 set
+012D 333D;          0514           bdf _Draw               .. Xor Draw into Sprite picture
+012F F6;            0515           shr                     .. Bit 3 set
+0130 33BC;          0516           bdf _DrawSprite         .. Draw onto video display
+0132 ;              0517   ..
+0132 ;              0518   ..       Clear Picture Buffer to all Zeroes
+0132 ;              0519   ..
+0132 F810;          0520           ldi #010                .. RF := 16, size of sprite space
+0134 AF;            0521           plo rf
+0135 ;              0522   _Clear0:
+0135 91;            0523           ghi r1                  .. Write zero at that location
+0136 56;            0524           str r6
+0137 16;            0525           inc r6                  .. Go to next one
+0138 2F;            0526           dec rf                  .. Do all 16 bytes
+0139 8F;            0527           glo rf
+013A 3A35;          0528           bnz _Clear0
+013C ;              0529   _Continue:
+013C D4;            0530           sep r4
+013D ;              0531   ..
+013D ;              0532   ..       XOR Data at Index into Sprite, amount dependent on the height of
+013D ;              0533   ..       the sprite. Index is changed (Height added). Skips 2 for some reason.
+013D ;              0534   ..
+013D ;              0535   _Draw:                          .. function $E4,$EC.
+013D E6;            0536           sex r6                  .. R[X] is the sprite data
+013E ;              0537   _DrawLoop:
+013E 8E;            0538           glo re                  .. Height is zero ?
+013F 323C;          0539           bz  _Continue           .. If so, completed
+0141 4A;            0540           lda ra                  .. Read byte from index and inc
+0142 F3;            0541           xor                     .. XOR with sprite data
+0143 56;            0542           str r6                  .. Update
+0144 16;            0543           inc r6                  .. Next Sprite Byte x 2
+0145 16;            0544           inc r6
+0146 2E;            0545           dec re                  .. Decrement height counter
+0147 303E;          0546           br  _DrawLoop           .. Do the next one.
+0149 ;              0547   ..
+0149 ;              0548   ..       Move in direction RC, override the read direction
+0149 ;              0549   ..
+0149 ;              0550   _MoveC:
+0149 F8CC;          0551           ldi A.0(Direction)      .. RF := $08CC (Register C)
+014B AF;            0552           plo rf
+014C 0F;            0553           ldn rf                  .. Read it
+014D BD;            0554           phi rd                  .. Use instead of offset $10
+014E ;              0555   ..
+014E ;              0556   ..       Move in direction in RD.1
+014E ;              0557   ..
+014E ;              0558   _Move:
+014E 9D;            0559           ghi rd                  .. Decide on direction of movement
+014F FB02;          0560           xri #002                .. 2 is up
+0151 3263;          0561           bz  _Up
+0153 9D;            0562           ghi rd
+0154 FB08;          0563           xri #008                .. 8 is down
+0156 326D;          0564           bz  _Down
+0158 9D;            0565           ghi rd
+0159 FB04;          0566           xri #004                .. 4 is left
+015B 3297;          0567           bz  _Left
+015D 9D;            0568           ghi rd                  .. 6 is right
+015E FB06;          0569           xri #006
+0160 3272;          0570           bz _Right
+0162 D4;            0571           sep r4                  .. All others ignored
+0163 ;              0572   
+0163 ;              0573   _Up:
+0163 07;            0574           ldn r7                  .. Subtract 8 from the position
+0164 FF08;          0575           smi #008
+0166 ;              0576   _MoveVertical:
+0166 57;            0577           str r7
+0167 DC;            0578           sep rc                  .. Point RF to offset $18
+0168 18;            0579           DB #18
+0169 93;            0580           ghi r3                  .. D := $01
+016A F5;            0581           sd                      .. D = 1 - Physical Position
+016B 5F;            0582           str rf                  .. Store in $18
+016C D4;            0583           sep r4                  .. And exit
+016D ;              0584   
+016D ;              0585   _Down:
+016D 07;            0586           ldn r7                  .. Calculate position + 8
+016E FC08;          0587           adi #008
+0170 3066;          0588           br  _MoveVertical       .. And do as for 'up' code.
+0172 ;              0589   
+0172 ;              0590   _Right:
+0172 8E;            0591           glo re                  .. Done the whole sprite
+0173 32F9;          0592           bz  _DecMoveCtr         .. if so, exit
+0175 ;              0593   
+0175 06;            0594           ldn r6                  .. Shift the first byte right 1
+0176 F6;            0595           shr
+0177 56;            0596           str r6
+0178 3B81;          0597           bnf _NoRight2           .. If no bit shifted out, skip
+017A 9E;            0598           ghi re
+017B 3A81;          0599           bnz _NoRight2           .. If right side, skip
+017D F880;          0600           ldi #080
+017F BE;            0601           phi re
+0180 1D;            0602           inc rd                  .. Advance screen pointer
+0181 ;              0603   _NoRight2:
+0181 16;            0604           inc r6                  .. Point to second byte
+0182 06;            0605           ldn r6                  .. Shift that right as well
+0183 76;            0606           shrc
+0184 56;            0607           str r6
+0185 3B93;          0608           bnf _NoRight3           .. No carry out, skip
+0187 26;            0609           dec r6                  .. Point to previous byte
+0188 06;            0610           ldn r6                  .. Set bit 7
+0189 F980;          0611           ori #080
+018B 56;            0612           str r6
+018C 16;            0613           inc r6                  .. Fix the pointer
+018D 9E;            0614           ghi re
+018E 3293;          0615           bz _NoRight3            .. Skip if not swapped
+0190 91;            0616           ghi r1                  .. Swap it back
+0191 BE;            0617           phi re
+0192 1D;            0618           inc rd                  .. Advance screen pointer
+0193 ;              0619   _NoRight3:
+0193 16;            0620           inc r6                  .. Point to next pair
+0194 2E;            0621           dec re                  .. Decrement Height counter
+0195 3072;          0622           br  _Right              .. And do next line
+0197 ;              0623   
+0197 ;              0624   _Left:
+0197 8E;            0625           glo re                  .. Check height counter
+0198 32F9;          0626           bz  _DecMoveCtr         .. Exit if zero
+019A 06;            0627           ldn r6                  .. Shift first byte left
+019B FE;            0628           shl
+019C 56;            0629           str r6
+019D 3BA5;          0630           bnf _Left0              .. If no carry out, that's it
+019F 9E;            0631           ghi re                  .. If this is the left side, skip
+01A0 32A5;          0632           bz  _Left0
+01A2 91;            0633           ghi r1                  .. Swap the sides around
+01A3 BE;            0634           phi re
+01A4 2D;            0635           dec rd                  .. Change the pointer
+01A5 ;              0636   _Left0:
+01A5 16;            0637           inc r6                  .. Look at 2nd byte
+01A6 06;            0638           ldn r6                  .. Shift it left
+01A7 7E;            0639           shlc
+01A8 56;            0640           str r6
+01A9 3BB8;          0641           bnf _Left1              .. No bit out, skip
+01AB 26;            0642           dec r6                  .. Set bit in 2nd byte
+01AC 06;            0643           ldn r6
+01AD F901;          0644           ori #001
+01AF 56;            0645           str r6
+01B0 16;            0646           inc r6                  .. Fix it back again
+01B1 9E;            0647           ghi re                  .. If the right side , skip
+01B2 3AB8;          0648           bnz _Left1
+01B4 F880;          0649           ldi #080                .. Else swap them around
+01B6 BE;            0650           phi re
+01B7 2D;            0651           dec rd                  .. Adjust pointer
+01B8 ;              0652   _Left1:
+01B8 16;            0653           inc r6                  .. Point to next byte
+01B9 2E;            0654           dec re                  .. Decrement height counter
+01BA 3097;          0655           br  _Left               .. And do for all the data
+01BC ;              0656   
+01BC ;              0657   _DrawSprite:
+01BC 93;            0658           ghi r3                  .. Set up RC to point to the
+01BD BC;            0659           phi rc                  .. XOR Plot drawing subroutine
+01BE F8EB;          0660           ldi A.0(XORPlot)
+01C0 AC;            0661           plo rc
+01C1 ;              0662   
+01C1 91;            0663           ghi r1                  .. Clear the collision flag
+01C2 AF;            0664           plo rf
+01C3 ;              0665   
+01C3 9E;            0666           ghi re                  .. Check flip (draw direction)
+01C4 32D4;          0667           bz  _DrawIt             .. bit.
+01C6 2D;            0668           dec rd
+01C7 ;              0669   
+01C7 ;              0670   _DrawIt2:
+01C7 8E;            0671           glo re                  .. Exit if height counter is zero
+01C8 32E1;          0672           bz  ExitDraw
+01CA DC;            0673           sep rc                  .. Xor draw part 0 on left
+01CB 1D;            0674           inc rd
+01CC DC;            0675           sep rc                  .. Xor Draw part 1 on right
+01CD 8D;            0676           glo rd                  .. Next vertical line down
+01CE FC07;          0677           adi #007
+01D0 AD;            0678           plo rd
+01D1 2E;            0679           dec re                  .. Decrement Height Counter
+01D2 30C7;          0680           br _DrawIt2             .. Loop back till finished
+01D4 ;              0681   
+01D4 ;              0682   _DrawIt:
+01D4 8E;            0683           glo re                  .. Exit if height counter is zero
+01D5 32E1;          0684           bz  ExitDraw
+01D7 DC;            0685           sep rc                  .. Xor Draw part 0 on right
+01D8 2D;            0686           dec rd
+01D9 DC;            0687           sep rc                  .. Xor Draw part 1 on left
+01DA 8D;            0688           glo rd                  .. Next vertical line down
+01DB FC09;          0689           adi #009
+01DD AD;            0690           plo rd
+01DE 2E;            0691           dec re                  .. Decrement height counter
+01DF 30D4;          0692           br  _DrawIt             .. And keep going until finished.
+01E1 ;              0693   
+01E1 ;              0694   ExitDraw:
+01E1 8F;            0695           glo rf                  .. Look at collision flag
+01E2 3AE6;          0696           bnz _CSJ                .. If collide then short jump
+01E4 15;            0697           inc r5                  .. Skip address and return
+01E5 D4;            0698           sep r4
+01E6 ;              0699   _CSJ:
+01E6 05;            0700           ldn r5                  .. Do a short jump to the
+01E7 A5;            0701           plo r5                  .. following address
+01E8 D4;            0702           sep r4                  .. Next instruction
+01E9 ;              0703   ..
+01E9 ;              0704   XORPlotNext:
+01E9 16;            0705           inc r6                  .. Next data item
+01EA D3;            0706           sep r3                  .. Exit
+01EB ;              0707   ..
+01EB ;              0708   ..       RD.0 points to a video memory location. XOR Plot Memory[R6]
+01EB ;              0709   ..       at that byte, post incrementing R6. Set RF.0 non zero if collision
+01EB ;              0710   ..
+01EB ;              0711   XORPlot:
+01EB F809;          0712           ldi #009                .. Point RD to video memory
+01ED BD;            0713           phi rd
+01EE ED;            0714           sex rd                  .. R[X] is video byte
+01EF 06;            0715           ldn r6                  .. And screen with R6
+01F0 F2;            0716           and
+01F1 32F4;          0717           bz  _NoCollide          .. if zero, then no collision
+01F3 AF;            0718           plo rf                  .. set collision flag
+01F4 ;              0719   _NoCollide:
+01F4 06;            0720           ldn r6                  .. Read pixel data
+01F5 F3;            0721           xor                     .. Xor with screen
+01F6 5D;            0722           str rd                  .. Write back to screen
+01F7 30E9;          0723           br XORPlotNext
+01F9 ;              0724   ..
+01F9 ;              0725   ..       Decrement horizontal move counter (offset $20), update bit 7
+01F9 ;              0726   ..       of Height, update new position, and return.
+01F9 ;              0727   ..
+01F9 ;              0728   _DecMoveCtr:
+01F9 DC;            0729           sep rc                  .. Point to horiz move counter
+01FA 20;            0730           DB #20
+01FB 0F;            0731           ldn rf                  .. Read value
+01FC FF01;          0732           smi #001                .. Subtract 1
+01FE 5F;            0733           str rf                  .. Write back
+01FF ;              0734   
+01FF DC;            0735           sep rc                  .. Point to height
+0200 08;            0736           DB #08
+0201 0F;            0737           ldn rf                  .. Copy new bit 7 back in from
+0202 FA0F;          0738           ani #00F                .. RE.1. Mask out height
+0204 5F;            0739           str rf
+0205 9E;            0740           ghi re                  .. Get new bit 7
+0206 F1;            0741           or                      .. Or with value
+0207 5F;            0742           str rf                  .. save it back
+0208 ;              0743   
+0208 8D;            0744           glo rd                  .. Copy new position back
+0209 57;            0745           str r7
+020A D4;            0746           sep r4                  .. Return
+020B ;              0747   
+020B ;              0748   .. *****************************************************************************
+020B ;              0749   ..
+020B ;              0750   ..          An Subroutine in the interpreted code.... does .....
+020B ;              0751   ..
+020B ;              0752   .. *****************************************************************************
+020B ;              0753   
+020B 22F9;          0754           DB  #022,#0F9           .. CALL $2F9 [Beep and Delay]
+020D 23C3;          0755           DB  #023,#0C3           .. CALL $3C3 [???]
+020F C0;            0756           DB  #0C0                .. RET
+0210 ;              0757   
+0210 ;              0758   .. *****************************************************************************
+0210 ;              0759   ..
+0210 ;              0760   ..                     Offsets in this page to number data
+0210 ;              0761   ..
+0210 ;              0762   .. *****************************************************************************
+0210 ;              0763   
+0210 ;              0764   NumberGraphicOffset:
+0210 2F;            0765           DB A.0(_Zero)           .. Digit 0
+0211 1A;            0766           DB A.0(_One)            .. Digit 1
+0212 25;            0767           DB A.0(_Two)            .. Digit 2
+0213 1F;            0768           DB A.0(_Three)          .. Digit 3
+0214 38;            0769           DB A.0(_Four)           .. Digit 4
+0215 23;            0770           DB A.0(_Five)           .. Digit 5
+0216 27;            0771           DB A.0(_Six)            .. Digit 6
+0217 33;            0772           DB A.0(_Seven)          .. Digit 7
+0218 29;            0773           DB A.0(_Eight)          .. Digit 8
+0219 2B;            0774           DB A.0(_Nine)           .. Digit 9
+021A ;              0775   
+021A ;              0776   .. *****************************************************************************
+021A ;              0777   ..
+021A ;              0778   ..                               Number Graphic Data
+021A ;              0779   ..
+021A ;              0780   .. *****************************************************************************
+021A ;              0781   
+021A ;              0782   _One:
+021A 60;            0783           DB  #060                .. .xx.....
+021B 20;            0784           DB  #020                .. ..x.....
+021C 20;            0785           DB  #020                .. ..x.....
+021D 20;            0786           DB  #020                .. ..x.....
+021E 70;            0787           DB  #070                .. .xxx....
+021F ;              0788   _Three:
+021F F0;            0789           DB  #0F0                .. xxxx....
+0220 10;            0790           DB  #010                .. ...x....
+0221 70;            0791           DB  #070                .. .xxx....
+0222 10;            0792           DB  #010                .. ...x....
+0223 ;              0793   _Five:
+0223 F0;            0794           DB  #0F0                .. xxxx....
+0224 80;            0795           DB  #080                .. x.......
+0225 ;              0796   _Two:
+0225 F0;            0797           DB  #0F0                .. xxxx....
+0226 10;            0798           DB  #010                .. ...x....
+0227 ;              0799   _Six:
+0227 F0;            0800           DB  #0F0                .. xxxx....
+0228 80;            0801           DB  #080                .. x.......
+0229 ;              0802   _Eight:
+0229 F0;            0803           DB  #0F0                .. xxxx....
+022A 90;            0804           DB  #090                .. x..x....
+022B ;              0805   _Nine:
+022B F0;            0806           DB  #0F0                .. xxxx....
+022C 90;            0807           DB  #090                .. x..x....
+022D F0;            0808           DB  #0F0                .. xxxx....
+022E 10;            0809           DB  #010                .. ...x....
+022F ;              0810   _Zero:
+022F F0;            0811           DB  #0F0                .. xxxx....
+0230 90;            0812           DB  #090                .. x..x....
+0231 90;            0813           DB  #090                .. x..x....
+0232 90;            0814           DB  #090                .. x..x....
+0233 ;              0815   _Seven:
+0233 F0;            0816           DB  #0F0                .. xxxx....
+0234 10;            0817           DB  #010                .. ...x....
+0235 10;            0818           DB  #010                .. ...x....
+0236 10;            0819           DB  #010                .. ...x....
+0237 10;            0820           DB  #010                .. ...x....
+0238 ;              0821   _Four:
+0238 A0;            0822           DB  #0A0                .. x.x.....
+0239 A0;            0823           DB  #0A0                .. x.x.....
+023A F0;            0824           DB  #0F0                .. xxxx....
+023B 20;            0825           DB  #020                .. ..x.....
+023C 20;            0826           DB  #020                .. ..x.....
+023D ;              0827   
+023D ;              0828   .. *****************************************************************************
+023D ;              0829   ..
+023D ;              0830   ..                   Lots of other interpreting routines
+023D ;              0831   ..
+023D ;              0832   .. *****************************************************************************
+023D ;              0833   ..
+023D ;              0834   ..       7rxx Add, (except for 70xx, Decrement and jump if not zero)
+023D ;              0835   ..
+023D ;              0836   Cmd_Add:
+023D 86;            0837           glo r6                  .. Look at register number
+023E FA0F;          0838           ani #00F
+0240 3247;          0839           bz _Cmd70
+0242 E6;            0840           sex r6                  .. Access register r
+0243 45;            0841           lda r5                  .. Read constant
+0244 F4;            0842           add                     .. Add to r
+0245 56;            0843           str r6                  .. Update result
+0246 D4;            0844           sep r4                  .. Next instruction
+0247 ;              0845   _Cmd70:
+0247 06;            0846           ldn r6                  .. Read value
+0248 FF01;          0847           smi #001                .. Decrement
+024A 3AE1;          0848           bnz _UpdateR            .. if not 0, then store & jump
+024C 15;            0849           inc r5                  .. skip address
+024D ;              0850   _Next0:
+024D D4;            0851           sep r4                  .. Next instruction
+024E ;              0852   ..
+024E ;              0853   ..       5rnn    Skip if Register <> Constant
+024E ;              0854   ..
+024E ;              0855   Cmd_SkipN:
+024E 45;            0856           lda r5                  .. Read the constant
+024F ;              0857   _Compare:
+024F E6;            0858           sex r6                  .. Access the first register
+0250 F3;            0859           xor                     .. Compare them
+0251 324D;          0860           bz  _Next0              .. If the same, do next instruction
+0253 15;            0861           inc r5                  .. Skip next instruction
+0254 15;            0862           inc r5
+0255 D4;            0863           sep r4                  .. the *next* instruction
+0256 ;              0864   ..
+0256 ;              0865   ..       9xyf Memory Operations [9xy0 is skip if RX <> RY]
+0256 ;              0866   ..
+0256 ;              0867   Cmd_Mem:
+0256 96;            0868           ghi r6                  .. RC := Memory page.Register y
+0257 BC;            0869           phi rc                  .. i.e. it is indirection.
+0258 07;            0870           ldn r7                  .. if R0 = $32 then 90xx points
+0259 AC;            0871           plo rc                  .. RC to $0832
+025A 45;            0872           lda r5                  .. Get the operation code & skip it
+025B F6;            0873           shr                     .. Bit 0 set ?
+025C 339B;          0874           bdf _CopyReg            .. it is RX = RY
+025E F6;            0875           shr                     .. Bit 1 set ?
+025F 336A;          0876           bdf _ReadMem            .. it is RX = Mem[RY]
+0261 F6;            0877           shr                     .. Bit 2 set ?
+0262 336D;          0878           bdf _WriteMem           .. it is Mem[RY] = RX
+0264 F6;            0879           shr                     .. Bit 3 set ?
+0265 3370;          0880           bdf _BCDConv            .. it is RX->Mem[RY] as BCD
+0267 07;            0881           ldn r7                  .. Restore RY
+0268 304F;          0882           br  _Compare
+026A ;              0883   
+026A ;              0884   _ReadMem:
+026A 0C;            0885           ldn rc                  .. Read Memory location
+026B 56;            0886           str r6                  .. Store in Rx
+026C D4;            0887           sep r4
+026D ;              0888   _WriteMem:
+026D 06;            0889           ldn r6                  .. Read Rx
+026E 5C;            0890           str rc                  .. Store in Memory location Mem[Ry]
+026F D4;            0891           sep r4
+0270 ;              0892   _BCDConv:
+0270 E6;            0893           sex r6                  .. R[X] is Rx
+0271 06;            0894           ldn r6                  .. Save Rx value in RF.1
+0272 BF;            0895           phi rf
+0273 91;            0896           ghi r1
+0274 BE;            0897           phi re
+0275 F8BC;          0898           ldi A.0(Power10)        .. Set RE := Powers of 10 table
+0277 AE;            0899           plo re
+0278 2C;            0900           dec rc                  .. Fix first check ?
+0279 ;              0901   
+0279 ;              0902   _AnotherDigit:
+0279 1C;            0903           inc rc                  .. Look at next Mem[RY] byte
+027A 91;            0904           ghi r1                  .. Set it to zero
+027B 5C;            0905           str rc
+027C ;              0906   _RepSubtract:
+027C 0E;            0907           ldn re                  .. Read first power of 10
+027D F5;            0908           sd                      .. subtract that value
+027E 3B87;          0909           bnf _NextDigit          .. if borrow then done this one
+0280 56;            0910           str r6                  .. update the result
+0281 0C;            0911           ldn rc                  .. increment Mem[RY]
+0282 FC01;          0912           adi #001
+0284 5C;            0913           str rc
+0285 307C;          0914           br  _RepSubtract        .. And go around again
+0287 ;              0915   _NextDigit:
+0287 4E;            0916           lda re                  .. Get the next value
+0288 F6;            0917           shr                     .. is bit 0 set (e.g. it is 1)
+0289 3B79;          0918           bnf _AnotherDigit       .. if not, do another digit
+028B 9F;            0919           ghi rf                  .. Restore RX value
+028C 56;            0920           str r6
+028D 8C;            0921           glo rc                  .. Restore RY value *updated*
+028E 57;            0922           str r7
+028F D4;            0923           sep r4                  .. and exit
+0290 ;              0924   ..
+0290 ;              0925   _PRFExit:
+0290 EF;            0926           sex rf
+0291 D3;            0927           sep r3
+0292 ;              0928   ..
+0292 ;              0929   ..       Sprite utility function
+0292 ;              0930   ..
+0292 ;              0931   PointRFTo:
+0292 96;            0932           ghi r6                  .. RF.1 := $08
+0293 BF;            0933           phi rf
+0294 87;            0934           glo r7                  .. D := R7.0 + Next Byte
+0295 E3;            0935           sex r3
+0296 F4;            0936           add
+0297 AF;            0937           plo rf                  .. RF = $08:(R7.0+Next Byte)
+0298 13;            0938           inc r3                  .. Skip over the added byte
+0299 3090;          0939           br  _PRFExit
+029B ;              0940   
+029B ;              0941   _CopyReg:
+029B 06;            0942           ldn r6                  .. Read x
+029C 57;            0943           str r7                  .. Store in Y
+029D D4;            0944           sep r4
+029E ;              0945   
+029E 23;            0946           dec r3
+029F 36E2;          0947           b3 _ShortBranch
+02A1 70;            0948           ret
+02A2 9E;            0949           ghi re
+02A3 C0;            0950           DB #0C0
+02A4 ;              0951   ..
+02A4 ;              0952   ..       Frnn    Extended functions, execute via jump to $02nn
+02A4 ;              0953   ..
+02A4 ;              0954   Cmd_F:
+02A4 45;            0955           lda r5                  .. Get the byte
+02A5 A3;            0956           plo r3                  .. and jump there ($02R3)
+02A6 ;              0957   ..
+02A6 ;              0958   ..       FrA6    Read byte at Memory[Index] to Register
+02A6 ;              0959   ..
+02A6 ;              0960   CmdF_ReadMemIndex:
+02A6 0A;            0961           ldn ra                  .. Read byte pointed to by index
+02A7 56;            0962           str r6                  .. Store in Rx
+02A8 D4;            0963           sep r4                  .. Return to caller
+02A9 ;              0964   ..
+02A9 ;              0965   ..       FrA9    Write Register to Memory[Index]
+02A9 ;              0966   ..
+02A9 ;              0967   CmdF_WriteMemIndex:
+02A9 06;            0968           ldn r6                  .. Read byte
+02AA 5A;            0969           str ra                  .. Write to Memory[index]
+02AB D4;            0970           sep r4                  .. Return
+02AC ;              0971   ..
+02AC ;              0972   ..       FrAC    Read byte at Memory[Index] to Register and Increment
+02AC ;              0973   ..
+02AC ;              0974   CmdF_ReadMemIndexBump:
+02AC 4A;            0975           lda ra                  .. Read byte of mem, bump pointer
+02AD 56;            0976           str r6                  .. Save in register
+02AE D4;            0977           sep r4                  .. Return
+02AF ;              0978   ..
+02AF ;              0979   ..       FrAF    Write byte to Memory[Index] and Increment
+02AF ;              0980   ..
+02AF 06;            0981           ldn r6                  .. Read byte from register
+02B0 5A;            0982           str ra                  .. Store at Mem[Index]
+02B1 1A;            0983           inc ra                  .. Inc Index
+02B2 D4;            0984           sep r4                  .. Next instruction
+02B3 ;              0985   ..
+02B3 ;              0986   ..       FrB3    Set LSB of index to Register
+02B3 ;              0987   ..
+02B3 06;            0988           ldn r6                  .. Get value in Rx
+02B4 AA;            0989           plo ra                  .. Put in index low
+02B5 D4;            0990           sep r4                  .. Next instruction
+02B6 ;              0991   ..
+02B6 ;              0992   ..       FrB6    And Register with 15, or with Index LSB
+02B6 ;              0993   ..
+02B6 06;            0994           ldn r6                  .. Get value in Rx
+02B7 FA0F;          0995           ani #00F                .. only 4 bits relevant
+02B9 56;            0996           str r6                  .. Write it back
+02BA E6;            0997           sex r6                  .. access via index
+02BB 8A;            0998           glo ra                  .. Or with Index LSB
+02BC F1;            0999           or
+02BD AA;            1000           plo ra
+02BE D4;            1001           sep r4                  .. Next instruction
+02BF ;              1002   ..
+02BF ;              1003   ..       Dkaa Scan Keyboard. k = 0..9 the key, F key in RB. If successful
+02BF ;              1004   ..       RB is set to the key number and the short branch is taken
+02BF ;              1005   ..
+02BF ;              1006   Cmd_Key:
+02BF F8CB;          1007           ldi A.0(Carry)          .. R7 = $08CB (RB the carry flag)
+02C1 A7;            1008           plo r7
+02C2 86;            1009           glo r6                  .. Get k (x register number)
+02C3 FA0F;          1010           ani #00F
+02C5 AF;            1011           plo rf                  .. RF.0 = k
+02C6 FB0F;          1012           xri #00F                .. Check k = $0F ?
+02C8 3ACC;          1013           bnz _NotInd             .. if not RF then not direction
+02CA 07;            1014           ldn r7                  .. If F, read key in RB
+02CB AF;            1015           plo rf
+02CC ;              1016   _NotInd:
+02CC E2;            1017           sex r2                  .. Make space on the stack
+02CD 22;            1018           dec r2
+02CE 8F;            1019           glo rf                  .. Get the key, normally the k value
+02CF 52;            1020           str r2                  .. Save it at that location
+02D0 62;            1021           out 2                   .. Output it and fix R2
+02D1 F8CA;          1022           ldi A.0(Player)         .. R6 = $08CA (RA)
+02D3 A6;            1023           plo r6
+02D4 06;            1024           ldn r6                  .. Read $08CA
+02D5 32DB;          1025           bz  _KeyPad1            .. if zero read keypad 1
+02D7 36DD;          1026           b3  _KeyPressed         .. if key pressed then handle it
+02D9 ;              1027   _NoPress:
+02D9 15;            1028           inc r5                  .. skip 2nd part
+02DA D4;            1029           sep r4                  .. and exit
+02DB ;              1030   _KeyPad1:
+02DB 3FD9;          1031           bn4 _NoPress            .. if not pressed then skip
+02DD ;              1032   _KeyPressed:
+02DD 8F;            1033           glo rf                  .. Get actual key number
+02DE 57;            1034           str r7                  .. Copy to RB
+02DF 30E2;          1035           br  _ShortBranch
+02E1 ;              1036   
+02E1 ;              1037   _UpdateR:
+02E1 56;            1038           str r6                  .. Write value back to register
+02E2 ;              1039   _ShortBranch:
+02E2 05;            1040           ldn r5                  .. Read second byte
+02E3 A5;            1041           plo r5                  .. Update Value
+02E4 D4;            1042           sep r4                  .. Next instruction
+02E5 ;              1043   ..
+02E5 ;              1044   ..       Bcnn Store constant at index and increment
+02E5 ;              1045   ..
+02E5 ;              1046   Cmd_LCI:
+02E5 45;            1047           lda r5                  .. Get LSB of instruction
+02E6 5A;            1048           str ra                  .. Store at Index register
+02E7 22;            1049           dec r2                  .. Make space on stack
+02E8 E2;            1050           sex r2                  .. use stack as index
+02E9 86;            1051           glo r6                  .. get address of Rc
+02EA FA0F;          1052           ani #00F                .. get the register number (c)
+02EC 52;            1053           str r2                  .. store at the stack space
+02ED 8A;            1054           glo ra                  .. Add c to Index, LSB only
+02EE F4;            1055           add
+02EF AA;            1056           plo ra
+02F0 12;            1057           inc r2                  .. Fix stack space
+02F1 D4;            1058           sep r4                  .. Next instruction
+02F2 ;              1059   ..
+02F2 ;              1060   ..       $FxF2 : Short Delay using LSB of Index, Index 0 on exit.
+02F2 ;              1061   ..
+02F2 ;              1062   CmdF_ShortDelay:
+02F2 91;            1063           ghi r1                  .. D = 0
+02F3 5A;            1064           str ra                  .. Index High = 0
+02F4 8A;            1065           glo ra                  .. Get Index Low
+02F5 2A;            1066           dec ra                  .. Decrement it
+02F6 3AF2;          1067           bnz CmdF_ShortDelay     .. If non-zero loop back
+02F8 D4;            1068           sep r4
+02F9 ;              1069   
+02F9 ;              1070   .. *****************************************************************************
+02F9 ;              1071   ..
+02F9 ;              1072   ..       Interpreted code subroutine. Does a short beep, and delays
+02F9 ;              1073   ..       for approximately 1/5 second
+02F9 ;              1074   ..
+02F9 ;              1075   .. *****************************************************************************
+02F9 ;              1076   
+02F9 6D02;          1077           DB #6D,#02              .. RD := $02 (Sound Timer)   [6D02]
+02FB 6E0A;          1078           DB #6E,#0A              .. RE := $0A (General Timer) [6E0A]
+02FD ;              1079   _IntWait:
+02FD 3EFD;          1080           DB #3E,A.0(_IntWait)    .. JZ RE,_IntWait            [3EFD]
+02FF C0;            1081           DB #C0                  .. RET [C0xx]
+0300 ;              1082   
+0300 ;              1083   END
+0000

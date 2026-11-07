@@ -1,0 +1,5 @@
+: main
+:byte { 10 - 3 - 2 }
+:byte { 2 * 3 + 4 }
+:byte { ( 2 * 3 ) + 4 }
+:byte { ( strlen "abc" ) + 1 }

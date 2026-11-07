@@ -1,0 +1,5 @@
+:const E 1
+: main
+:byte E
+:byte { E }
+return

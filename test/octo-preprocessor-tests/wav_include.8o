@@ -1,0 +1,7 @@
+: main
+clear
+return
+
+:segment data
+:include "assets/tone.wav" no-labels
+0xAA

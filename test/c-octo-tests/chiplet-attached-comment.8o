@@ -1,0 +1,4 @@
+: main
+v0 := 1#comment
+clear
+return

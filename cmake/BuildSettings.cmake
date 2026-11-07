@@ -1,5 +1,5 @@
 if(NOT DEFINED CMAKE_CXX_STANDARD)
-    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_CXX_EXTENSIONS ON)
 endif()
@@ -51,46 +51,56 @@ FetchContent_Declare(
         GIT_REPOSITORY "https://github.com/gulrak/filesystem.git"
         GIT_TAG "v1.5.12"
         GIT_SHALLOW TRUE
+        EXCLUDE_FROM_ALL
 )
-FetchContent_GetProperties(GhcFilesystem)
-if(NOT ghcfilesystem_POPULATED)
-    FetchContent_Populate(GhcFilesystem)
-    add_subdirectory(${ghcfilesystem_SOURCE_DIR} ${ghcfilesystem_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()
+FetchContent_MakeAvailable(GhcFilesystem)
 
 FetchContent_Declare(
     DocTest
     GIT_REPOSITORY "https://github.com/doctest/doctest.git"
-    GIT_TAG "v2.4.9"
+    GIT_TAG "v2.4.12"
     GIT_SHALLOW TRUE
+    EXCLUDE_FROM_ALL
 )
-FetchContent_GetProperties(DocTest)
-if(NOT doctest_POPULATED)
-    FetchContent_Populate(doctest)
-    add_subdirectory(${doctest_SOURCE_DIR} ${doctest_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()
+FetchContent_MakeAvailable(DocTest)
 include_directories(${DOCTEST_INCLUDE_DIR})
 
+set(FMT_INSTALL OFF CACHE BOOL "disable fmt install" FORCE)
+set(FMT_TEST OFF CACHE BOOL "disable fmt tests" FORCE)
+set(FMT_FUZZ OFF CACHE BOOL "disable fmt tests" FORCE)
 FetchContent_Declare(
     FmtLib
     GIT_REPOSITORY "https://github.com/fmtlib/fmt.git"
     GIT_TAG "9.1.0"
     GIT_SHALLOW TRUE
+    EXCLUDE_FROM_ALL
 )
-FetchContent_GetProperties(FmtLib)
-if(NOT fmtlib_POPULATED)
-    FetchContent_Populate(FmtLib)
-    add_subdirectory(${fmtlib_SOURCE_DIR} ${fmtlib_BINARY_DIR} EXCLUDE_FROM_ALL)
-    include_directories("${fmtlib_SOURCE_DIR}/include")
-    message(STATUS "fmtlib: ${fmtlib_SOURCE_DIR}/include")
-endif()
+FetchContent_MakeAvailable(FmtLib)
 
 FetchContent_Declare(
     fast_float
     GIT_REPOSITORY https://github.com/fastfloat/fast_float.git
     GIT_TAG tags/v6.1.0
-    GIT_SHALLOW TRUE)
+    GIT_SHALLOW TRUE
+)
 FetchContent_MakeAvailable(fast_float)
+
+# tl::expected options (avoid building tests/packaging)
+set(EXPECTED_BUILD_TESTS   OFF CACHE BOOL "Disable tl::expected tests" FORCE)
+set(EXPECTED_BUILD_PACKAGE OFF CACHE BOOL "Disable tl::expected packaging" FORCE)
+FetchContent_Declare(tl_expected
+        GIT_REPOSITORY https://github.com/TartanLlama/expected.git
+        GIT_TAG        v1.3.1
+)
+FetchContent_MakeAvailable(tl_expected)
+
+FetchContent_Declare(
+        Chip8TestSuite
+        GIT_REPOSITORY "https://github.com/Timendus/chip8-test-suite.git"
+        GIT_TAG "v4.2"
+        GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(Chip8TestSuite)
 
 find_package(Git)
 if(GIT_FOUND)

@@ -1,0 +1,12 @@
+:const OUTER 0
+:const INNER 0
+: main
+v0 := 0
+:if OUTER
+    :if INNER
+        v0 := 8
+    :else
+        v0 := 9
+    :end
+:end
+return

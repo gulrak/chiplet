@@ -1,0 +1,3 @@
+: main
+:include assets/helper.8o
+return

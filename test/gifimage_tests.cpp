@@ -9,8 +9,8 @@
 #define private public
 #define protected public
 //#define GIF_DEBUG_OUTPUT
-#include "../include/chiplet/gifimage.hpp"
 #include <ghc/lzw.hpp>
+#include "../external/ghc/gifimage.hpp"
 #undef private
 
 const uint8_t sample_gif[] = {
@@ -25,7 +25,7 @@ const uint8_t sample_gif[] = {
 int main()
 {
     //GifImage gif(sample_gif);
-    auto gif = GifImage::fromFile("/home/schuemann/Downloads/murder.gif");
+    auto gif = ghc::GifImage::fromFile("/home/schuemann/Downloads/murder.gif");
     //auto gif = GifImage::fromFile("../../murder.gif");
     //auto gif = GifImage::fromFile("/home/schuemann/attic/dev/c-octo/carts/test_tiny.gif");
     //ghc::hexDump(std::cout, gif.compressed().data(), gif.compressed().size());
@@ -43,7 +43,7 @@ int main()
     ghc::hexDump(std::cout, compressed.data(), compressed.size());
      */
     gif.writeToFile("test.gif");
-    auto gif2 = GifImage::fromFile("test.gif");
+    auto gif2 = ghc::GifImage::fromFile("test.gif");
     //compress3(std::cout, gif.compressed(), 7);
     return 0;
 }

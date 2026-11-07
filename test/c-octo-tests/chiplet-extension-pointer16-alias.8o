@@ -1,0 +1,3 @@
+: main
+:pointer16 0x1234
+:pointer 0x5678

@@ -49,7 +49,7 @@ std::ostream& operator<<(std::ostream& os, const std::optional<std::vector<uint8
 }
 }
 namespace ghc {
-std::ostream& operator<<(std::ostream& os, const ghc::span<const uint8_t>& value)
+std::ostream& operator<<(std::ostream& os, const std::span<const uint8_t>& value)
 {
     os << std::endl;
     ghc::hexDump(os, value.data(), value.size());
@@ -819,7 +819,7 @@ inline uint32_t fnv32a(const Container& c)
     return result;
 }
 
-ghc::compression::ByteArray decompress(ghc::span<uint8_t> dataSpan, int mcs)
+ghc::compression::ByteArray decompress(std::span<uint8_t> dataSpan, int mcs)
 {
     ghc::compression::ByteArray result;
     int prefix[4096]{}, suffix[4096]{}, code[4096]{};

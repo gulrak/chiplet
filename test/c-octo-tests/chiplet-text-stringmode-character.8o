@@ -1,0 +1,4 @@
+:stringmode text "é" { :byte CHAR }
+: main
+text "é"
+return

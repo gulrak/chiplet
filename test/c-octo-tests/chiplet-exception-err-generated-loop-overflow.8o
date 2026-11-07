@@ -1,0 +1,5 @@
+: main
+:org 4096
+loop
+clear
+again

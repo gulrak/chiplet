@@ -1,0 +1,9 @@
+: main
+: foo
+:const foo 1
+:byte foo
+:byte { foo }
+:pointer foo
+:const COPY foo
+:pointer COPY
+return

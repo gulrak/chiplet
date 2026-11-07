@@ -1,0 +1,8 @@
+:alias foo v0
+:const foo 1
+: main
+foo := 7
+:const COPY foo
+:byte COPY
+:byte { foo }
+return

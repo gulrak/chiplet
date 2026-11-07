@@ -1,0 +1,3 @@
+: main
+:breakpoint "a"clear
+return

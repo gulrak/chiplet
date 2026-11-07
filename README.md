@@ -1,4 +1,4 @@
-# Chiplet
+# Chiplet v2
 
 _A commandline multitool for CHIP-8 variant development_
 
@@ -16,6 +16,7 @@ _A commandline multitool for CHIP-8 variant development_
     * [Conditional Assembly](#conditional-assembly)
     * [Inclusion of Files](#inclusion-of-files)
     * [Inclusion of Images](#inclusion-of-images)
+  * [Cartridges](#cartridges)
   * [Compiling from Source](#compiling-from-source)
     * [Linux / macOS](#linux--macos)
     * [Windows](#windows)
@@ -152,6 +153,66 @@ enhancements of v1.1.0 Chiplet is able to round-trip every program
 file I could find that fits in 64k memory. (I currently only know of two
 MegaChip examples that don't.)
 
+### Relocating a Program
+
+Relocate a working CHIP-8 binary from its original load address (default `0x200`)
+using the disassembler's execution path tracing:
+
+```
+chiplet --relocate 0x600 -o program-eti.hex --hex program.ch8
+chiplet --start-address 0x600 --relocate 0x200 -o program.ch8 program-eti.hex
+```
+
+Relocation requires exactly one binary or Intel HEX input file and an output
+filename supplied with `-o`. `--hex` produces Intel HEX with relocated record
+addresses; otherwise output is binary. HEX input retains its record addresses,
+so set `--start-address` to the original entry address. Sparse HEX ranges remain
+sparse in HEX output; binary output fills gaps with zero bytes and begins at the
+relocated lowest input address.
+
+Only address operands in traced instructions are changed; other bytes, including
+sprite data that resembles instructions, are preserved. Addresses below the
+lowest input address are left unchanged as interpreter/system references; higher
+addresses move with the program, including references to scratch RAM beyond its
+end. Operands that would overflow their instruction's address range cause an
+error rather than being truncated. CHIP-8 addresses, XO-CHIP `i := long`, and
+MegaChip `ldhi` operands are supported.
+
+This is a best-effort relocation of a working program, not a repair of an already
+corrupted conversion. Self-modifying code, addresses built in registers or stored
+in data, computed jump targets and native machine code may need manual changes.
+Detected computed jumps, native calls and writes to traced code produce warnings.
+
+### Repairing Emma ETI-660 HEX Files
+
+For the old Emma conversions that relocated every aligned word resembling an
+address instruction, undo that transformation in Python, then use Chiplet's
+path tracer to relocate the recovered binary:
+
+```
+python3 tools/repair-emma-hex.py broken.hex -o repaired.hex
+python3 tools/repair-emma-hex.py broken.hex -o repaired.hex --reference original.ch8
+```
+
+The output is Intel HEX at the input's first address (normally `0x600`). The
+original binary address defaults to `0x200`; `--start-address` and `--relocate`
+override these addresses. The script finds a local native Chiplet build or uses
+PATH; `--chiplet` selects an executable explicitly. It accepts contiguous HEX
+and tolerates the converter's checksum `100` bug when the correct value is `00`.
+
+Overflow in the faulty converter discarded a hex digit, which cannot be
+recovered from the damaged word alone. Without a reference, the script warns
+and guesses zero (`--lost-nibble` changes that guess). `--tail byte` or
+`--tail word` resolves an ambiguous expanded final byte; automatic mode only
+folds the unambiguous `0400` case. A `--reference` binary resolves both forms of
+information loss, and is accepted only if the faulty converter reproduces the
+complete input payload from it. Originals are preserved; a failed Chiplet run
+also preserves any existing output file.
+
+The [comparison results](tools/repair-emma-hex-results.txt) record the trial
+against the existing ETI repair copies, with per-file details in the adjacent
+CSV. These are byte comparisons, not full gameplay checks.
+
 ### Analyzing a Binary or a Directory
 
 Analyzing a single binary or a directory of binaries, suppressing unneeded output:
@@ -226,6 +287,46 @@ variant of the opcode (`F000`) else the normal opcode will be used.
 The `:unless` directive has the inverted logic, emitting the following
 code if the option is not set.
 
+
+### Segments and Code Layout Management
+
+XO-CHIP architecture imposes a memory constraint where executable
+code must reside within the first 3.5KB of memory space, while the
+remaining 60KB can be allocated for data storage. This limitation
+exists because while XO-CHIP provides the `i := long <label>`
+instruction for loading 16-bit addresses into the index register,
+it lacks corresponding instructions for jumping to or calling 16-bit
+memory locations.
+
+During development, it's often more intuitive and maintainable to
+organize related code and data elements together in the same source 
+files. Chiplet addresses this challenge through intelligent 
+automatic code reorganization using segment annotations.
+
+By marking sections of your code with `:segment code` and `:segment data`
+directives, Chiplet can automatically restructure your program to
+meet XO-CHIP's memory layout requirements. The assembler ensures
+that all executable instructions are placed in the lower memory region while data elements are relocated to the extended memory space.
+
+Note: Files are implicitly treated as starting with :segment code, so this annotation can be omitted when your file begins with executable instructions.
+
+Example:
+```
+i := long lookup_table
+load v4
+# Process the loaded data...
+
+:segment data
+
+: lookup_table
+0 1 2 3 4
+```
+
+In this example, the executable code will be placed in the restricted
+memory area, while the lookup_table data will be automatically 
+moved to the extended memory region, maintaining proper program
+functionality while adhering to XO-CHIP's architectural constraints.
+
 ### Inclusion of Files
 
 To organize a complex project it is often useful to split the
@@ -245,18 +346,57 @@ that are converted into 1-bit sprite data. The general syntax
 is:
 
 ```
-:include "<path-to-image-file>" [<width>x<height>] [no-labels] [debug]
+:include "<path-to-image-file>" <modifiers>
 ```
 
 Where `<path-to-image-file>` is the image file to import (valid image
-formats/extension are `.png`, `.gif`, `.bmp`, `.jpg`, `.jpeg` and `.tga`),
-valid sizes are `8x1`, `8x2`, `8x3`, `8x4`. `8x5`, `8x6`, `8x7`, `8x8`,
-`8x9`, `8x10`, `8x11`, `8x12`, `8x13`, `8x14`, `8x15` or `16x16`.
+formats/extension are `.png`, `.gif`, `.bmp`, `.jpg`, `.jpeg` and `.tga`).
 
-The generated sprite data blocks are predixed by a label of the form:
+While Octopus supports TIFF import, Chiplet does not, and while it supports TGA,
+Octopus does not support TGA import. Also note that due to the way JPEG works,
+the resulting images of Chiplet and Octopus are not bit identical, due to
+math rounding differences in the used JPEG readers. For modern development
+of CHIP-8 variant games I simply recommend to stick to PNG.
+
+#### Image Inclusion Modifiers
+
+To influence behavior of the image importer, the following modifiers can
+be used:
+
+* `megachip` - The image will ge seed as a max. 255 color palette based image.
+  A palette needs to be given somewhere after the `megachip` modifier, and the
+  image will be converted into fitting that palette, defaulting to nearest color
+  matching.
+* `<width>x<height>` - The image will be split into sprites of the given size.
+  The size must be a valid integer divisor of the image size. If no size is given,
+  the image will be split into 8 pixels wide chunks that are even dividers of the
+  image size and at most 15 pixels high.
+* `[<color> ...]` - A palette to be used by theimporter. The colors must be given
+  as hex values in the way used in e.g. CSS, so either `RRGGBB` or `RGB`, and the
+  latter gets expanded by doubling the nibbles as in CSS. The brackets may be
+  attached to the colors (`[000 FFF]`) or separated by whitespace (`[ 000 FFF ]`),
+  and the list may span several lines. For XO-CHIP like color
+  support the number of colors needs to be a power of two from 2 to 16. For
+  `megachip` 2 to 254 colors are allowed. In that mode
+  the palette is internally prefixed with a transparent black, and all transparent
+  pixels are mapped to that in import.
+* `dither` - The image will be Floyd-Steinberg dithered when reducing it to the
+  palette.
+* `no-labels` - The image will be split into sprites, but no labels are generated.
+* `debug` - the generated sprite data will be annotated with ASCII art.
+
+If `no-labels` is not used, the generated sprite data blocks are prefixed by a
+label of the form:
 
 ```
 <file-basename>-<column>-<row>
+```
+
+If a palette of more than two colors is used, an additional label section is
+added and the form becomes:
+
+```
+<file-basename>-<plane>-<column>-<row>
 ```
 
 If no labels should be generated, the optional argument `no-labels` can
@@ -278,7 +418,56 @@ sprite-size parameter a different splitting can be triggered. The
 sizes must be valid integer divisors of the image size or an error will
 be reported.
 
+### Inclusion of External Files
+
+Binary files with the extension `.bin` or `.ch8` are included as data bytes:
+
+```
+:include "<path-to-file>.bin" [no-labels]
+```
+
+The bytes are prefixed by a label with the base name of the file, unless
+`no-labels` is given.
+
+### Inclusion of Sound Files
+
+WAV files (`.wav`, PCM with 8 or 16 bit, or 32 bit float, mono or stereo) are
+included as unsigned 8-bit mono samples, centered at 128:
+
+```
+:include "<path-to-file>.wav" [<sample-rate>] [megachip] [no-labels]
+```
+
+* `<sample-rate>` - Resample the sound to this rate in Hz. Without it, the rate
+  of the file is kept. The rate must be given on the line of the `:include`, a
+  number on a later line is data.
+* `megachip` - Prefix the samples with the six byte header of the MegaChip
+  `digisnd` instruction: the sample rate (16 bit, so at most 65535 Hz), the
+  number of samples (24 bit) and a zero byte.
+* `no-labels` - Don't generate the label with the base name of the file.
+
+Example, a sound for `ldhi` and `digisnd`:
+
+```
+:include "explosion.wav" 8000 megachip
+```
+
 ---
+
+## Cartridges
+
+An Octo cartridge is a GIF file holding a program together with its quirks,
+speed, colors and rotation, so the configuration can't get separated from the
+program:
+
+```
+chiplet --cartridge-label "MY GAME" --cartridge-variant xo-chip -o game.gif game.8o
+```
+
+With `--hex`, the cartridge holds a hex dump of the assembled program instead of
+its source, so emulators can read it without an assembler. See
+[cartridge-format.md](cartridge-format.md) for the format, written for emulator
+authors, and [tools/octocart.py](tools/octocart.py) for a reference decoder.
 
 ## Compiling from Source
 
@@ -346,3 +535,85 @@ cmake --build build-w64dev
 * [stb_image](https://github.com/nothings/stb/blob/master/stb_image.h) - An image
   format loader from Sean Barrets great `nothings` collection, used to support
   image import
+* [libresample](https://github.com/minorninth/libresample) - A fast resampler
+  library for audio data by Dominic Mazzoni, based on resample-1.7 by by Julius
+  O. Smith III
+* [tl::expected](https://github.com/TartanLlama/expected) - A lightweight
+  implementation of the C++23 std::expected type for error handling by TartanLlama.
+
+
+Experimental hybrid ROM assembly
+-------------------------------
+
+Chiplet accepts inline CDP1802 assembly in Octo programs:
+
+```octo
+:const BG_PORT 1
+
+: main
+    native inc_bgcol
+    loop again
+
+: inc_bgcol
+    :asm cdp1802 {
+        SEX R9
+        OUT BG_PORT
+        SEP R4
+    }
+```
+
+The block emits its native bytes at the current Octo address. It does not
+insert a call, return, alignment, or padding. Use Octo's `native label` for a
+CHIP-8 `0nnn` call, and the target interpreter's return convention inside the
+block. `SEP R4` is appropriate for the ETI-660 example; the convention is not
+chosen automatically from the CPU name.
+
+The existing CDP1802 assembler handles native syntax. Statements are separated
+by newlines or semicolons; hexadecimal numbers use `#39` or `X'39'`; native
+comments start with `..`. Octo `#` comments, directives, macros, and macro
+argument substitutions are not interpreted inside the block. Braces inside
+native strings and comments do not terminate the block. The preprocessor
+preserves the complete block, including in included files and Octo macros.
+Each expansion of a block gets independent native local symbols.
+
+Previously defined Octo numeric constants, calculated values, and labels are
+readable inside the block. Their values are captured at that occurrence of the
+block. Forward references to Octo labels are also supported, including labels
+in later native routines. Forward references to later `:const`/`:calc`
+definitions are not supported. Native names use letters, digits, and
+underscores, starting with a letter or underscore. Shared symbol spelling is
+case-sensitive; CPU mnemonics and register names are case-insensitive. CPU
+register names are reserved within native assembly. Imported values must be
+finite integers that fit the operand being encoded.
+
+Native labels (`name:`) and equates (`name = expression`, `name EQU expression`)
+are local to their block and may shadow imported symbols. They are never
+exported into Octo. Put an outer Octo label before each block for externally
+callable entry points. Native expressions use the CDP1802 expression grammar,
+including `+`, `-`, the current statement address `*`/`$`, and `A.1(expr)` /
+`A.0(expr)` to select an address's high / low byte.
+
+This first version accepts only `cdp1802` and requires contiguous blocks with a
+fixed size in the 16-bit address space. Native `ORG`, `PAGE`, and `END` are
+rejected; use outer Octo `:org` for placement. No instruction relaxation is
+performed. Short branches must target the page containing their operand;
+otherwise use a long branch. Data width is explicit: bare `DB`/`DC` expressions
+and `A.0`/`A.1` emit one byte, `A(expr)` emits a two-byte big-endian address,
+and text emits its bytes. An out-of-range byte is an error instead of widening
+it after layout.
+
+Octo reserves a native block's size during layout and reassembles it at its
+actual address once the program's labels are known. Errors point into the
+native source, including included files; source maps cover individual native
+instructions.
+
+The example `test/hybrid/wipeout-eti660.8o` reconstructs W. F. Kreykes's
+ETI-660 Wipeout hybrid using three native blocks and symbolic CHIP-8 references:
+
+```sh
+chiplet --start-address 1536 -o wipeout.ch8 test/hybrid/wipeout-eti660.8o
+```
+
+The result is exactly 606 bytes, identical to the supplied original image:
+SHA-256 `e7c71e4f3fd9839204429f6d00b1361b83ceb71fd4c6c08aae4db5fa46e13913`.
+The original-image comparison is included in the hybrid regression tests.

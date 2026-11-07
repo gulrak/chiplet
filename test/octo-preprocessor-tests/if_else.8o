@@ -1,0 +1,8 @@
+:const ENABLED 1
+: main
+:if ENABLED
+    v0 := 1
+:else
+    v0 := 2
+:end
+return

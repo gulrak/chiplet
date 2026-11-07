@@ -1,0 +1,5 @@
+: main
+:byte { sqrt -1 }
+:byte { 1 / 0 }
+:byte { 0 / 0 }
+return

@@ -1,0 +1,4 @@
+:alias exit v0
+: main
+v1 := exit
+exit

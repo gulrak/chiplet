@@ -1,0 +1,68 @@
+//---------------------------------------------------------------------------------------
+// src/octo/assembly_session.hpp
+//---------------------------------------------------------------------------------------
+//
+// Copyright (c) 2022, Steffen Schümann <s.schuemann@pobox.com>
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
+//---------------------------------------------------------------------------------------
+#pragma once
+
+#include <functional>
+#include <string>
+#include <string_view>
+#include <memory>
+
+#include "chiplet/sha1.hpp"
+
+namespace octo {
+
+struct Monitor;
+
+class AssemblySession
+{
+public:
+    AssemblySession();
+    ~AssemblySession();
+
+    bool compile(std::string_view text, int startAddress = 0x200);
+    bool isError() const;
+    const std::string& errorMessage() const;
+    std::string rawErrorMessage() const;
+    int errorLine() const;
+    int errorCol() const;
+    size_t numSourceLines() const;
+    uint32_t codeSize() const;
+    const uint8_t* code() const;
+    const Sha1::Digest& sha1() const;
+    std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
+    uint32_t lineForAddr(uint32_t addr) const;
+    std::string_view breakpointForAddr(uint32_t addr) const;
+    void forEachMonitor(const std::function<void(std::string_view name, const Monitor& monitor)>& visitor) const;
+    void forEachSymbol(const std::function<void(std::string_view name, double value)>& visitor) const;
+
+private:
+    void updateHash();
+    void updateLineCoverage();
+    class Private;
+    std::unique_ptr<Private> _impl;
+};
+
+}

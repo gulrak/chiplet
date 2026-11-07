@@ -1,0 +1,10 @@
+: main
+:if UNKNOWN
+    :const HIDDEN 1
+:end
+:if HIDDEN
+    v0 := 9
+:else
+    v0 := 1
+:end
+return

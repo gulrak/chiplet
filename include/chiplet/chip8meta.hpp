@@ -47,33 +47,39 @@ struct OpcodeInfo {
     int size;
     std::string mnemonic;
     std::string octo;
-    Chip8Variant variants;
+    chip8::VariantSet variants;
     std::string description;
 };
 
 namespace detail {
 // clang-format off
+using namespace chip8;
 inline static std::array<uint16_t, NUM_OPCODE_TYPES> opcodeMasks = { 0xFFFF, 0xFFF0, 0xFF00, 0xF000, 0xF00F, 0xF0FF, 0xF000, 0xF000, 0xFF0F };
 inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x0010, 2, "megaoff", "megaoff", C8V::MEGA_CHIP, "disable megachip mode" },
     { OT_FFFF, 0x0011, 2, "megaon", "megaon", C8V::MEGA_CHIP, "enable megachip mode" },
     { OT_FFFn, 0x00B0, 2, "scru N", "scroll_up N", C8V::SCHIP_1_1_SCRUP|C8V::MEGA_CHIP, "scroll screen content up N pixel [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels]" },
-    { OT_FFFn, 0x00C0, 2, "scd N", "scroll-down N", C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content down N pixel, in XO-CHIP only selected bit planes are scrolled [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels][Q: On the HP48 (SCHIP/SCHPC) opcode 00C0, so scrolling zero pixels, is not a valid opcode]" },
+    { OT_FFFn, 0x00C0, 2, "scd N", "scroll-down N", C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::SCHIP_MODERN|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content down N pixel, in XO-CHIP only selected bit planes are scrolled [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels][Q: On the HP48 (SCHIP/SCHPC) opcode 00C0, so scrolling zero pixels, is not a valid opcode]" },
     { OT_FFFn, 0x00D0, 2, "scu N", "scroll-up N", C8V::XO_CHIP|C8V::OCTO, "scroll screen content up N hires pixel, in XO-CHIP only selected planes are scrolled" },
-    { OT_FFFF, 0x00E0, 2, "cls", "clear", C8VG_BASE, "clear the screen, in XO-CHIP only selected bit planes are cleared, in MegaChip mode it updates the visible screen before clearing the draw buffer" },
+    { OT_FFFF, 0x00E0, 2, "cls", "clear", C8VG_BASE - C8V::CHIP_8_TPD - C8V::CHIP_8_TPD_COSMAC_VIP - C8V::HI_RES_CHIP_8, "clear the screen, in XO-CHIP only selected bit planes are cleared, in MegaChip mode it updates the visible screen before clearing the draw buffer" },
     { OT_FFFF, 0x00ED, 2, "dw #00ed", "stop", C8V::CHIP_8E, "stop execution" },
     { OT_FFFF, 0x00EE, 2, "ret", "return", C8VG_BASE, "return from subroutine to address pulled from stack" },
     { OT_FFFF, 0x00F2, 2, "dw #00f2", "nop-8e", C8V::CHIP_8E, "nop (does nothing)"},
-    { OT_FFFF, 0x00FB, 2, "scr", "scroll-right", C8V::SCHIP_1_1|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content right four pixel, in XO-CHIP only selected bit planes are scrolled [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels]" },
-    { OT_FFFF, 0x00FC, 2, "scl", "scroll-left", C8V::SCHIP_1_1|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content left four pixel, in XO-CHIP only selected bit planes are scrolled [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels]" },
-    { OT_FFFF, 0x00FD, 2, "exit", "exit", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP|C8V::OCTO, "exit interpreter" },
-    { OT_FFFF, 0x00FE, 2, "low", "lores", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to lores mode (64x32) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
-    { OT_FFFF, 0x00FF, 2, "high", "hires", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to hires mode (128x64) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
-    { OT_FFFF, 0x00FF, 2, "dw #00ff", "nop", C8V::CHIP_8_ETI660|Chip8Variant::CHIP_8_ETI660_COL|Chip8Variant::CHIP_8_ETI660_HR, "nop (does nothing)" },
+    { OT_FFFF, 0x00FB, 2, "scr", "scroll-right", C8V::SCHIP_1_1|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content right four pixel, in XO-CHIP only selected bit planes are scrolled [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels]" },
+    { OT_FFFF, 0x00FC, 2, "scl", "scroll-left", C8V::SCHIP_1_1|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "scroll screen content left four pixel, in XO-CHIP only selected bit planes are scrolled [Q: On the HP48 (SCHIP/SCHIPC) scrolling in lores mode only scrolls half the pixels]" },
+    { OT_FFFF, 0x00FD, 2, "exit", "exit", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::XO_CHIP|C8V::MEGA_CHIP|C8V::OCTO, "exit interpreter" },
+    { OT_FFFF, 0x00FE, 2, "low", "lores", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to lores mode (64x32) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
+    { OT_FFFF, 0x00FF, 2, "high", "hires", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::MEGA_CHIP|C8V::XO_CHIP|C8V::OCTO, "switch to hires mode (128x64) [Q: The original SCHIP-1.x did not clean the screen, leading to artifacts]" },
+    { OT_FFFF, 0x00FF, 2, "dw #00ff", "nop", C8V::CHIP_8_ETI660|C8V::CHIP_8_ETI660_COL|C8V::CHIP_8_ETI660_HR, "nop (does nothing)" },
     { OT_FFnn, 0x0100, 4, "ldhi i,NNNNNN", "ldhi NNNNNN", C8V::MEGA_CHIP, "set I to NNNNNN (24 bit)" },
+    { OT_FFFF, 0x004B, 2, "dw #004B", "display-on", C8V::CHIP_8_TPD|C8V::CHIP_8_TPD_COSMAC_VIP, "turn the display on"},
+    { OT_FFFF, 0x004B, 2, "dw #004B", "display-on-clear", C8V::HI_RES_CHIP_8, "turn the display on and clear the screen"},
     { OT_FFFF, 0x0151, 2, "dw #0151", "wait-dt", C8V::CHIP_8E, "halt execution until delay timer is 0"},
     { OT_FFFF, 0x0188, 2, "dw #0188", "skip-next", C8V::CHIP_8E, "skip next opcode (only 2 bytes)"},
     { OT_FFnn, 0x0200, 2, "ldpal NN", "ldpal NN", C8V::MEGA_CHIP, "load NN colors from I into the palette, colors are in ARGB" },
+    { OT_FFFF, 0x0200, 2, "dw #0200", "clear-pages", C8V::HI_RES_CHIP_8, "clear the screen, or only the number of pages from the bottom that was set with 0216"},
+    { OT_FFFF, 0x0216, 2, "dw #0216", "set-clear-pages", C8V::HI_RES_CHIP_8, "set the number of 32 line pages from the bottom that get cleared to v0 (default 4, 0 or more than 4 also clear memory below the display)"},
+    { OT_FFFF, 0x0230, 2, "dw #0230", "clear-tpd", C8V::CHIP_8_TPD|C8V::CHIP_8_TPD_COSMAC_VIP, "clear the screen"},
     { OT_FFFF, 0x02A0, 2, "dw #02A0", "cycle-bgcol", C8V::CHIP_8X, "cycle background color one step between blue, black, green and red"},
     { OT_FFFF, 0x02F0, 2, "dw #02F0", "cycle-bgcol-mp", C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "cycle background color one step between blue, black, green and red"},
     { OT_FFnn, 0x0300, 2, "sprw NN", "sprw NN", C8V::MEGA_CHIP, "set sprite width to NN (not used for font sprites)" },
@@ -83,7 +89,7 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FFFF, 0x0700, 2, "stopsnd", "stopsnd", C8V::MEGA_CHIP, "stop digitized sound" },
     { OT_FFFn, 0x0800, 2, "bmode N", "bmode N", C8V::MEGA_CHIP, "set sprite blend mode (0=normal,1=25%,2=50%,3=75%,4=additive,5=multiply)" },
     { OT_FFnn, 0x0900, 2, "ccol NN", "ccol NN", C8V::MEGA_CHIP, "set collision color to index NN" },
-    { OT_Fnnn, 0x0000, 2, "dw #0NNN", "0x0N 0xNN", static_cast<Chip8Variant>((int64_t)C8V::MULTIPLE_NIM-1)|C8V::CHIP_8_D6800, "jump to native assembler subroutine at 0xNNN"},
+    { OT_Fnnn, 0x0000, 2, "dw #0NNN", "0x0N 0xNN", C8VG_COSMAC|C8VG_D6800, "jump to native assembler subroutine at 0xNNN"},
     { OT_Fnnn, 0x1000, 2, "jp NNN", "jump NNN", C8VG_BASE, "jump to address NNN" },
     { OT_Fnnn, 0x2000, 2, "call NNN", ":call NNN", C8VG_BASE, "push return address onto stack and call subroutine at address NNN" },
     { OT_Fxnn, 0x3000, 2, "se vX,NN", "if vX != NN then", C8VG_BASE, "skip next opcode if vX == NN (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
@@ -91,56 +97,57 @@ inline static std::vector<OpcodeInfo> opcodes{
     { OT_FxyF, 0x5000, 2, "se vX,vY", "if vX != vY then", C8VG_BASE, "skip next opcode if vX == vY (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxyF, 0x5001, 2, "dw #5XY1", "0x5X 0xY1", C8V::CHIP_8E, "skip next opcode if vX > vY (note: CHIP-8E only, so skips only 2 bytes)" },
     { OT_FxyF, 0x5001, 2, "dw #5XY1", "0x5X 0xY1", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "A BCD like add opcode that works in octal for normal CHIP-8X and hex on multi-page CHIP-8X, add the nibbles of Vx and Vy separately, and mask the results to keep the nibbles addition from overflowing, and store result in vX"},
-    { OT_FxyF, 0x5002, 2, "ld [i],vX-vY", "save vX - vY", C8V::CHIP_8E|C8V::XO_CHIP|C8V::OCTO, "write registers vX to vY to memory pointed to by I" },
-    { OT_FxyF, 0x5003, 2, "ld vX-vY,[i]", "load vX - vY", C8V::CHIP_8E|C8V::XO_CHIP|C8V::OCTO, "load registers vX to vY from memory pointed to by I" },
+    { OT_FxyF, 0x5002, 2, "ld [i],vX-vY", "save vX - vY", C8V::CHIP_8E|C8V::XO_CHIP|C8V::OCTO, "write registers vX to vY to memory pointed to by I [Q: CHIP-8E only supports X<=Y and increments I, on XO-CHIP registers are written/read in the order of X to Y]" },
+    { OT_FxyF, 0x5003, 2, "ld vX-vY,[i]", "load vX - vY", C8V::CHIP_8E|C8V::XO_CHIP|C8V::OCTO, "load registers vX to vY from memory pointed to by I [Q: CHIP-8E only supports X<=Y and increments I, on XO-CHIP registers are written/read in the order of X to Y]" },
     { OT_Fxnn, 0x6000, 2, "ld vX,NN", "vX := NN", C8VG_BASE, "set vX to NN" },
     { OT_Fxnn, 0x7000, 2, "add vX,NN", "vX += NN", C8VG_BASE, "add NN to vX" },
     { OT_FxyF, 0x8000, 2, "ld vX,vY", "vX := vY", C8VG_BASE, "set vX to the value of vY" },
     { OT_FxyF, 0x8001, 2, "or vX,vY", "vX |= vY", C8VG_BASE, "set vX to the result of bitwise vX OR vY [Q: COSMAC based variants will reset VF]" },
     { OT_FxyF, 0x8002, 2, "and vX,vY", "vX &= vY", C8VG_BASE, "set vX to the result of bitwise vX AND vY [Q: COSMAC based variants will reset VF]" },
-    { OT_FxyF, 0x8003, 2, "xor vX,vY", "vX ^= vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to the result of bitwise vX XOR vY [Q: COSMAC based variants will reset VF]" },
+    { OT_FxyF, 0x8003, 2, "xor vX,vY", "vX ^= vY", C8VG_BASE - C8V::CHIP_8_D6800, "set vX to the result of bitwise vX XOR vY [Q: COSMAC based variants will reset VF]" },
     { OT_FxyF, 0x8004, 2, "add vX,vY", "vX += vY", C8VG_BASE, "add vY to vX, vF is set to 1 if an overflow happened, to 0 if not, even if X=F!" },
     { OT_FxyF, 0x8005, 2, "sub vX,vY", "vX -= vY", C8VG_BASE, "subtract vY from vX, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!" },
-    { OT_FxyF, 0x8006, 2, "shr vX{,vY}", "vX >>= vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to vY and shift vX one bit to the right, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX]" },
-    { OT_FxyF, 0x8007, 2, "subn vX,vY", "vX =- vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to the result of subtracting vX from vY, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!" },
-    { OT_FxyF, 0x800e, 2, "shl vX{,vY}", "vX <<= vY", C8VG_BASE & ~(C8V::CHIP_8_D6800), "set vX to vY and shift vX one bit to the left, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX]" },
+    { OT_FxyF, 0x8006, 2, "shr vX{,vY}", "vX >>= vY", C8VG_BASE - C8V::CHIP_8_D6800, "set vX to vY and shift vX one bit to the right, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX]" },
+    { OT_FxyF, 0x8007, 2, "subn vX,vY", "vX =- vY", C8VG_BASE - C8V::CHIP_8_D6800, "set vX to the result of subtracting vX from vY, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!" },
+    { OT_FxyF, 0x800e, 2, "shl vX{,vY}", "vX <<= vY", C8VG_BASE - C8V::CHIP_8_D6800, "set vX to vY and shift vX one bit to the left, set vF to the bit shifted out, even if X=F! [Q: CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX]" },
     { OT_FxyF, 0x9000, 2, "sne vX,vY", "if vX == vY then", C8VG_BASE, "skip next opcode if vX != vY (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_Fnnn, 0xA000, 2, "ld i,NNN", "i := NNN", C8VG_BASE, "set I to NNN" },
-    { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE & ~(C8V::CHIP_8_I|C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X|C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP), "jump to address NNN + v0" },
-    { OT_Fxnn, 0xB000, 2, "jp vX,NNN", "jump0 NNN + vX", C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP, "jump to address XNN + vX" },
+    { OT_Fnnn, 0xB000, 2, "jp v0,NNN", "jump0 NNN", C8VG_BASE - C8V::CHIP_8_I - C8V::CHIP_8_R - C8V::CHIP_8X - C8V::CHIP_8X_TPD - C8V::HI_RES_CHIP_8X - C8V::CHIP_48 - C8V::SCHIP_1_0 - C8V::SCHIP_1_1 - C8V::SCHIP_1_1_SCRUP - C8V::SCHIP_MODERN, "jump to address NNN + v0" },
+    { OT_Fxnn, 0xB000, 2, "jp vX,NNN", "jump0 XNN + vX", C8V::CHIP_48|C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIP_MODERN, "jump to address XNN + vX" },
     { OT_FFnn, 0xB000, 2, "dw #b0NN", "0xb0 0xNN", C8V::CHIP_8_I, "output NN to port"},
-    { OT_FFnn, 0xBB00, 2, "dw #bbNN", "0xbb 0xNN", C8V::CHIP_8E, "jump backward to address of this instruction minus NN, bb00 is self-jump"},
-    { OT_FFnn, 0xBF00, 2, "dw #bfNN", "0xbf 0xNN", C8V::CHIP_8E, "jump forward to address of this instruction plus NN, bf00 is self-jump"},
+    { OT_FFnn, 0xBB00, 2, "dw #bbNN", "0xbb 0xNN", C8V::CHIP_8_RB|C8V::CHIP_8E|C8V::CHIP_8_R, "jump backward to address of this instruction minus NN, bb00 is self-jump"},
+    { OT_FFnn, 0xBF00, 2, "dw #bfNN", "0xbf 0xNN", C8V::CHIP_8_RB|C8V::CHIP_8E|C8V::CHIP_8_R, "jump forward to address of this instruction plus NN, bf00 is self-jump"},
+    { OT_FFFF, 0xBC00, 2, "dw #bc00", "0xbc 0x00", C8V::CHIP_8_R, "push return address onto stack and call subroutine at the 16 bit address in i"},
     { OT_FFyF, 0xB100, 2, "dw #b1Y0", "0xb1 0xY0", C8V::CHIP_8_I, "output Vy to port"},
     { OT_FFyF, 0xB101, 2, "dw #b1Y1", "0xb1 0xY1", C8V::CHIP_8_I, "wait for input (EF line is low) and set Vy to data from port"},
-    { OT_Fxyn, 0xB000, 2, "dw #bXYN", "col-high X Y N", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set the foreground color of the pixel area where VX is the horizontal coordinate and VX+1 is the vertical, for 8 horizontal pixels (similar to DXYN), to the color defined in VY (N > 0), horizontal coordinates are actually seen as VX&0x38"},
-    { OT_FxyF, 0xB000, 2, "dw #bXY0", "col-low X Y", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set the foreground color of the pixel area defined by VX and VX+1 to the color defined in VY (VY <= 7, where values correspond to black, red, blue, violet, green, yellow, aqua and white, respectively); the display is split into 8 x 8 zones (8 x 4 pixels each); the least significant nibble of VX specifies the horizontal position of the left-most zone, and the most significant nibble of VX specifies the extra number of horizontal zones to color (ie. a value of 0 will color one zone); ditto for VX+1, but with vertical zones"},
+    { OT_FxyF, 0xB000, 2, "dw #bXY0", "col-low X Y", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set the foreground color of the pixel area defined by VX (0xWX) and V(X+1) (0xHY) in cells to the color defined in VY (VY <= 7, where values correspond to black, red, blue, violet, green, yellow, aqua and white, respectively); the display is split into 8 x 8 zones (8 x 4 pixels each); the least significant nibble of VX specifies the horizontal position of the left-most zone, and the most significant nibble of VX specifies the extra number of horizontal zones to color (ie. a value of 0 will color one zone); ditto for V(X+1), but with vertical zones"},
+    { OT_Fxyn, 0xB000, 2, "dw #bXYN", "col-high X Y N", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "set the foreground color of the pixel area where VX is the horizontal coordinate and V(X+1) is the vertical, for 8 horizontal pixels (similar to DXYN), to the color defined in VY (N > 0), horizontal coordinates are actually seen as VX&0x38"},
     { OT_Fxnn, 0xC000, 2, "rnd vX,NN", "vX := random NN", C8VG_BASE, "set vx to a random value masked (bitwise AND) with NN" },
     { OT_Fxyn, 0xD000, 2, "drw vX,vY,N", "sprite vX vY N", C8VG_BASE, "draw 8xN pixel sprite at position vX, vY with data starting at the address in I, I is not changed [Q: XO-CHIP wraps pixels instead of clipping them] [Q: Original COSMAC VIP based systems (like original CHIP-8), and the HP48 based interpreters in 64x32 mode wait for the start of the next frame, the VIP sometimes even needs two screens to finish] [Q: CHIP-10 only has a hires mode] [Q: The original SCHIP-1.1 in hires mode set VF to the number of sprite rows with collisions plus the number of rows clipped at the bottom border]" },
-    { OT_FxyF, 0xD000, 2, "drw vX,vY,0", "sprite vX vY 0", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP, "draw 16x16 pixel sprite at position vX, vY with data starting at the address in I, I is not changed [Q: XO-CHIP wraps pixels instead of clipping them][Q: SCHIP-1.x only draws 8x16 on lores] [Q: Original COSMAC VIP based systems (like original CHIP-8), and the HP48 based interpreters in 64x32 mode wait for the start of the next frame, the VIP sometimes even needs two screens to finish] [Q: The original SCHIP-1.1 in hires mode set VF to the number of sprite rows with collisions plus the number of rows clipped at the bottom border]" },
+    { OT_FxyF, 0xD000, 2, "drw vX,vY,0", "sprite vX vY 0", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::XO_CHIP, "draw 16x16 pixel sprite at position vX, vY with data starting at the address in I, I is not changed [Q: XO-CHIP wraps pixels instead of clipping them][Q: SCHIP-1.x/SCHIPC only draws 8x16 on lores] [Q: Original COSMAC VIP based systems (like original CHIP-8), and the HP48 based interpreters in 64x32 mode wait for the start of the next frame, the VIP sometimes even needs two screens to finish] [Q: The original SCHIP-1.1 in hires mode set VF to the number of sprite rows with collisions plus the number of rows clipped at the bottom border]" },
     { OT_FxFF, 0xE09E, 2, "skp vX", "if vX -key then", C8VG_BASE, "skip next opcode if key in the lower 4 bits of vX is pressed (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxFF, 0xE0A1, 2, "sknp vX", "if vX key then", C8VG_BASE, "skip next opcode if key in the lower 4 bits of vX is not pressed (note: on platforms that have 4 byte opcodes, like F000 on XO-CHIP, this needs to skip four bytes)" },
     { OT_FxFF, 0xE0F2, 2, "dw #eXf2", "0xeX 0xf2", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "skip next opcode if key in the lower 4 bits of vX is pressed on keypad 2" },
     { OT_FxFF, 0xE0F5, 2, "dw #eXf5", "0xeX 0xf5", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "skip next opcode if key in the lower 4 bits of vX is not pressed keypad 2" },
-    { OT_FFFF, 0xF000, 4, "", "i := long NNNN", C8V::XO_CHIP, "assign next 16 bit word to i, and set PC behind it, this is a four byte instruction (see note on skip instructions)" },
-    { OT_FxFF, 0xF001, 2, "", "plane X", C8V::XO_CHIP, "select bit planes to draw on when drawing with Dxy0/Dxyn" },
-    { OT_FFFF, 0xF002, 2, "", "audio", C8V::XO_CHIP, "load 16 bytes audio pattern pointed to by I into audio pattern buffer" },
+    { OT_FFFF, 0xF000, 4, "dw #f000, #NNNN", "i := long NNNN", C8V::XO_CHIP|C8V::CHIP_8_R, "assign next 16 bit word to i, and set PC behind it, this is a four byte instruction (see note on skip instructions)" },
+    { OT_FxFF, 0xF001, 2, "dw #fX01", "plane X", C8V::XO_CHIP, "select bit planes to draw on when drawing with Dxy0/Dxyn" },
+    { OT_FFFF, 0xF002, 2, "dw #fX02", "audio", C8V::XO_CHIP, "load 16 bytes audio pattern pointed to by I into audio pattern buffer" },
     { OT_FxFF, 0xF003, 2, "dw #fX03", "0xfX 0x03", C8V::CHIP_8E, "output vX to port 3" },
-    { OT_FxFF, 0xF007, 2, "", "vX := delay", C8VG_BASE, "set vX to the value of the delay timer" },
-    { OT_FxFF, 0xF00A, 2, "", "vX := key", C8VG_BASE, "wait for a key pressed and released and set vX to it, in megachip mode it also updates the screen like clear" },
-    { OT_FxFF, 0xF015, 2, "", "delay := vX", C8VG_BASE, "set delay timer to vX" },
-    { OT_FxFF, 0xF018, 2, "", "buzzer := vX", C8VG_BASE, "set sound timer to vX, sound is played as long as the sound timer reaches zero" },
+    { OT_FxFF, 0xF007, 2, "ld vX,dt", "vX := delay", C8VG_BASE, "set vX to the value of the delay timer" },
+    { OT_FxFF, 0xF00A, 2, "ld vX,k", "vX := key", C8VG_BASE, "wait for a key pressed and released and set vX to it, in megachip mode it also updates the screen like clear" },
+    { OT_FxFF, 0xF015, 2, "ld dt,vX", "delay := vX", C8VG_BASE, "set delay timer to vX" },
+    { OT_FxFF, 0xF018, 2, "ld st,vX", "buzzer := vX", C8VG_BASE, "set sound timer to vX, sound is played as long as the sound timer reaches zero" },
     { OT_FxFF, 0xF01B, 2, "dw #fX1b", "skip-bytes vX", C8V::CHIP_8E, "jump forward vX bytes, if vX is 0 simply the next opcode is the target, making it a nop" },
-    { OT_FxFF, 0xF01E, 2, "", "i += vX", C8VG_BASE, "add vX to I" },
-    { OT_FxFF, 0xF029, 2, "", "i := hex vX", C8VG_BASE, "set I to the 5 line high hex sprite for the lowest nibble in vX" },
-    { OT_FxFF, 0xF030, 2, "", "i := bighex vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "set I to the 10 lines high hex sprite for the lowest nibble in vX" },
-    { OT_FxFF, 0xF033, 2, "", "bcd vX", C8VG_BASE, "write the value of vX as BCD value at the addresses I, I+1 and I+2" },
-    { OT_FxFF, 0xF03A, 2, "", "pitch := vX", C8V::XO_CHIP, "set audio pitch for a audio pattern playback rate of 4000*2^((vX-64)/48)Hz" },
+    { OT_FxFF, 0xF01E, 2, "add i,vX", "i += vX", C8VG_BASE, "add vX to I" },
+    { OT_FxFF, 0xF029, 2, "ld lf,vX", "i := hex vX", C8VG_BASE, "set I to the address of the 5-pixel tall sprite (regular font) for the hex digit (vX & 0xF)" },
+    { OT_FxFF, 0xF030, 2, "ld hf,vX", "i := bighex vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::XO_CHIP|C8V::MEGA_CHIP, "set I to the address of the 10-pixel tall sprite (big font) for the hex digit (vX & 0xF)" },
+    { OT_FxFF, 0xF033, 2, "ld b,vX", "bcd vX", C8VG_BASE, "write the value of vX as BCD value at the addresses I, I+1 and I+2" },
+    { OT_FxFF, 0xF03A, 2, "dw #fX3a", "pitch := vX", C8V::XO_CHIP, "set audio pitch for a audio pattern playback rate of 4000*2^((vX-64)/48)Hz" },
     { OT_FxFF, 0xF04F, 2, "dw #fX4f", "wait-for vX", C8V::CHIP_8E, "set delay timer to vX and wait for it to run down to 0" },
-    { OT_FxFF, 0xF055, 2, "", "save vX", C8VG_BASE, "write the content of v0 to vX at the memory pointed to by I, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1 not at all]" },
-    { OT_FxFF, 0xF065, 2, "", "load vX", C8VG_BASE, "read the bytes from memory pointed to by I into the registers v0 to vX, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1 not at all]" },
-    { OT_FxFF, 0xF075, 2, "", "saveflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "store the content of the registers v0 to vX into flags storage (outside of the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
-    { OT_FxFF, 0xF085, 2, "", "loadflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::XO_CHIP|C8V::MEGA_CHIP, "load the registers v0 to vX from flags storage (outside the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
+    { OT_FxFF, 0xF055, 2, "ld [i],vX", "save vX", C8VG_BASE, "write the content of v0 to vX at the memory pointed to by I, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1/SCHIP-MODERN not at all]" },
+    { OT_FxFF, 0xF065, 2, "ld vX,[i]", "load vX", C8VG_BASE, "read the bytes from memory pointed to by I into the registers v0 to vX, I is incremented by X+1 [Q: CHIP-48/SCHIP1.0 increment I only by X, SCHIP1.1/SCHIP-MODERN not at all]" },
+    { OT_FxFF, 0xF075, 2, "ld r,vX", "saveflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::XO_CHIP|C8V::MEGA_CHIP, "store the content of the registers v0 to vX into flags storage (outside of the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
+    { OT_FxFF, 0xF085, 2, "ld vX,r", "loadflags vX", C8V::SCHIP_1_0|C8V::SCHIP_1_1|C8V::SCHIP_1_1_SCRUP|C8V::SCHIPC|C8V::SCHIP_MODERN|C8V::XO_CHIP|C8V::MEGA_CHIP, "load the registers v0 to vX from flags storage (outside the addressable ram) [Q: SCHIP-1.x and SCHIPC only support v0-v7 on a real HP48]" },
     { OT_FxFF, 0xF0E3, 2, "dw #fXe3", "input3-wait vX", C8V::CHIP_8E, "wait for strobe on !EF4 and read input from port 3 into vX" },
     { OT_FxFF, 0xF0E7, 2, "dw #fXe7", "input3 vX", C8V::CHIP_8E, "read input from port 3 into vX" },
     { OT_FxFF, 0xF0F8, 2, "dw #fXf8", "0xfX 0xf8", C8V::CHIP_8X|C8V::CHIP_8X_TPD|C8V::HI_RES_CHIP_8X, "output vX to io port" },
@@ -152,7 +159,7 @@ inline static std::map<std::string, std::string> octoMacros = {
     {"megaoff", ":macro megaoff { :byte 0x00  :byte 0x10 }"},
     {"megaon", ":macro megaon { :byte 0x00 :byte 0x11 }"},
     {"scroll_up", ":macro scroll_up n { :calc BN { 0xB0 + ( n & 0xF ) } :byte 0x00 :byte BN }"},
-    {"ldhi", ":macro ldhi nnnn { :byte 0x01 :byte 0x00 :pointer nnnn }"},
+    {"ldhi", ":macro ldhi nnnnnn { :byte 0x01 :pointer24 nnnnnn }"},
     {"ldpal", ":macro ldpal nn { :byte 0x02 :byte nn }"},
     {"sprw", ":macro sprw nn { :byte 0x03 :byte nn }"},
     {"sprh", ":macro sprh nn { :byte 0x04 :byte nn }"},
@@ -161,14 +168,20 @@ inline static std::map<std::string, std::string> octoMacros = {
     {"stopsnd", ":macro stopsnd { :byte 0x07 :byte 0x00 }"},
     {"bmode", ":macro bmode n { :calc ZN { n & 0xF } :byte 0x08 :byte ZN }"},
     {"ccol", ":macro ccol nn { :byte 0x09 :byte nn }"},
-    {"cycle-bgcol", ":macro cycle-background { 0x02 0xa0 }"},
-    {"cycle-bgcol-mp", ":macro cycle-background { 0x02 0xf0 }"},
+    {"display-on", ":macro display-on { 0x00 0x4b }"},
+    {"display-on-clear", ":macro display-on-clear { 0x00 0x4b }"},
+    {"clear-pages", ":macro clear-pages { 0x02 0x00 }"},
+    {"set-clear-pages", ":macro set-clear-pages { 0x02 0x16 }"},
+    {"clear-tpd", ":macro clear-tpd { 0x02 0x30 }"},
+    {"cycle-bgcol", ":macro cycle-bgcol { 0x02 0xa0 }"},
+    {"cycle-bgcol-mp", ":macro cycle-bgcol-mp { 0x02 0xf0 }"},
     {"col-low", ":macro col-low x y { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( y & 0xF ) << 4 } :byte MSB :byte LSB }"},
     {"col-high", ":macro col-high x y n { :calc MSB { 0xB0 + ( x & 0xF ) } :calc LSB { ( ( y & 0xF ) << 4 ) + ( n & 0xF ) } :byte MSB :byte LSB }"},
     {"stop", ":macro stop { :byte 0x00 :byte 0xed }"},
     {"wait-dt", ":macro wait-dt { :byte 0x01 :byte 0x51 }"},
     {"nop-8e", ":macro nop-8e { :byte 0x00 :byte 0xf2 }"},
-    {"skip-next", ":macro skip-next { :byte 0x01 : byte 0x88 }"},
+    {"nop", ":macro nop { :byte 0x00 :byte 0xff }"},
+    {"skip-next", ":macro skip-next { :byte 0x01 :byte 0x88 }"},
     {"skip-bytes", ":macro skip-bytes reg { :calc FX { 0xF0 + ( reg & 0xF ) } :byte FX :byte 0x1b }"},
     {"wait-for", ":macro wait-for reg { :calc FX { 0xF0 + ( reg & 0xF ) } :byte FX :byte 0x4f }"},
     {"input3-wait", ":macro input3-wait reg { :calc FX { 0xF0 + ( reg & 0xF ) } :byte FX :byte 0xe3 }"},
@@ -179,19 +192,20 @@ class OpcodeSet
 {
 public:
     using SymbolResolver = std::function<std::string(uint32_t)>;
-    explicit OpcodeSet(Chip8Variant variant, SymbolResolver resolver = {})
-    : _variant(variant)
+    explicit OpcodeSet(VariantSet variants, SymbolResolver resolver = {})
+    : _variants(variants)
     , _labelOrAddress(std::move(resolver))
     , _mappedInfo(0x10000, 0xff)
     {
         for(const auto& info : opcodes) {
-            if(uint64_t(info.variants & variant) != 0) {
-                mapOpcode(opcodeMasks[info.type], info.opcode, &info - opcodes.data());
+            if(info.variants.containsAny(variants)) {
+                if (info.type != OT_Fnnn || info.opcode != 0x0000 || variants.contains(C8V::CHIP_8_COSMAC_VIP))
+                    mapOpcode(opcodeMasks[info.type], info.opcode, &info - opcodes.data());
             }
         }
     }
     void formatInvalidAsHex(bool asHex) { _invalidAsHex = asHex; }
-    [[nodiscard]] Chip8Variant getVariant() const { return _variant; }
+    [[nodiscard]] VariantSet getVariants() const { return _variants; }
     [[nodiscard]] const OpcodeInfo* getOpcodeInfo(uint16_t opcode) const
     {
         auto index = _mappedInfo[opcode];
@@ -294,7 +308,7 @@ private:
             setIfEmpty(opcode, infoIndex);
         }
     }
-    Chip8Variant _variant;
+    VariantSet _variants;
     SymbolResolver _labelOrAddress;
     std::vector<uint8_t> _mappedInfo{};
     bool _invalidAsHex = false;

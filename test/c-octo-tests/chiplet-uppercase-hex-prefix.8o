@@ -1,0 +1,5 @@
+: main
+v0 := 0XFF
+v1 := +0X0A
+v2 := -0X3
+return

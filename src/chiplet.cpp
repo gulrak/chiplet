@@ -24,30 +24,40 @@
 //
 //---------------------------------------------------------------------------------------
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include <chiplet/octocompiler.hpp>
 #include <chiplet/chip8decompiler.hpp>
 
+#include <chiplet/hexfile.hpp>
 #include <chiplet/utility.hpp>
-#include <chiplet/cli.hpp>
 #include <chiplet/sha1.hpp>
 #include <chiplet/octocartridge.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <chiplet/stb_image.h>
+#include "cdp1802/assembly_session.hpp"
 
+#include <ghc/cli.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cctype>
 #include <set>
 #include <stdexcept>
 
-enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH, eDEEP_ANALYSE };
+enum WorkMode { ePREPROCESS, eCOMPILE, eDISASSEMBLE, eANALYSE, eSEARCH, eDEEP_ANALYSE, RELOCATE };
 static std::unordered_map<std::string, std::string> fileMap;
+static std::set<std::string> extensionsDetected;
+static std::set<std::string> extensionsUndetected;
 static std::vector<std::string> opcodesToFind;
 static std::string outputFile;
 static bool fullPath = false;
 static bool withUsage = false;
 static bool genListing = false;
+static bool deepscan = false;
 static int foundFiles = 0;
 static bool roundTrip = false;
 static int errors = 0;
@@ -55,10 +65,143 @@ static int64_t totalSourceLines = 0;
 static int64_t totalDecompileTime_us = 0;
 static int64_t totalAssembleTime_us = 0;
 
+enum class Architecture { OCTO, CDP1802 };
+
+Architecture architectureFromName(const std::string& name)
+{
+    if (name == "octo")
+        return Architecture::OCTO;
+    if (name == "cdp1802")
+        return Architecture::CDP1802;
+    throw std::runtime_error("Unsupported architecture '" + name + "' (expected 'octo' or 'cdp1802')");
+}
+
+bool writeBinaryOutput(const std::string& filename, std::span<const uint8_t> data)
+{
+    std::ofstream out(filename, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    return static_cast<bool>(out);
+}
+
+bool writeHexOutput(const std::string& filename, uint16_t address, std::span<const uint8_t> data)
+{
+    emu::HexFile hex{filename, emu::HexFile::Mode::WRITE};
+    hex.write(address, data);
+    hex.close();
+    return true;
+}
+
+bool writeHexOutput(const std::string& filename, const std::vector<cdp1802::AssemblySegment>& segments)
+{
+    emu::HexFile hex{filename, emu::HexFile::Mode::WRITE};
+    for (const auto& segment : segments)
+        hex.write(segment.address, segment.bytes);
+    hex.close();
+    return true;
+}
+
+int relocateFile(const std::string& filename, uint32_t entry, uint32_t destination, bool hexOutput, bool quiet)
+{
+    try {
+        std::vector<uint8_t> data;
+        std::vector<std::pair<uint32_t, size_t>> ranges;
+        uint32_t base = entry;
+        auto extension = fs::path(filename).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch){ return std::tolower(ch); });
+        if(extension == ".hex") {
+            emu::HexFile hex(filename, emu::HexFile::Mode::READ);
+            if(hex.ranges().empty())
+                throw std::runtime_error("Input HEX contains no data");
+            base = hex.ranges().front().first;
+            const auto& last = hex.ranges().back();
+            data.resize(last.first + last.second.size() - base, 0);
+            for(const auto& [address, bytes] : hex.ranges()) {
+                std::copy(bytes.begin(), bytes.end(), data.begin() + address - base);
+                ranges.emplace_back(address, bytes.size());
+            }
+        }
+        else {
+            auto binary = loadFile(filename);
+            if(!binary)
+                throw std::runtime_error("Couldn't read input file: " + filename);
+            data = std::move(*binary);
+            ranges.emplace_back(base, data.size());
+        }
+        if(data.size() < 2 || data.size() > 0x10000u - base)
+            throw std::runtime_error("Input program must contain at least two bytes and fit in 16-bit address space");
+        auto contains = [&](uint32_t address, size_t size) {
+            return std::any_of(ranges.begin(), ranges.end(), [&](const auto& range) {
+                return address >= range.first && static_cast<uint64_t>(address) + size <= range.first + range.second;
+            });
+        };
+        if(!contains(entry, 2))
+            throw std::runtime_error("No instruction at --start-address in input HEX (default 0x200)");
+        emu::Chip8Decompiler decompiler(data, base);
+        auto result = decompiler.relocate(entry, destination);
+        for(const auto& [address, size] : decompiler.tracedInstructions()) {
+            if(!contains(address, size))
+                throw std::runtime_error(fmt::format("Path tracing reaches a HEX gap at 0x{:04X}", address));
+        }
+        const auto delta = static_cast<int64_t>(destination) - entry;
+        if(hexOutput) {
+            emu::HexFile hex(outputFile, emu::HexFile::Mode::WRITE);
+            for(const auto& [address, size] : ranges)
+                hex.write(static_cast<uint16_t>(address + delta), std::span<const uint8_t>{result.bytes}.subspan(address - base, size));
+            hex.close();
+        }
+        else if(!writeBinaryOutput(outputFile, result.bytes))
+            throw std::runtime_error("Couldn't write output file: " + outputFile);
+        if(!quiet) {
+            for(const auto& warning : result.warnings)
+                std::cerr << "WARNING: " << warning << std::endl;
+            std::clog << fmt::format("Relocated {} traced instructions from 0x{:04X} to 0x{:04X} -> {}", decompiler.tracedInstructions().size(), entry, destination, outputFile) << std::endl;
+        }
+        return 0;
+    }
+    catch(const std::exception& ex) {
+        std::cerr << "ERROR: " << ex.what() << std::endl;
+        return 1;
+    }
+}
+
+std::string listingFilenameForOutput(const std::string& filename)
+{
+    auto path = fs::path(filename);
+    path.replace_extension(".lst");
+    return path.string();
+}
+
+bool isChipRom(const std::string& name)
+{
+    static std::set<std::string> validExtensions{ ".ch8", ".ch10", ".hc8", ".c8h", ".c8e", ".c8x", ".sc8", ".mc8", ".xo8", ".c8", ".o8" };
+    return validExtensions.count(name) > 0;
+}
 
 std::string fileOrPath(const std::string& file)
 {
     return fullPath ? file : fs::path(file).filename().string();
+}
+
+// Scan output hint for programs no single variant supports, and for opcodes no variant knows
+std::string variantHint(const emu::Chip8Decompiler& dec, const emu::chip8::VariantSet& preferred)
+{
+    std::string hint;
+    if(dec.possibleVariants().is_empty()) {
+        auto cover = dec.variantCover(preferred);
+        if(cover.is_empty())
+            hint = ", doesn't seem to be supported by any know variant";
+        else {
+            hint = ", needs a combination of ";
+            bool first = true;
+            for(auto variant : cover) {
+                hint += (first ? "" : ", ") + emu::Chip8Decompiler::chipVariantName(variant).first;
+                first = false;
+            }
+        }
+    }
+    if(dec.unknownOpcodes())
+        hint += fmt::format(", {} unknown opcode{}", dec.unknownOpcodes(), dec.unknownOpcodes() == 1 ? "" : "s");
+    return hint;
 }
 
 void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>& data)
@@ -68,14 +211,14 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
 
     constexpr auto allowedVariants = (emu::C8V::CHIP_8 | emu::C8V::CHIP_8X | emu::C8V::CHIP_8X_TPD | emu::C8V::HI_RES_CHIP_8X | emu::C8V::CHIP_10 | emu::C8V::CHIP_48 | emu::C8V::SCHIP_1_0 | emu::C8V::SCHIP_1_1 | emu::C8V::MEGA_CHIP | emu::C8V::XO_CHIP);
     uint16_t startAddress = endsWith(file, ".c8x") ? 0x300 : 0x200;
-    emu::Chip8Decompiler dec;
+    emu::Chip8Decompiler dec{data, startAddress};
     switch(mode) {
         case eDISASSEMBLE:
             if(roundTrip) {
                 std::stringstream os;
                 emu::OctoCompiler comp;
                 auto decStart = std::chrono::steady_clock::now();
-                dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &os, false, true);
+                dec.decompile(file, startAddress, &os, false, true);
                 auto decEnd = std::chrono::steady_clock::now();
                 if(dec.possibleVariants() == emu::C8V::CHIP_8X || dec.possibleVariants() == emu::C8V::HI_RES_CHIP_8X)
                     startAddress = 0x300;
@@ -85,7 +228,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                     startAddress = 0x244;
                 auto source = os.str();
                 comp.setStartAddress(startAddress);
-                if(comp.compile(file, source.data(), source.data() + source.size(), false).resultType == emu::CompileResult::eOK) {
+                if(comp.compile(file, source, false).resultType == emu::CompileResult::eOK) {
                     auto compEnd = std::chrono::steady_clock::now();
                     if(comp.codeSize() != data.size()) {
                         std::cerr << "    " << fileOrPath(file) << ": Compiled size doesn't match! (" << data.size() << " bytes)" << std::endl;
@@ -93,7 +236,7 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
                         writeFile(fs::path(file).filename().string().c_str(), comp.code(), comp.codeSize());
                         ++errors;
                     }
-                    else if(comp.sha1() != calculateSha1(data.data(), data.size())) {
+                    else if(comp.sha1() != calculateSha1(data)) {
                         std::cerr << "    " << fileOrPath(file) << ": Compiled code doesn't match! (" << data.size() << " bytes)" << std::endl;
                         workFile(eANALYSE, file, data);
                         writeFile(fs::path(file).filename().string().c_str(), comp.code(), comp.codeSize());
@@ -116,35 +259,22 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
             }
             else {
                 if(outputFile.empty())
-                    dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout);
+                    dec.decompile(file, startAddress, &std::cout);
                 else {
                     std::ofstream out(outputFile);
-                    dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &out);
+                    dec.decompile(file, startAddress, &out);
                 }
             }
             break;
         case eANALYSE:
             std::cout << "    " << fileOrPath(file);
-            dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout, true);
-            if((uint64_t)dec.possibleVariants()) {
-                auto mask = static_cast<uint64_t>(dec.possibleVariants() & allowedVariants);
-                bool first = true;
-                while(mask) {
-                    auto cv = static_cast<emu::Chip8Variant>(mask & -mask);
-                    mask &= mask - 1;
-                    std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(cv).first;
-                    first = false;
-                }
-                std::cout << std::endl;
-            }
-            else {
-                std::cout << ", doesn't seem to be supported by any know variant." << std::endl;
-            }
+            dec.decompile(file, startAddress, &std::cout, true);
+            std::cout << variantHint(dec, allowedVariants) << std::endl;
             if(dec.usesOddPcAddress())
                 std::cout << "    Uses odd PC access." << std::endl;
             break;
         case eSEARCH: {
-            dec.decompile(file, data.data(), startAddress, data.size(), startAddress, &std::cout, true, true);
+            dec.decompile(file, startAddress, &std::cout, true, true);
             bool found = false;
             for (const auto& pattern : opcodesToFind) {
                 for (const auto& [opcode, count] : dec.fullStats()) {
@@ -176,13 +306,35 @@ void workFile(WorkMode mode, const std::string& file, const std::vector<uint8_t>
         case eDEEP_ANALYSE: {
             if(data.size() > 4096 - startAddress) {
                 if(data.size() <= 65536 - startAddress) {
-                    dec.setVariant(emu::Chip8Variant::XO_CHIP | emu::Chip8Variant::MEGA_CHIP, true, true);
+                    dec.setVariants(emu::chip8::Variant::XO_CHIP | emu::chip8::Variant::MEGA_CHIP, true, true);
                 }
                 else {
-                    dec.setVariant(emu::Chip8Variant::MEGA_CHIP, true, true);
+                    dec.setVariants(emu::chip8::Variant::MEGA_CHIP, true, true);
+                }
+            }
+            std::ostringstream msg;
+            dec.decompile(file, startAddress, &msg, true);
+            if(!dec.possibleVariants().is_empty()) {
+                auto possibleVariants = dec.possibleVariants() & allowedVariants;
+                bool first = true;
+                if(!isChipRom(fs::path(file).extension().string())) {
+                    for (auto variant : possibleVariants) {
+                        std::cout << (first ? ", possible variants: " : ", ") << dec.chipVariantName(variant).first;
+                        first = false;
+                    }
+                    extensionsDetected.emplace(fs::path(file).extension().string());
+                    std::cout << std::endl;
+                }
+            }
+            else {
+                if(isChipRom(fs::path(file).extension().string())) {
+                    std::cout << "    " << fileOrPath(file);
+                    std::cout << variantHint(dec, allowedVariants) << std::endl;
+                    extensionsUndetected.emplace(fs::path(file).extension().string());
                 }
             }
         }
+        case RELOCATE:
         case ePREPROCESS:
         case eCOMPILE:
             // not handled here
@@ -206,12 +358,6 @@ std::pair<bool, std::string> checkDouble(const std::string& file, const std::vec
     return {true, iter->second};
 }
 
-bool isChipRom(const std::string& name)
-{
-    static std::set<std::string> validExtensions{ ".ch8", ".ch10", ".hc8", ".c8h", ".c8e", ".c8x", ".sc8", ".mc8", ".xo8" };
-    return validExtensions.count(name) > 0;
-}
-
 int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& inputList, WorkMode& mode)
 {
     auto start= std::chrono::steady_clock::now();
@@ -224,9 +370,9 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
         }
         if(fs::is_directory(input)) {
             for(const auto& de : fs::recursive_directory_iterator(input, fs::directory_options::skip_permission_denied)) {
-                if(de.is_regular_file() && isChipRom(de.path().extension().string())) {
+                if(de.is_regular_file() && (deepscan || isChipRom(de.path().extension().string()))) {
                     auto file = loadFile(de.path().string());
-                    auto [isDouble, firstName] = checkDouble(de.path().string(), file);
+                    auto [isDouble, firstName] = checkDouble(de.path().string(), file.value_or(Bytes{}));
                     if(isDouble) {
                         ++doubles;
                         if(dumpDoubles)
@@ -234,14 +380,14 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
                     }
                     else {
                         ++files;
-                        workFile(mode, de.path().string(), file);
+                        workFile(mode, de.path().string(), *file);
                     }
                 }
             }
         }
-        else if(fs::is_regular_file(input) && isChipRom(fs::path(input).extension().string())) {
+        else if(fs::is_regular_file(input) && (deepscan || isChipRom(fs::path(input).extension().string()))) {
             auto file = loadFile(input);
-            auto [isDouble, firstName] = checkDouble(input, file);
+            auto [isDouble, firstName] = checkDouble(input, file.value_or(Bytes{}));
             if(isDouble) {
                 ++doubles;
                 if(dumpDoubles)
@@ -249,7 +395,7 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
             }
             else {
                 ++files;
-                workFile(mode, input, file);
+                workFile(mode, input, file.value_or(Bytes{}));
             }
         }
     }
@@ -274,11 +420,25 @@ int disassembleOrAnalyze(bool scan, bool dumpDoubles, std::vector<std::string>& 
         std::clog << ", (d:" << totalDecompileTime_us/1000 << "ms/a:" << totalAssembleTime_us/1000 << "ms)";
     }
     std::clog << " (" << duration << "ms)" <<std::endl;
+    if(deepscan) {
+        std::cout << "File extensions of detected files: ";
+        for(const auto& ext : extensionsDetected)
+            std::cout << ext << " ";
+        std::cout << std::endl;
+        std::cout << "File extensions of undetected files: ";
+        for(const auto& ext : extensionsUndetected)
+            std::cout << ext << " ";
+        std::cout << std::endl;
+    }
     return errors ? 1 : 0;
 }
 
 int main(int argc, char* argv[])
 {
+    ghc::filesystem::u8arguments args(argc, argv);
+#ifdef GHC_OS_WINDOWS
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     using namespace std::chrono;
     using namespace std::chrono_literals;
     ghc::CLI cli(argc, argv);
@@ -289,32 +449,39 @@ int main(int argc, char* argv[])
     bool verbose = false;
     bool version = false;
     bool scan = false;
-    bool deepscan = false;
     bool dumpDoubles = false;
     bool cartridgeBuild = false;
+    bool originalCart = false;
     std::string cartridgeLabel;
     std::string cartridgeImage;
     std::string cartridgeOptions;
     std::string cartridgeVariant;
+    std::string architectureName{"octo"};
     int verbosity = 1;
     int rc = 0;
     int64_t startAddress = 0x200;
+    int64_t relocateAddress = -1;
+    bool hexOutput = false;
     std::vector<std::string> includePaths;
     std::vector<std::string> inputList;
     std::vector<std::string> defineList;
     cli.category("Assembler/Preprocessor");
+    cli.option({"-a", "--arch"}, architectureName, "select assembler architecture: octo or cdp1802, default octo");
     cli.option({"-P", "--preprocess"}, preprocess, "only preprocess the file and output the result");
     cli.option({"-I", "--include-path"}, includePaths, "add directory to include search path");
     cli.option({"-D", "--define"}, defineList, "add a defined option to the preprocessor");
     cli.option({"-o", "--output"}, outputFile, "name of output file, default stdout for preprocessor, a.out.ch8 for binary");
+    cli.option({"--hex"}, hexOutput, "write Intel HEX output instead of raw binary when compiling or relocating, with a cartridge output, store a hex dump of the assembled program instead of its source");
     cli.option({"--start-address"}, startAddress, "the address the program will be loaded to, the ': main' label address, default is 512");
-    cli.option({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
+    cli.optionEnable({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
     cli.option({"--cartridge-label"}, cartridgeLabel, "generate an Octo compatible cartridge gif with the given text label");
     cli.option({"--cartridge-image"}, cartridgeImage, "generate an Octo compatible cartridge gif with the given image as label");
     cli.option({"--cartridge-options"}, cartridgeOptions, "specifies a JSON file that contains the options to use for the cartridge");
     cli.option({"--cartridge-variant"}, cartridgeVariant, "specifies a CHIP-8 variant that will be used to set the options (chip-8, schip, octo, xo-chip)");
+    cli.option({"--original-cart"}, originalCart, "use the original Octo cartridge image for the generated gif instead of the CD48 one");
 
     cli.category("Disassembler/Analyzer");
+    cli.option({"--relocate"}, relocateAddress, "relocate one binary or HEX program to this address using execution path tracing").range(0, 0xFFFF);
     cli.option({"-d", "--disassemble"}, disassemble, "disassemble a given file");
     cli.option({"-s", "--scan"}, scan, "scan files or directories for chip roms and analyze them, giving some information");
     cli.option({"--deep-scan"}, deepscan, "scan a directory tree for any files that look like CHIP-8 variant programs and list them, ignoring extensions");
@@ -334,14 +501,26 @@ int main(int argc, char* argv[])
     cli.parse();
 
     auto& logstream = preprocess && outputFile.empty() ? std::clog : std::cout;
+    Architecture architecture;
+    try {
+        architecture = architectureFromName(architectureName);
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "ERROR: " << ex.what() << std::endl;
+        return 1;
+    }
 
     WorkMode mode = eCOMPILE;
     int modes = 0;
-    if(!opcodesToFind.empty() || scan) {
-        mode = scan ? eANALYSE : eSEARCH;
-        if(deepscan)
-            mode = eDEEP_ANALYSE;
+    if(relocateAddress >= 0) {
+        mode = RELOCATE;
         modes++;
+    }
+    if(!opcodesToFind.empty()) {
+        mode = eSEARCH, modes++;
+    }
+    if(scan) {
+        mode = eANALYSE, modes++;
     }
     if(disassemble) {
         mode = eDISASSEMBLE;
@@ -351,6 +530,9 @@ int main(int argc, char* argv[])
         mode = ePREPROCESS;
         modes++;
     }
+    if(!modes && deepscan) {
+        mode = eDEEP_ANALYSE, modes++;
+    }
     if(cartridgeLabel.empty() != cartridgeImage.empty()) {
         cartridgeBuild = true;
     }
@@ -358,9 +540,29 @@ int main(int argc, char* argv[])
         std::cerr << "ERROR: Only either --cartridge-label or --cartridge-image, not both are supported!" << std::endl;
         exit(1);
     }
+    if(!cartridgeImage.empty()) {
+        std::cerr << "ERROR: --cartridge-image is not supported yet, use --cartridge-label." << std::endl;
+        exit(1);
+    }
+    if(cartridgeBuild && hexOutput && startAddress != 0x200) {
+        std::cerr << "ERROR: A cartridge with --hex is always loaded at address 0x200, --start-address can't change that." << std::endl;
+        exit(1);
+    }
+    if(!cartridgeBuild && (originalCart || !cartridgeOptions.empty() || !cartridgeVariant.empty())) {
+        std::cerr << "ERROR: --original-cart, --cartridge-options and --cartridge-variant need --cartridge-label." << std::endl;
+        exit(1);
+    }
     if(modes > 1) {
         std::cerr << "ERROR: Multiple operation modes selected!" << std::endl;
         exit(1);
+    }
+    if(architecture != Architecture::OCTO && mode != eCOMPILE) {
+        std::cerr << "ERROR: --arch=cdp1802 is currently only supported for compile mode." << std::endl;
+        return 1;
+    }
+    if(architecture != Architecture::OCTO && cartridgeBuild) {
+        std::cerr << "ERROR: Cartridge output is only supported for --arch=octo." << std::endl;
+        return 1;
     }
 
     if(quiet)
@@ -368,7 +570,7 @@ int main(int argc, char* argv[])
     else if(verbose)
         verbosity = 100;
 
-    if(!version && inputList.size() == 1 && fs::path(inputList.front()).extension() == ".gif") {
+    if(mode != RELOCATE && !version && inputList.size() == 1 && fs::path(inputList.front()).extension() == ".gif") {
         emu::OctoCartridge cart(inputList.front());
         cart.loadCartridge();
         std::cout << cart.getJsonString() << std::endl;
@@ -390,8 +592,73 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH || mode == eDEEP_ANALYSE)
+    if(mode == RELOCATE) {
+        if(inputList.size() != 1 || !fs::is_regular_file(inputList.front())) {
+            std::cerr << "ERROR: Relocation expects exactly one input file." << std::endl;
+            return 1;
+        }
+        if(outputFile.empty()) {
+            std::cerr << "ERROR: Relocation requires an output filename (use -o/--output)." << std::endl;
+            return 1;
+        }
+        if(startAddress < 0 || startAddress > 0xFFFF) {
+            std::cerr << "ERROR: --start-address is out of range for relocation." << std::endl;
+            return 1;
+        }
+        if(cartridgeBuild || deepscan || roundTrip || genListing) {
+            std::cerr << "ERROR: Cartridge, deep scan, round-trip and listing options are not supported for relocation." << std::endl;
+            return 1;
+        }
+        rc = relocateFile(inputList.front(), static_cast<uint32_t>(startAddress), static_cast<uint32_t>(relocateAddress), hexOutput, quiet);
+    }
+    else if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH || mode == eDEEP_ANALYSE)
         rc = disassembleOrAnalyze(scan, dumpDoubles, inputList, mode);
+    else if(architecture == Architecture::CDP1802) {
+        if(inputList.size() != 1) {
+            std::cerr << "ERROR: CDP1802 assembly currently expects exactly one input file." << std::endl;
+            return 1;
+        }
+        if(outputFile.empty()) {
+            std::cerr << "ERROR: No output filename given for " << (hexOutput ? "hex" : "binary") << " output (use -o/--output)." << std::endl;
+            return 1;
+        }
+        std::error_code ec;
+        if(!fs::exists(inputList.front(), ec) || fs::is_directory(inputList.front(), ec)) {
+            std::cerr << "ERROR: Couldn't find input file '" << inputList.front() << "'." << std::endl;
+            return 1;
+        }
+        try {
+            const auto source = loadTextFile(inputList.front());
+            cdp1802::AssemblySession session;
+            if(!session.compile(source, {.listingMode = genListing ? cdp1802::ListingMode::TRADITIONAL : cdp1802::ListingMode::NONE})) {
+                std::cerr << inputList.front() << ":" << session.errorLine() << ":";
+                if(session.errorColumn())
+                    std::cerr << session.errorColumn() << ": ";
+                std::cerr << session.errorMessage() << std::endl;
+                return 1;
+            }
+            if(hexOutput) {
+                writeHexOutput(outputFile, session.segments());
+            }
+            else if(!writeBinaryOutput(outputFile, session.contiguousData())) {
+                std::cerr << "ERROR: Failed to write output file '" << outputFile << "'." << std::endl;
+                return 1;
+            }
+            if(genListing) {
+                const auto listingFile = listingFilenameForOutput(outputFile);
+                std::ofstream out(listingFile, std::ios::binary);
+                out << session.listing();
+                if(!out) {
+                    std::cerr << "ERROR: Failed to write listing file '" << listingFile << "'." << std::endl;
+                    return 1;
+                }
+            }
+        }
+        catch (std::exception& ex) {
+            std::cerr << "Internal error: " << ex.what() << std::endl;
+            rc = -1;
+        }
+    }
     else {
         emu::OctoCompiler compiler;
         compiler.setStartAddress(startAddress);
@@ -426,11 +693,56 @@ int main(int argc, char* argv[])
         }
         try {
             if (preprocess || cartridgeBuild) {
-                result = compiler.preprocessFiles(inputList);
+                // a binary only cartridge stores the assembled program, so it has to assemble
+                const bool binaryCartridge = cartridgeBuild && hexOutput;
+                result = binaryCartridge ? compiler.compile(inputList) : compiler.preprocessFiles(inputList);
                 if (result.resultType == emu::CompileResult::eOK) {
-                    std::ostringstream os;
-                    if(cartridgeBuild) {
-                        compiler.dumpSegments(os);
+                    if (cartridgeBuild) {
+                        if (outputFile.empty()) {
+                            std::cerr << "ERROR: No output filename given for cartridge output (use -o/--output)." << std::endl;
+                            return 1;
+                        }
+                        std::string program;
+                        if(binaryCartridge) {
+                            program = emu::OctoCartridge::binarySource({compiler.code(), compiler.codeSize()});
+                        }
+                        else {
+                            std::ostringstream os;
+                            compiler.dumpSegments(os);
+                            program = os.str();
+                        }
+                        emu::OctoCartridge cart(outputFile);
+                        if(!cartridgeOptions.empty()) {
+                            if(!fs::exists(cartridgeOptions) || fs::is_directory(cartridgeOptions)) {
+                                std::cerr << "ERROR: Couldn't find JSON file '" << cartridgeOptions << "' with cartridge options." << std::endl;
+                                return 1;
+                            }
+                            else {
+                                auto optionsStr = loadTextFile(cartridgeOptions);
+                                try {
+                                    auto json = nlohmann::json::parse(optionsStr);
+                                    cart.setOptions(json);
+                                }
+                                catch(...) {
+                                    std::cerr << "ERROR: Couldn't parse cartridge option file '" << cartridgeOptions << "'." << std::endl;
+                                    return 1;
+                                }
+                            }
+                        }
+                        else if(!cartridgeVariant.empty()) {
+                            if(!cart.setOptionsFromVariant(cartridgeVariant)) {
+                                std::cerr << "ERROR: Unknown cartridge variant '" << cartridgeVariant << "' (use chip-8, schip, octo or xo-chip)." << std::endl;
+                                return 1;
+                            }
+                        }
+                        else if(result.config) {
+                            cart.setOptions(result.config->at("options"));
+                        }
+                        if(!cart.saveCartridge(program, cartridgeLabel, {}, originalCart ? emu::OctoCartridge::BaseImage::OCTO : emu::OctoCartridge::BaseImage::CD48)) {
+                            std::cerr << "ERROR: Failed to write cartridge file '" << outputFile << "'." << std::endl;
+                            return 1;
+                        }
+                        return 0;
                     }
                     if (outputFile.empty())
                         compiler.dumpSegments(std::cout);
@@ -438,35 +750,7 @@ int main(int argc, char* argv[])
                         std::ofstream out(outputFile);
                         compiler.dumpSegments(out);
                     }
-                    if (outputFile.empty()) {
-                        std::cerr << "ERROR: No output filename given for cartridge output (use -o/--output)." << std::endl;
-                        return 1;
-                    }
-                    emu::OctoCartridge cart(outputFile);
-                    if(!cartridgeOptions.empty()) {
-                        if(!fs::exists(cartridgeOptions) || fs::is_directory(cartridgeOptions)) {
-                            std::cerr << "ERROR: Couldn't find JSON file '" << cartridgeOptions << "' with cartridge options." << std::endl;
-                            return 1;
-                        }
-                        else {
-                            auto optionsStr = loadTextFile(cartridgeOptions);
-                            try {
-                                auto json = nlohmann::json::parse(optionsStr);
-                                cart.setOptions(json);
-                            }
-                            catch(...) {
-                                std::cerr << "ERROR: Couldn't parse cartridge option file '" << cartridgeOptions << "'." << std::endl;
-                                return 1;
-                            }
-                        }
-                    }
-                    else if(!cartridgeVariant.empty()) {
-
-                    }
-                    else if(result.config) {
-                        cart.setOptions(result.config->at("options"));
-                    }
-                    cart.saveCartridge(os.str(), cartridgeLabel, {});
+                    return 0;
                 }
             }
             else {
@@ -474,11 +758,20 @@ int main(int argc, char* argv[])
                 result = compiler.compile(inputList);
                 if (result.resultType == emu::CompileResult::eOK) {
                     if (outputFile.empty()) {
-                        std::cerr << "ERROR: No output filename given for binary output (use -o/--output)." << std::endl;
+                        std::cerr << "ERROR: No output filename given for " << (hexOutput ? "hex" : "binary") << " output (use -o/--output)." << std::endl;
                         return 1;
                     }
-                    std::ofstream out(outputFile, std::ios::binary);
-                    out.write((const char*)compiler.code(), compiler.codeSize());
+                    if(hexOutput) {
+                        if(startAddress < 0 || startAddress > 0xFFFF) {
+                            std::cerr << "ERROR: --start-address is out of range for Intel HEX output." << std::endl;
+                            return 1;
+                        }
+                        writeHexOutput(outputFile, static_cast<uint16_t>(startAddress), std::span<const uint8_t>{compiler.code(), compiler.codeSize()});
+                    }
+                    else if(!writeBinaryOutput(outputFile, std::span<const uint8_t>{compiler.code(), compiler.codeSize()})) {
+                        std::cerr << "ERROR: Failed to write output file '" << outputFile << "'." << std::endl;
+                        return 1;
+                    }
                 }
             }
             if (result.resultType != emu::CompileResult::eOK) {
