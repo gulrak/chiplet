@@ -3,20 +3,26 @@
 _A commandline multitool for CHIP-8 variant development_
 
 <!-- TOC -->
-* [Chiplet](#chiplet)
+* [Chiplet v2](#chiplet-v2)
   * [Overview](#overview)
   * [Command-line Options](#command-line-options)
   * [Usage Scenarios](#usage-scenarios)
     * [Preprocessing a File](#preprocessing-a-file)
     * [Assembling a File](#assembling-a-file)
     * [Disassembling a Binary](#disassembling-a-binary)
+    * [Relocating a Program](#relocating-a-program)
+    * [Repairing Emma ETI-660 HEX Files](#repairing-emma-eti-660-hex-files)
     * [Analyzing a Binary or a Directory](#analyzing-a-binary-or-a-directory)
     * [Finding Opcode Use](#finding-opcode-use)
   * [The Preprocessor Syntax](#the-preprocessor-syntax)
     * [Conditional Assembly](#conditional-assembly)
+    * [Segments and Code Layout Management](#segments-and-code-layout-management)
     * [Inclusion of Files](#inclusion-of-files)
     * [Inclusion of Images](#inclusion-of-images)
+    * [Inclusion of External Files](#inclusion-of-external-files)
+    * [Inclusion of Sound Files](#inclusion-of-sound-files)
   * [Cartridges](#cartridges)
+  * [Experimental Hybrid ROM Assembly](#experimental-hybrid-rom-assembly)
   * [Compiling from Source](#compiling-from-source)
     * [Linux / macOS](#linux--macos)
     * [Windows](#windows)
@@ -27,18 +33,22 @@ _A commandline multitool for CHIP-8 variant development_
 
 ## Overview
 
-Chiplet is the result of my Work on [Cadmium](https://github.com/gulrak/cadmium),
-my CHIP-8 emulator environment. It contains an execution path tracing
-disassembler, a preprocessor that is compatible
-with [Octopus](https://github.com/Timendus/chipcode/tree/main/octopus) from
-Tim Franssen, both written by me, combined with an [Octo Assembly Language](https://github.com/Timendus/chipcode/tree/main/octopus)
-compatible assembler now written in C++ but originally based on Code from [C-Octo](https://github.com/JohnEarnest/c-octo)
-from John Earnest.
+Chiplet is the result of my work on [Cadmium](https://github.com/gulrak/cadmium),
+my CHIP-8 emulator environment. It contains:
 
-It combines these to allow using modular CHIP8 projects with multiple
-files, while retaining error message output that refers to those original
-files by translating C-Octo errors back to the original locations before
-the preprocessing step.
+* an [Octo Assembly Language](http://johnearnest.github.io/Octo/docs/Manual.html)
+  compatible assembler, written in C++ and originally based on code from
+  [C-Octo](https://github.com/JohnEarnest/c-octo) by John Earnest,
+* a preprocessor that is compatible with
+  [Octopus](https://github.com/Timendus/chipcode/tree/main/octopus) from Tim Franssen,
+* an execution path tracing disassembler, that can also relocate programs,
+* a CDP1802 assembler, usable on its own and for native code inside of Octo
+  programs (see [Experimental Hybrid ROM Assembly](#experimental-hybrid-rom-assembly)),
+* and support for writing [Octo cartridges](#cartridges).
+
+It combines these to allow using modular CHIP-8 projects with multiple
+files, while retaining error messages that refer to the original files
+and lines before the preprocessing step.
 
 The disassembler also has options to search for specific opcode patterns and
 give opcode statistics or estimate the CHIP-8 variants that could execute the
@@ -48,52 +58,87 @@ code.
 
 ```
 USAGE: chiplet [options] ...
-
 OPTIONS:
 
 Assembler/Preprocessor:
+  --cartridge-image <arg>
+    generate an Octo compatible cartridge gif with the given image as label
+
+  --cartridge-label <arg>
+    generate an Octo compatible cartridge gif with the given text label
+
+  --cartridge-options <arg>
+    specifies a JSON file that contains the options to use for the cartridge
+
+  --cartridge-variant <arg>
+    specifies a CHIP-8 variant that will be used to set the options (chip-8, schip, octo, xo-chip)
+
+  --[no-]hex
+    write Intel HEX output instead of raw binary when compiling or relocating, with a cartridge output, store a hex dump of the assembled program instead of its source
+
   --no-line-info
     omit generation of line info comments in the preprocessed output
+
+  --[no-]original-cart
+    use the original Octo cartridge image for the generated gif instead of the CD48 one
+
+  --start-address <arg>
+    the address the program will be loaded to, the ': main' label address, default is 512
+
+  -D <arg>, --define <arg>
+    add a defined option to the preprocessor
 
   -I <arg>, --include-path <arg>
     add directory to include search path
 
-  -P, --preprocess
+  -P, --[no-]preprocess
     only preprocess the file and output the result
+
+  -a <arg>, --arch <arg>
+    select assembler architecture: octo or cdp1802, default octo
 
   -o <arg>, --output <arg>
     name of output file, default stdout for preprocessor, a.out.ch8 for binary
 
 Disassembler/Analyzer:
-  --list-duplicates
+  --[no-]deep-scan
+    scan a directory tree for any files that look like CHIP-8 variant programs and list them, ignoring extensions
+
+  --[no-]list-duplicates
     show found duplicates while scanning directories
 
-  --round-trip
+  --relocate <arg>
+    relocate one binary or HEX program to this address using execution path tracing
+
+  --[no-]round-trip
     decompile and assemble and compare the result
 
-  -d, --disassemble
-    dissassemble a given file
+  -d, --[no-]disassemble
+    disassemble a given file
 
   -f <arg>, --find <arg>
     search for use of opcodes
 
-  -p, --full-path
+  -l, --[no-]listing
+    generate additional listing with addresses
+
+  -p, --[no-]full-path
     print file names with path
 
-  -s, --scan
+  -s, --[no-]scan
     scan files or directories for chip roms and analyze them, giving some information
 
-  -u, --opcode-use
-    show usage of found opcodes
+  -u, --[no-]opcode-use
+    show usage of found opcodes when using -f
 
 General:
-  --version
+  --[no-]version
     just shows version info and exits
 
-  -q, --quiet
+  -q, --[no-]quiet
     suppress all output during operation
 
-  -v, --verbose
+  -v, --[no-]verbose
     more verbose progress output
 
 ...
@@ -235,7 +280,9 @@ D00F: 6
 
 This can run over a directory of files, the opcode statistics are then for
 all detected CHIP-8 files in the directory tree. Files scanned can have the
-endings: `.ch8`,  `.c8x`, `.ch10`, `.sc8`, `.xo8` or `.mc8`
+endings: `.ch8`, `.ch10`, `.hc8`, `.c8h`, `.c8e`, `.c8x`, `.sc8`, `.mc8`, `.xo8`,
+`.c8` or `.o8`. To find programs regardless of their file extension, use
+`--deep-scan`.
 
 It will try to identify which CHIP-8 variants this binary is made for.
 The estimation is far from perfect, and mainly excludes variants when
@@ -469,81 +516,7 @@ its source, so emulators can read it without an assembler. See
 [cartridge-format.md](cartridge-format.md) for the format, written for emulator
 authors, and [tools/octocart.py](tools/octocart.py) for a reference decoder.
 
-## Compiling from Source
-
-_Chiplet_ is written in C++17 and uses CMake as a build solution. To build it,
-checkout or download the source.
-
-### Linux / macOS
-
-Open a terminal, enter the directory where the code was extracted and run:
-
-```
-cmake -S . -B build
-```
-
-to configure the project, and
-
-```
-cmake --build build
-```
-
-to compile it.
-
-### Windows
-
-Currently, _Chiplet_ is not tested to compile with MSVC++ so the recommended
-toolchain is [W64devkit](https://github.com/skeeto/w64devkit). I might try to
-make it compile on MSVC++, but I am not working on that in the near future.
-That being said, I would not per-se reject PRs helping with this.
-
-To build in the Bash from W64devkit:
-
-```
-export PATH="$PATH;C:/Program Files/CMake/bin"
-cmake -G"Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -S . -B build-w64dev
-cmake --build build-w64dev
-```
-
----
-
-## Used Resources
-
-### Information
-
-* [Octopus](https://github.com/Timendus/chipcode/tree/main/octopus) - This is the
-  preprocessor that defined the syntax and feature set, we talked about this idea
-  during it's creation time and I followed his specification to implement the
-  preprocessor in _Chiplet_, and it should behave the same, with the only exception
-  that _Chiplet_ supports TGA but doesn't support TIFF.
-* [Octo assembler syntax](http://johnearnest.github.io/Octo/docs/Manual.html) - The
-  preprocessor needs to make sure it doesn't break Octo, so it's lexer is implemented
-  with respecto to the Octo specification by John Earnest.
-
-
-### Libraries
-
-* [c-octo assembler](https://github.com/JohnEarnest/c-octo) - the octo
-  assembler for support of generating binaries from [Octo assembler syntax](http://johnearnest.github.io/Octo/docs/Manual.html)
-  _(containied in `external/c-octo`)_
-* [fmtlib](https://github.com/fmtlib/fmt) - a modern formatting library in
-  the style of C++20 std::format _(contained in `external/fmt`)_
-* [ghc::filesystem](https://github.com/gulrak/filesystem) - An implementation
-  of std::filesystem for C++11/14/17/20 that also works on MingW variants
-  that don't have a working std::filesystem in C++17 and with better utf8
-  support _(automatically fetched during configuration)_
-* [stb_image](https://github.com/nothings/stb/blob/master/stb_image.h) - An image
-  format loader from Sean Barrets great `nothings` collection, used to support
-  image import
-* [libresample](https://github.com/minorninth/libresample) - A fast resampler
-  library for audio data by Dominic Mazzoni, based on resample-1.7 by by Julius
-  O. Smith III
-* [tl::expected](https://github.com/TartanLlama/expected) - A lightweight
-  implementation of the C++23 std::expected type for error handling by TartanLlama.
-
-
-Experimental hybrid ROM assembly
--------------------------------
+## Experimental Hybrid ROM Assembly
 
 Chiplet accepts inline CDP1802 assembly in Octo programs:
 
@@ -617,3 +590,90 @@ chiplet --start-address 1536 -o wipeout.ch8 test/hybrid/wipeout-eti660.8o
 The result is exactly 606 bytes, identical to the supplied original image:
 SHA-256 `e7c71e4f3fd9839204429f6d00b1361b83ceb71fd4c6c08aae4db5fa46e13913`.
 The original-image comparison is included in the hybrid regression tests.
+
+---
+
+## Compiling from Source
+
+_Chiplet_ is written in C++20 and uses CMake as a build solution. To build it,
+checkout or download the source. The dependencies that are not part of the
+repository are fetched during configuration.
+
+### Linux / macOS
+
+Open a terminal, enter the directory where the code was extracted and run:
+
+```
+cmake -S . -B build
+```
+
+to configure the project, and
+
+```
+cmake --build build
+```
+
+to compile it.
+
+### Windows
+
+The CI builds _Chiplet_ with MSVC and Ninja. In a developer command prompt of
+Visual Studio run:
+
+```
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+It also builds with MinGW, e.g. with [W64devkit](https://github.com/skeeto/w64devkit).
+To build in the Bash from W64devkit:
+
+```
+export PATH="$PATH;C:/Program Files/CMake/bin"
+cmake -G"Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -S . -B build-w64dev
+cmake --build build-w64dev
+```
+
+---
+
+## Used Resources
+
+### Information
+
+* [Octopus](https://github.com/Timendus/chipcode/tree/main/octopus) - This is the
+  preprocessor that defined the syntax and feature set, we talked about this idea
+  during it's creation time and I followed his specification to implement the
+  preprocessor in _Chiplet_, and it should behave the same, with the only exception
+  that _Chiplet_ supports TGA but doesn't support TIFF.
+* [Octo assembler syntax](http://johnearnest.github.io/Octo/docs/Manual.html) - The
+  preprocessor needs to make sure it doesn't break Octo, so it's lexer is implemented
+  with respecto to the Octo specification by John Earnest.
+
+
+### Libraries
+
+* [c-octo assembler](https://github.com/JohnEarnest/c-octo) - the octo
+  assembler that Chiplet's assembler for [Octo assembler syntax](http://johnearnest.github.io/Octo/docs/Manual.html)
+  was originally based on, Chiplet now uses its own C++ implementation
+* [fmtlib](https://github.com/fmtlib/fmt) - a modern formatting library in
+  the style of C++20 std::format _(automatically fetched during configuration)_
+* [fast_float](https://github.com/fastfloat/fast_float) - fast and exact parsing
+  of floating point numbers _(automatically fetched during configuration)_
+* [JSON for Modern C++](https://github.com/nlohmann/json) - the JSON library by
+  Niels Lohmann, used for cartridge options _(contained in `external/nlohmann`)_
+* [ghc::filesystem](https://github.com/gulrak/filesystem) - An implementation
+  of std::filesystem for C++11/14/17/20 that also works on MingW variants
+  that don't have a working std::filesystem in C++17 and with better utf8
+  support _(automatically fetched during configuration)_
+* [stb_image](https://github.com/nothings/stb/blob/master/stb_image.h) - An image
+  format loader from Sean Barrets great `nothings` collection, used to support
+  image import, together with `stb_image_write` _(contained in `external/nothings`)_
+* [libresample](https://github.com/minorninth/libresample) - A fast resampler
+  library for audio data by Dominic Mazzoni, based on resample-1.7 by by Julius
+  O. Smith III
+* [tl::expected](https://github.com/TartanLlama/expected) - A lightweight
+  implementation of the C++23 std::expected type for error handling by TartanLlama
+  _(automatically fetched during configuration)_
+* [doctest](https://github.com/doctest/doctest) and the
+  [CHIP-8 test suite](https://github.com/Timendus/chip8-test-suite) by Timendus
+  are used by the tests _(automatically fetched during configuration)_
