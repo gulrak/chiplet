@@ -30,6 +30,8 @@ set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
 set(CPACK_GENERATOR "TGZ;ZIP" CACHE STRING "Generators to support. semi-colon delimited list")
+# Only Chiplet itself, dependencies like fast_float and tl-expected bring install rules for their headers
+set(CPACK_INSTALL_CMAKE_PROJECTS "${CMAKE_BINARY_DIR};${PROJECT_NAME};chiplet_pack;/")
 include(CPack)
 cpack_add_component(chiplet_pack)
 endif()
