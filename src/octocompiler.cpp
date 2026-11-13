@@ -122,7 +122,9 @@ const CompileResult& OctoCompiler::doCompileOcto(const std::string& filename, co
     else {
         if(_progress) _progress(1, fmt::format("generated {} bytes of output", codeSize()));
     }
+    auto includedFiles = std::move(_compileResult.includedFiles);
     _compileResult.reset();
+    _compileResult.includedFiles = std::move(includedFiles);
     return _compileResult;
 }
 

@@ -46,7 +46,7 @@ add_test(NAME preprocessor-line-info-test.py COMMAND ${Python3_EXECUTABLE} ${CMA
 add_test(NAME cartridge-cli-test.py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cartridge-cli-test.py --chiplet $<TARGET_FILE:chiplet>)
 add_test(NAME cdp1802-test.py COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cdp1802-test.py --chiplet $<TARGET_FILE:chiplet> --tests-dir ${CMAKE_CURRENT_SOURCE_DIR}/cdp1802-tests --work-dir cdp1802-tests)
 
-add_executable(chiplet-tests main.cpp assembler_tests.cpp hybrid_tests.cpp cdp1802_tests.cpp chunkedmemory_test.cpp utility_tests.cpp hexfile_tests.cpp image_tests.cpp relocation_tests.cpp octocartridge_tests.cpp)
+add_executable(chiplet-tests main.cpp assembler_tests.cpp hybrid_tests.cpp cdp1802_tests.cpp chunkedmemory_test.cpp utility_tests.cpp hexfile_tests.cpp image_tests.cpp relocation_tests.cpp octocartridge_tests.cpp preprocessor_include_tests.cpp)
 target_compile_definitions(chiplet-tests PUBLIC IMAGES_PATH="${CMAKE_BINARY_DIR}/test/images")
 target_compile_definitions(chiplet-tests PRIVATE CHIPLET_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_link_libraries(chiplet-tests PUBLIC chiplet-lib doctest fast_float)

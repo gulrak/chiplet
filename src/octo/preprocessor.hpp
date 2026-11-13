@@ -113,6 +113,7 @@ private:
     void info(std::string msg);
     void flushSegment();
     std::string resolveFile(const ghc::filesystem::path& file);
+    void noteIncludedFile(const std::string& file);
 
     std::ostringstream _collect;
     std::vector<std::pair<int,std::string>> _collectLocationStack;

@@ -300,7 +300,8 @@ const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::strin
                         auto next = lex.nextToken();
                         if (next != SourceToken::Type::STRING)
                             error("Expected string after ':include'.");
-                        auto newFile = ghc::filesystem::absolute(inputFile).parent_path() / lex.token().strValue;
+                        auto newFile = ghc::filesystem::path(resolveFile(lex.token().strValue));
+                        noteIncludedFile(newFile.string());
                         auto extension = ::toLower(newFile.extension().string());
                         if (isImage(extension)) {
                             token = includeImage(newFile.string());
@@ -462,14 +463,22 @@ std::string Preprocessor::resolveFile(const ghc::filesystem::path& file)
     return "";
 }
 
+void Preprocessor::noteIncludedFile(const std::string& file)
+{
+    std::error_code ec;
+    auto path = ghc::filesystem::absolute(file, ec).lexically_normal().string();
+    if (std::find(_compileResult.includedFiles.begin(), _compileResult.includedFiles.end(), path) == _compileResult.includedFiles.end())
+        _compileResult.includedFiles.push_back(std::move(path));
+}
+
 const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::string& inputFile)
 {
     try {
         auto file = resolveFile(inputFile);
         if (_progress)
             _progress(_lexerStack.size() + 1, "preprocessing '" + inputFile + "' ...");
-        auto content = loadTextFile(inputFile);
-        preprocessFile(inputFile, content.data(), content.data() + content.size());
+        auto content = loadTextFile(file);
+        preprocessFile(file, content.data(), content.data() + content.size());
     }
     catch(std::runtime_error&)
     {

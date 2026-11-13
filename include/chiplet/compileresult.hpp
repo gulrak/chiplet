@@ -25,12 +25,14 @@ struct CompileResult {
     ResultType resultType{eOK};
     std::string errorMessage;
     std::vector<Location> locations;
+    std::vector<std::string> includedFiles;
     std::shared_ptr<nlohmann::json> config;
     void reset()
     {
         resultType = eOK;
         errorMessage.clear();
         locations.clear();
+        includedFiles.clear();
     }
 };
 

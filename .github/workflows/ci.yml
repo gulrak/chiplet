@@ -108,4 +108,7 @@ jobs:
           artifacts: "**/*.zip, **/*.tar.gz"
           artifactErrorsFailBuild: true
           allowUpdates: true
+          # Keep title and notes of a release that was created in the GitHub UI
+          omitNameDuringUpdate: true
+          omitBodyDuringUpdate: true
           generateReleaseNotes: true
