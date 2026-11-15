@@ -11,9 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The compile result lists the files read through `:include` (sources, images, binaries and
   sounds) in `includedFiles`, with absolute paths, so editors know which files belong to a program
+- Source language detection in `chiplet/sourcelanguage.hpp`: `.8o` is Octo, `.asap` Saturn
+  (ASAP syntax), other sources are recognized by their statements as Octo, CDP1802, M6800 or
+  Saturn assembly, with the counts per language for tools that want to decide themselves
+- Syntax descriptions of the assembly languages in `chiplet/sourcesyntax.hpp` (`emu::SourceSyntax`):
+  mnemonics, directives, registers and the lexical rules, taken from the assemblers' own tables (the
+  CDP1802 assembler's instructions, the Saturn decoder table, asacpp's directives), for tools reading
+  sources without assembling them; the language detection uses them
+- `--arch auto`, the new default: CDP1802 and Saturn sources are assembled as such whatever their
+  extension, recognized M6800 sources are refused with a message, everything else stays Octo
+- An HP Saturn assembler for the ASAP syntax (Alonzo Gariepy's mnemonics), `asacpp` from Cadmium's
+  HP-48SX emulation, now `emu::AsaCpp` in `chiplet/asacpp.hpp` on Chiplet's Saturn decoder: includes,
+  macros, conditionals and defines (their names now match without case, like the rest of the source),
+  its `CompileResult` lists the included files; `--arch saturn` and
+  `--arch auto` assemble `.asap` and other Saturn sources with `-I`, `-D NAME=EXPRESSION` and `-l`
+- A public CDP1802 assembler interface, `emu::Cdp1802Assembler` in `chiplet/cdp1802assembler.hpp`:
+  errors as a `CompileResult`, the segments with the source line of every byte, contiguous code
+  with its SHA-1, and address/line lookups; the command line uses it too
+- `-l`/`--listing` writes a listing for Octo sources too (`OctoCompiler::listing()`): every source
+  line with its address, bytes and line in its file, included files named where they start; the
+  option is listed with the assembler options now, it never did anything for the disassembler
+- `--octopus-whitespace` makes the preprocessed output byte-identical to Octopus's: every included
+  file, image and binary (and the main file) leaves one empty line where it ends, code and data are
+  joined without added blank lines and lose one line end where they meet, so projects with checked in
+  Octopus output (like the CHIP-8 test suite) can be rebuilt without unrelated changes; where Octopus
+  would join the last code line and the first data line into one line, they stay two lines
 
 ### Fixed
 
+- The Octo assembler mapped the bytes of a statement to the line of the token after it (the
+  lookahead), so `lineForAddr`/`addrForLine` could be a line off, more after an `:include`; the bytes
+  of a macro or string mode now map to the line using it
+- The text the preprocessor generates for image, binary and sound includes had no line of its own:
+  its rows were counted on from the source line before them, at the start of a segment even from the
+  previous segment's file. Every generated row now has a line marker naming its `:include` line
+  (more `#@line` comments in `-P` output with line info, the source text's output is unchanged)
+- The jump to `main` the assembler puts at the start address (when `main` isn't the first label)
+  had the first line of the preprocessed text as its line; it belongs to the `: main` line now, the
+  listing shows it as its first row, `(jump to main)` with that line
 - `:include` didn't search the include paths (`-I`/`--include-path`), a file only found there was
   reported as missing
 

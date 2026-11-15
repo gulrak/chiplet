@@ -102,6 +102,9 @@ public:
     bool isError() const { return _compileResult.resultType != CompileResult::eOK; }
     size_t numSourceLines() const;
     void generateLineInfos(bool value);
+    // Preprocessed output with the empty lines Octopus produces (without line infos), for unchanged output of projects
+    // built with Octopus
+    void octopusWhitespace(bool value);
     void setIncludePaths(const std::vector<std::string>& paths);
     void setProgressHandler(ProgressHandler handler);
     uint32_t codeSize() const;
@@ -113,6 +116,11 @@ public:
     std::vector<MonitorInfo> monitors() const;  // in order of definition, empty after an error
     // Labels and constants with an integer value, empty after an error
     std::vector<std::pair<std::string, int64_t>> symbolValues() const;
+    // A listing of the last compile: every line of the assembled (preprocessed) source with its address, its bytes (up to
+    // 8 a row, more in rows below) and its line in the original file, "; file" where the file changes (included files
+    // relative to the folder of the main file); the bytes of a macro or string mode are on the line using it; empty
+    // after an error
+    std::string listing() const;
 
 private:
     const CompileResult& doCompileOcto(const std::string& filename, const char* source, const char* end);
@@ -123,6 +131,8 @@ private:
     bool _generateLineInfos{true};
     int _startAddress{0x200};
     CompileResult _compileResult;
+    std::string _assembledFile;    // the file and the (preprocessed) text the last compile assembled, for listing()
+    std::string _assembledSource;
 };
 
 } // namespace emu

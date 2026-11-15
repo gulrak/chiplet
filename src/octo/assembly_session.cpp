@@ -85,6 +85,11 @@ size_t AssemblySession::numSourceLines() const
     return _impl->_assembler->numSourceLines();
 }
 
+bool AssemblySession::hasMainJump() const
+{
+    return _impl->_assembler && _impl->_assembler->hasMainJump();
+}
+
 uint32_t AssemblySession::codeSize() const
 {
     return _impl->_assembler && !_impl->_assembler->isError() ? _impl->_assembler->codeSize() : 0;

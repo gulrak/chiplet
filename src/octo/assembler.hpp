@@ -143,6 +143,7 @@ public:
     bool compile();
     bool isError() const { return _isError; }
     int errorLine() const { return _isError ? _errorLine + 1 : 0; }
+    bool hasMainJump() const { return !_isError && has_main; }
     int errorPos() const { return _isError ? _errorPos + 1 : 0; }
     [[nodiscard]] std::string errorMessage() const { return _error; }
     int lastAddressUsed() const { return length - 1; }
@@ -191,6 +192,8 @@ private:
     bool peek_match(const std::string_view& name, int index);
     bool match(const std::string_view& name);
     void eat();
+    void popToken();
+    void expanded(int line, std::size_t numTokens);
     bool check_name(std::string_view name, const char* kind);
     std::string_view string();
     std::string_view identifier(const char* kind);
@@ -242,6 +245,9 @@ private:
 
     // tokenizer
     std::deque<Token> tokens;
+    std::size_t _expandedTokens{};  // the tokens at the front of tokens that came from a macro or string mode expansion
+    uint32_t _statementLine{};      // the line the bytes being emitted belong to, for romLineMap
+    uint32_t _mainLine{0xFFFFFFFF}; // the line of the ': main' label, the jump to main belongs to it
 
     // compiler
     char has_main{};  // do we need a trampoline for 'main'?

@@ -37,13 +37,16 @@
 #include <chiplet/utility.hpp>
 #include <chiplet/sha1.hpp>
 #include <chiplet/octocartridge.hpp>
+#include <chiplet/sourcelanguage.hpp>
+#include <chiplet/cdp1802assembler.hpp>
+#include <chiplet/asacpp.hpp>
 
-#include "cdp1802/assembly_session.hpp"
 
 #include <ghc/cli.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <optional>
 #include <cctype>
 #include <set>
 #include <stdexcept>
@@ -65,15 +68,46 @@ static int64_t totalSourceLines = 0;
 static int64_t totalDecompileTime_us = 0;
 static int64_t totalAssembleTime_us = 0;
 
-enum class Architecture { OCTO, CDP1802 };
+enum class Architecture { OCTO, CDP1802, SATURN };
 
-Architecture architectureFromName(const std::string& name)
+// The architecture to assemble for, std::nullopt for "auto" (decided by the source)
+std::optional<Architecture> architectureFromName(const std::string& name)
 {
+    if (name == "auto")
+        return std::nullopt;
     if (name == "octo")
         return Architecture::OCTO;
     if (name == "cdp1802")
         return Architecture::CDP1802;
-    throw std::runtime_error("Unsupported architecture '" + name + "' (expected 'octo' or 'cdp1802')");
+    if (name == "saturn")
+        return Architecture::SATURN;
+    if (const auto language = emu::sourceLanguageFromId(name))
+        throw std::runtime_error(std::string("Chiplet has no assembler for ") + emu::sourceLanguageName(*language) + " sources yet");
+    throw std::runtime_error("Unsupported architecture '" + name + "' (expected 'auto', 'octo', 'cdp1802' or 'saturn')");
+}
+
+// "auto": the language of the first input file (see emu::detectSourceLanguage()), Octo if it can't be told
+Architecture detectArchitecture(const std::string& file, bool quiet)
+{
+    std::error_code ec;
+    if (!fs::is_regular_file(file, ec))
+        return Architecture::OCTO;
+    const auto guess = emu::detectSourceLanguage(file, loadTextFile(file));
+    switch (guess.language) {
+        case emu::SourceLanguage::CDP1802:
+            if (!quiet && !guess.byExtension)
+                std::cout << "INFO: '" << file << "' is CDP1802 assembly (use --arch to choose otherwise)" << std::endl;
+            return Architecture::CDP1802;
+        case emu::SourceLanguage::SATURN:
+            if (!quiet && !guess.byExtension)
+                std::cout << "INFO: '" << file << "' is Saturn assembly (use --arch to choose otherwise)" << std::endl;
+            return Architecture::SATURN;
+        case emu::SourceLanguage::M6800:
+            throw std::runtime_error("'" + file + "' looks like " + emu::sourceLanguageName(guess.language) +
+                                     " assembly, Chiplet has no assembler for it yet (use --arch to choose one)");
+        default:
+            return Architecture::OCTO;
+    }
 }
 
 bool writeBinaryOutput(const std::string& filename, std::span<const uint8_t> data)
@@ -91,7 +125,7 @@ bool writeHexOutput(const std::string& filename, uint16_t address, std::span<con
     return true;
 }
 
-bool writeHexOutput(const std::string& filename, const std::vector<cdp1802::AssemblySegment>& segments)
+bool writeHexOutput(const std::string& filename, const std::vector<emu::Cdp1802Assembler::Segment>& segments)
 {
     emu::HexFile hex{filename, emu::HexFile::Mode::WRITE};
     for (const auto& segment : segments)
@@ -445,6 +479,7 @@ int main(int argc, char* argv[])
     bool preprocess = false;
     bool disassemble = false;
     bool noLineInfo = false;
+    bool octopusWhitespace = false;
     bool quiet = false;
     bool verbose = false;
     bool version = false;
@@ -456,7 +491,7 @@ int main(int argc, char* argv[])
     std::string cartridgeImage;
     std::string cartridgeOptions;
     std::string cartridgeVariant;
-    std::string architectureName{"octo"};
+    std::string architectureName{"auto"};
     int verbosity = 1;
     int rc = 0;
     int64_t startAddress = 0x200;
@@ -466,14 +501,16 @@ int main(int argc, char* argv[])
     std::vector<std::string> inputList;
     std::vector<std::string> defineList;
     cli.category("Assembler/Preprocessor");
-    cli.option({"-a", "--arch"}, architectureName, "select assembler architecture: octo or cdp1802, default octo");
+    cli.option({"-a", "--arch"}, architectureName, "select assembler architecture: auto, octo, cdp1802 or saturn (ASAP syntax), default auto (.8o is Octo, .asap Saturn, other sources are recognized by their statements, Octo if unclear)");
     cli.option({"-P", "--preprocess"}, preprocess, "only preprocess the file and output the result");
+    cli.option({"-l", "--listing"}, genListing, "also write a listing next to the output (.lst): addresses, bytes and source lines, for Octo, CDP1802 and Saturn");
     cli.option({"-I", "--include-path"}, includePaths, "add directory to include search path");
     cli.option({"-D", "--define"}, defineList, "add a defined option to the preprocessor");
     cli.option({"-o", "--output"}, outputFile, "name of output file, default stdout for preprocessor, a.out.ch8 for binary");
     cli.option({"--hex"}, hexOutput, "write Intel HEX output instead of raw binary when compiling or relocating, with a cartridge output, store a hex dump of the assembled program instead of its source");
     cli.option({"--start-address"}, startAddress, "the address the program will be loaded to, the ': main' label address, default is 512");
     cli.optionEnable({"--no-line-info"}, noLineInfo, "omit generation of line info comments in the preprocessed output");
+    cli.optionEnable({"--octopus-whitespace"}, octopusWhitespace, "put empty lines into the preprocessed output where Octopus does, for unchanged output of projects built with it (implies --no-line-info)");
     cli.option({"--cartridge-label"}, cartridgeLabel, "generate an Octo compatible cartridge gif with the given text label");
     cli.option({"--cartridge-image"}, cartridgeImage, "generate an Octo compatible cartridge gif with the given image as label");
     cli.option({"--cartridge-options"}, cartridgeOptions, "specifies a JSON file that contains the options to use for the cartridge");
@@ -490,7 +527,6 @@ int main(int argc, char* argv[])
     cli.option({"-p", "--full-path"}, fullPath, "print file names with path");
     cli.option({"--list-duplicates"}, dumpDoubles, "show found duplicates while scanning directories");
     cli.option({"--round-trip"}, roundTrip, "decompile and assemble and compare the result");
-    cli.option({"-l", "--listing"}, genListing, "generate additional listing with addresses");
 
     cli.category("General");
     cli.option({"-q", "--quiet"}, quiet, "suppress all output during operation");
@@ -501,9 +537,9 @@ int main(int argc, char* argv[])
     cli.parse();
 
     auto& logstream = preprocess && outputFile.empty() ? std::clog : std::cout;
-    Architecture architecture;
+    std::optional<Architecture> chosenArchitecture;
     try {
-        architecture = architectureFromName(architectureName);
+        chosenArchitecture = architectureFromName(architectureName);
     }
     catch (const std::exception& ex) {
         std::cerr << "ERROR: " << ex.what() << std::endl;
@@ -556,8 +592,20 @@ int main(int argc, char* argv[])
         std::cerr << "ERROR: Multiple operation modes selected!" << std::endl;
         exit(1);
     }
+    Architecture architecture = Architecture::OCTO;
+    if(chosenArchitecture)
+        architecture = *chosenArchitecture;
+    else if(mode == eCOMPILE && !inputList.empty() && fs::path(inputList.front()).extension() != ".gif") {
+        try {
+            architecture = detectArchitecture(inputList.front(), quiet);
+        }
+        catch (const std::exception& ex) {
+            std::cerr << "ERROR: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
     if(architecture != Architecture::OCTO && mode != eCOMPILE) {
-        std::cerr << "ERROR: --arch=cdp1802 is currently only supported for compile mode." << std::endl;
+        std::cerr << "ERROR: --arch=" << architectureName << " is currently only supported for compile mode." << std::endl;
         return 1;
     }
     if(architecture != Architecture::OCTO && cartridgeBuild) {
@@ -613,6 +661,60 @@ int main(int argc, char* argv[])
     }
     else if(mode == eANALYSE || mode == eDISASSEMBLE || mode == eSEARCH || mode == eDEEP_ANALYSE)
         rc = disassembleOrAnalyze(scan, dumpDoubles, inputList, mode);
+    else if(architecture == Architecture::SATURN) {
+        if(inputList.size() != 1) {
+            std::cerr << "ERROR: Saturn assembly expects exactly one input file (it can include others)." << std::endl;
+            return 1;
+        }
+        if(outputFile.empty()) {
+            std::cerr << "ERROR: No output filename given (use -o/--output)." << std::endl;
+            return 1;
+        }
+        if(hexOutput) {
+            std::cerr << "ERROR: --hex is not supported for Saturn assembly, the output is the assembled binary." << std::endl;
+            return 1;
+        }
+        std::error_code ec;
+        if(!fs::exists(inputList.front(), ec) || fs::is_directory(inputList.front(), ec)) {
+            std::cerr << "ERROR: Couldn't find input file '" << inputList.front() << "'." << std::endl;
+            return 1;
+        }
+        try {
+            emu::AsaCpp assembler;
+            assembler.setIncludePaths(includePaths);
+            for(const auto& def : defineList) {
+                // NAME=EXPRESSION, or NAME alone for 1
+                if(const auto equal = def.find('='); equal != std::string::npos)
+                    assembler.defineExpression(def.substr(0, equal), def.substr(equal + 1));
+                else
+                    assembler.define(def, 1);
+            }
+            const auto& result = assembler.compile(inputList.front());
+            if(assembler.isError()) {
+                // the message starts with the file and line of every file of the include chain
+                std::cerr << result.errorMessage << std::endl;
+                return 1;
+            }
+            const auto code = assembler.code();
+            if(!writeBinaryOutput(outputFile, code)) {
+                std::cerr << "ERROR: Failed to write output file '" << outputFile << "'." << std::endl;
+                return 1;
+            }
+            if(genListing) {
+                const auto listingFile = listingFilenameForOutput(outputFile);
+                std::ofstream out(listingFile, std::ios::binary);
+                out << assembler.listing();
+                if(!out) {
+                    std::cerr << "ERROR: Failed to write listing file '" << listingFile << "'." << std::endl;
+                    return 1;
+                }
+            }
+        }
+        catch (std::exception& ex) {
+            std::cerr << "Internal error: " << ex.what() << std::endl;
+            rc = -1;
+        }
+    }
     else if(architecture == Architecture::CDP1802) {
         if(inputList.size() != 1) {
             std::cerr << "ERROR: CDP1802 assembly currently expects exactly one input file." << std::endl;
@@ -628,26 +730,28 @@ int main(int argc, char* argv[])
             return 1;
         }
         try {
-            const auto source = loadTextFile(inputList.front());
-            cdp1802::AssemblySession session;
-            if(!session.compile(source, {.listingMode = genListing ? cdp1802::ListingMode::TRADITIONAL : cdp1802::ListingMode::NONE})) {
-                std::cerr << inputList.front() << ":" << session.errorLine() << ":";
-                if(session.errorColumn())
-                    std::cerr << session.errorColumn() << ": ";
-                std::cerr << session.errorMessage() << std::endl;
+            emu::Cdp1802Assembler assembler;
+            assembler.setListing(genListing);
+            const auto& result = assembler.compile(inputList.front(), loadTextFile(inputList.front()));
+            if(assembler.isError()) {
+                const auto& location = result.locations.front();
+                std::cerr << inputList.front() << ":" << location.line << ":";
+                if(location.column)
+                    std::cerr << location.column << ": ";
+                std::cerr << result.errorMessage << std::endl;
                 return 1;
             }
             if(hexOutput) {
-                writeHexOutput(outputFile, session.segments());
+                writeHexOutput(outputFile, assembler.segments());
             }
-            else if(!writeBinaryOutput(outputFile, session.contiguousData())) {
+            else if(!writeBinaryOutput(outputFile, std::span<const uint8_t>{assembler.code(), assembler.codeSize()})) {
                 std::cerr << "ERROR: Failed to write output file '" << outputFile << "'." << std::endl;
                 return 1;
             }
             if(genListing) {
                 const auto listingFile = listingFilenameForOutput(outputFile);
                 std::ofstream out(listingFile, std::ios::binary);
-                out << session.listing();
+                out << assembler.listing();
                 if(!out) {
                     std::cerr << "ERROR: Failed to write listing file '" << listingFile << "'." << std::endl;
                     return 1;
@@ -662,7 +766,8 @@ int main(int argc, char* argv[])
     else {
         emu::OctoCompiler compiler;
         compiler.setStartAddress(startAddress);
-        compiler.generateLineInfos(!noLineInfo);
+        compiler.generateLineInfos(!noLineInfo && !octopusWhitespace);
+        compiler.octopusWhitespace(octopusWhitespace);
         compiler.setIncludePaths(includePaths);
         if(!quiet) {
             compiler.setProgressHandler([&](int verbLvl, std::string msg) {
@@ -771,6 +876,15 @@ int main(int argc, char* argv[])
                     else if(!writeBinaryOutput(outputFile, std::span<const uint8_t>{compiler.code(), compiler.codeSize()})) {
                         std::cerr << "ERROR: Failed to write output file '" << outputFile << "'." << std::endl;
                         return 1;
+                    }
+                    if(genListing) {
+                        const auto listingFile = listingFilenameForOutput(outputFile);
+                        std::ofstream out(listingFile, std::ios::binary);
+                        out << compiler.listing();
+                        if(!out) {
+                            std::cerr << "ERROR: Failed to write listing file '" << listingFile << "'." << std::endl;
+                            return 1;
+                        }
                     }
                 }
             }

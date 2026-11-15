@@ -232,7 +232,7 @@ Token Assembler::next()
     if (_isError)
         return {_sourceLine, _sourcePos};
     auto t = tokens.front();
-    tokens.pop_front();
+    popToken();
     _errorLine = t.line, _errorPos = t.pos;
     return t;
 }
@@ -258,7 +258,7 @@ bool Assembler::peek_match(const std::string_view& name, int index)
 inline bool Assembler::match(const std::string_view& name)
 {
     if (peek_match(name, 0)) {
-        tokens.pop_front();
+        popToken();
         return true;
     }
     return false;
@@ -266,7 +266,22 @@ inline bool Assembler::match(const std::string_view& name)
 
 void Assembler::eat()
 {
+    popToken();
+}
+
+void Assembler::popToken()
+{
     tokens.pop_front();
+    if (_expandedTokens)
+        --_expandedTokens;
+}
+
+void Assembler::expanded(int line, std::size_t numTokens)
+{
+    // the bytes of an expansion belong to the line using the macro, not to the lines of its definition
+    if (!_expandedTokens)
+        _statementLine = line;
+    _expandedTokens += numTokens;
 }
 
 /**
@@ -753,7 +768,7 @@ void Assembler::append(uint8_t byte)
         _error = fmt::format("Data overlap. Address 0x{:0X} has already been defined.", here);
         return;
     }
-    romLineMap[here] = _sourceLine;
+    romLineMap[here] = _statementLine;
     rom[here] = byte, used[here] = 1, here++;
     if (here > length)
         length = here;
@@ -857,6 +872,8 @@ void Assembler::resolveLabel(int offset)
         rom[startAddress + 1] = 0, used[startAddress + 1] = 0;
     }
     _programLabels.insert_or_assign(n, target);
+    if (n == "main")
+        _mainLine = _statementLine;
     auto iter = protos.find(n);
     if (iter == protos.end())
         return;
@@ -1396,6 +1413,7 @@ bool Assembler::expandMacroOrStringMode()
             const auto binding = bodyToken.isText() ? bindings.find(bodyToken.strValue) : bindings.end();
             tokens.insert(tokens.begin() + insertion++, binding != bindings.end() ? binding->second : bodyToken);
         }
+        expanded(token.line, insertion);
         return true;
     }
     if (auto iter = stringModes.find(name); iter != stringModes.end()) {
@@ -1426,6 +1444,7 @@ bool Assembler::expandMacroOrStringMode()
                 tokens.insert(tokens.begin() + insertion++, binding != bindings.end() ? binding->second : bodyToken);
             }
         }
+        expanded(token.line, insertion);
         return true;
     }
     return false;
@@ -1446,6 +1465,8 @@ void Assembler::compileStatement()
     int peek_line = statement.line, peek_pos = statement.pos;
     _errorLine = statement.line;
     _errorPos = statement.pos;
+    if (!_expandedTokens)
+        _statementLine = statement.line;
     if (statementId == TokenId::TOK_UNKNOWN && peekIsRegister()) {
         int r = registerOrAlias();
         if (match(":=")) {
@@ -2053,6 +2074,7 @@ bool Assembler::compile()
         if (iter == constants.end() && !_programLabels.contains("main"))
             return _isError = 1, _error = "This program is missing a 'main' label.", false;
         jump(startAddress, iter != constants.end() ? detail::toInt32JS(iter->second.value) : _programLabels.at("main"));
+        romLineMap[startAddress] = romLineMap[startAddress + 1] = iter != constants.end() ? 0xFFFFFFFF : _mainLine;
     }
     if (!finishNativeBlocks())
         return false;

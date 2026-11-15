@@ -44,6 +44,8 @@ my CHIP-8 emulator environment. It contains:
 * an execution path tracing disassembler, that can also relocate programs,
 * a CDP1802 assembler, usable on its own and for native code inside of Octo
   programs (see [Experimental Hybrid ROM Assembly](#experimental-hybrid-rom-assembly)),
+* an HP Saturn assembler for the ASAP syntax (`asacpp`, originally written for
+  Cadmium's HP-48SX emulation),
 * and support for writing [Octo cartridges](#cartridges).
 
 It combines these to allow using modular CHIP-8 projects with multiple
@@ -79,6 +81,9 @@ Assembler/Preprocessor:
   --no-line-info
     omit generation of line info comments in the preprocessed output
 
+  --octopus-whitespace
+    put empty lines into the preprocessed output where Octopus does, for unchanged output of projects built with it (implies --no-line-info)
+
   --[no-]original-cart
     use the original Octo cartridge image for the generated gif instead of the CD48 one
 
@@ -95,7 +100,10 @@ Assembler/Preprocessor:
     only preprocess the file and output the result
 
   -a <arg>, --arch <arg>
-    select assembler architecture: octo or cdp1802, default octo
+    select assembler architecture: auto, octo, cdp1802 or saturn (ASAP syntax), default auto (.8o is Octo, .asap Saturn, other sources are recognized by their statements, Octo if unclear)
+
+  -l, --[no-]listing
+    also write a listing next to the output (.lst): addresses, bytes and source lines, for Octo, CDP1802 and Saturn
 
   -o <arg>, --output <arg>
     name of output file, default stdout for preprocessor, a.out.ch8 for binary
@@ -118,9 +126,6 @@ Disassembler/Analyzer:
 
   -f <arg>, --find <arg>
     search for use of opcodes
-
-  -l, --[no-]listing
-    generate additional listing with addresses
 
   -p, --[no-]full-path
     print file names with path
@@ -170,6 +175,61 @@ chiplet -o output.ch8 octo-source-file.8o
 ```
 
 If the output is not set, a file named `a.out.ch8` is generated.
+
+With `-l` a listing is written next to the output (`output.lst`): every source line
+with the address and bytes it produced and its line number, included files are
+named where they start, the bytes of a macro are on the line using it. When `main`
+isn't at the start, the jump to it is the first row, with the line of `: main`:
+
+```
+; main.8o
+                                   1  : main
+0200  60 01                        2    v0 := 1
+; lib.8o
+                                   1  : helper
+0202  61 02                        2    v1 := 2
+```
+
+```
+; top.8o
+0200  12 04                        2  (jump to main in m.8o)
+                                   1  : helper
+0202  00 EE                        2    return
+; m.8o
+                                   1  # main here
+                                   2  : main
+0204  22 02                        3    helper
+```
+
+Without `--arch` Chiplet picks the assembler by the source: a `.8o` file is Octo,
+other files are recognized by their statements, so a CDP1802 source can be called
+`.asm` too:
+
+```
+chiplet -o monitor.bin monitor.asm
+```
+
+HP Saturn sources in the ASAP syntax (Alonzo Gariepy's mnemonics, the one the
+HP-48 CHIP-8 interpreters are written in, `.asap` files) are assembled with
+`asacpp`, with includes (searched next to the including file and in the `-I`
+paths), macros, conditionals and defines (`-D NAME=EXPRESSION`, `-D NAME` is 1),
+`-l` writes a listing; the output is the assembled binary, e.g. an HP object:
+
+```
+chiplet -o interpreter.bin -I inc interpreter.asap
+```
+
+Motorola 6800 sources are recognized as well, but Chiplet can't assemble them yet
+and says so. A source that isn't clearly one of them is taken as Octo, and
+`--arch` always decides. Applications can use the same detection through
+`emu::detectSourceLanguage()` in `chiplet/sourcelanguage.hpp`, and assemble
+CDP1802 sources with `emu::Cdp1802Assembler` in `chiplet/cdp1802assembler.hpp`.
+Like `emu::OctoCompiler` it reports errors as a `CompileResult` with file, line
+and column, and gives the program as its segments (one per `ORG`, with the
+source line of every byte), as contiguous code from the first `ORG` with its
+SHA-1, and maps between addresses and source lines. The Saturn assembler is
+`emu::AsaCpp` in `chiplet/asacpp.hpp`, its `CompileResult` also lists the
+included files.
 
 ### Disassembling a Binary
 

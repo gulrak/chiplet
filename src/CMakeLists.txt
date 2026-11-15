@@ -6,6 +6,10 @@ set(CHIPLET_LIBRARY_SOURCE
     ../include/chiplet/hexfile.hpp
     ../include/chiplet/octocompiler.hpp
     ../include/chiplet/octocartridge.hpp
+    ../include/chiplet/sourcelanguage.hpp
+    ../include/chiplet/sourcesyntax.hpp
+    ../include/chiplet/cdp1802assembler.hpp
+    ../include/chiplet/asacpp.hpp
     ../include/chiplet/chunkedmemory.hpp
     ../include/chiplet/decoder/saturndecoder.hpp
 
@@ -25,6 +29,10 @@ set(CHIPLET_LIBRARY_SOURCE
     chip8decompiler.cpp
     octocompiler.cpp
     octocartridge.cpp
+    sourcelanguage.cpp
+    sourcesyntax.cpp
+    cdp1802assembler.cpp
+    asacpp.cpp
     chunkedmemory.cpp
     stb_image.cpp
     decoder/saturndecoder.cpp

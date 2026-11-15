@@ -34,6 +34,8 @@
 #include <cmath>
 #include <charconv>
 #include <memory>
+#include <sstream>
+#include <map>
 
 #include "octo/assembler.hpp"
 #include "octo/assembly_session.hpp"
@@ -113,6 +115,10 @@ const CompileResult& OctoCompiler::compile(const std::vector<std::string>& files
 const CompileResult& OctoCompiler::doCompileOcto(const std::string& filename, const char* source, const char* end)
 {
     std::string_view sourceCode = {source, size_t(end - source)};
+    _assembledFile = filename;
+    _assembledSource.assign(source, end);
+    while (!_assembledSource.empty() && _assembledSource.back() == '\0')
+        _assembledSource.pop_back();
     _assemblySession = std::make_unique<octo::AssemblySession>();
     if(_progress) _progress(1, "compiling ...");
     _assemblySession->compile({source, static_cast<size_t>(end-source)}, _startAddress);
@@ -126,6 +132,115 @@ const CompileResult& OctoCompiler::doCompileOcto(const std::string& filename, co
     _compileResult.reset();
     _compileResult.includedFiles = std::move(includedFiles);
     return _compileResult;
+}
+
+std::string OctoCompiler::listing() const
+{
+    if (!_assemblySession || isError() || !codeSize() || _assembledSource.empty())
+        return {};
+    // the addresses of the bytes of every line, they need not be together (after an :org e.g.)
+    std::map<uint32_t, std::vector<uint32_t>> addressesOfLine;
+    const auto start = static_cast<uint32_t>(_startAddress);
+    const bool mainJump = _assemblySession->hasMainJump() && codeSize() >= 2;
+    for (uint32_t offset = mainJump ? 2 : 0; offset < codeSize(); ++offset) {
+        if (const auto line = lineForAddr(start + offset); line != 0xFFFFFFFF)
+            addressesOfLine[line].push_back(start + offset);
+    }
+    // the lines of the assembled text with their file and line, without the preprocessor's markers
+    struct SourceLine
+    {
+        uint32_t index;  // in the assembled text
+        std::string_view text;
+        std::string file;
+        int line;
+    };
+    std::vector<std::string_view> texts;
+    for (std::string_view text = _assembledSource; !text.empty();) {
+        const auto newline = text.find('\n');
+        texts.push_back(text.substr(0, newline));
+        text = newline == std::string_view::npos ? std::string_view{} : text.substr(newline + 1);
+    }
+    auto isMarker = [](std::string_view line) { return line.starts_with("#@line[") && line.ends_with(']'); };
+    std::vector<SourceLine> lines;
+    std::string file = _assembledFile;
+    int nextLine = 1;
+    for (size_t index = 0; index < texts.size(); ++index) {
+        const auto text = texts[index];
+        if (isMarker(text)) {
+            // the preprocessor's "#@line[depth,line,file]" names the file and line of what follows
+            if (const auto pos = extractFilePos(text.substr(0, text.size() - 1)); pos.line) {
+                file = pos.file;
+                nextLine = pos.line;
+            }
+            continue;
+        }
+        if (text.empty() && index + 1 < texts.size() && isMarker(texts[index + 1]))
+            continue;  // the preprocessor's line before a marker
+        lines.push_back({static_cast<uint32_t>(index), text, file, nextLine++});
+    }
+    // included files are named relative to the folder of the main file, like it is named
+    const auto baseFolder = fs::absolute(fs::path(_assembledFile)).parent_path();
+    auto shownName = [&](const std::string& name) {
+        const auto path = fs::path(name);
+        if (name == _assembledFile || !path.is_absolute())
+            return name;
+        const auto relative = path.lexically_normal().lexically_relative(baseFolder);
+        return relative.empty() ? name : relative.generic_string();
+    };
+    std::ostringstream out;
+    std::string shownFile;
+    auto showFile = [&](const std::string& name) {
+        if (name != shownFile) {
+            out << "; " << shownName(name) << "\n";
+            shownFile = name;
+        }
+    };
+    if (!lines.empty())
+        showFile(lines.front().file);
+    if (mainJump) {
+        // the jump to a main that isn't at the start comes first, like in memory, with the line of ': main'
+        const auto mainIndex = lineForAddr(start);
+        const auto mainLine = std::ranges::find(lines, mainIndex, &SourceLine::index);
+        const auto bytes = fmt::format("{:02X} {:02X}", code()[0], code()[1]);
+        if (mainLine == lines.end())
+            out << fmt::format("{:04X}  {:23}  {:5}  (jump to main)\n", start, bytes, "");
+        else if (mainLine->file == shownFile)
+            out << fmt::format("{:04X}  {:23}  {:5}  (jump to main)\n", start, bytes, mainLine->line);
+        else
+            out << fmt::format("{:04X}  {:23}  {:5}  (jump to main in {})\n", start, bytes, mainLine->line, shownName(mainLine->file));
+    }
+    for (const auto& line : lines) {
+        showFile(line.file);
+        // rows of up to 8 bytes in a row of addresses, the first one with the line
+        std::vector<std::pair<uint32_t, std::string>> rows;
+        if (const auto found = addressesOfLine.find(line.index); found != addressesOfLine.end()) {
+            uint32_t rowStart = 0, previous = 0;
+            std::string bytes;
+            int count = 0;
+            for (const auto address : found->second) {
+                if (count && (count == 8 || address != previous + 1)) {
+                    rows.emplace_back(rowStart, bytes);
+                    bytes.clear();
+                    count = 0;
+                }
+                if (!count)
+                    rowStart = address;
+                bytes += fmt::format("{}{:02X}", count ? " " : "", code()[address - start]);
+                previous = address;
+                ++count;
+            }
+            rows.emplace_back(rowStart, bytes);
+        }
+        if (rows.empty())
+            out << fmt::format("{:4}  {:23}  {:5}  {}\n", "", "", line.line, line.text);
+        for (size_t row = 0; row < rows.size(); ++row) {
+            if (!row)
+                out << fmt::format("{:04X}  {:23}  {:5}  {}\n", rows[row].first, rows[row].second, line.line, line.text);
+            else
+                out << fmt::format("{:04X}  {}\n", rows[row].first, rows[row].second);
+        }
+    }
+    return out.str();
 }
 
 const CompileResult& OctoCompiler::synthesizeError(const SourceLocation& location, const char* source, const char* end, const std::string& errorMessage)
@@ -200,6 +315,11 @@ void OctoCompiler::generateLineInfos(bool value)
 {
     _generateLineInfos = value;
     _preprocessor->generateLineInfos(value);
+}
+
+void OctoCompiler::octopusWhitespace(bool value)
+{
+    _preprocessor->octopusWhitespace(value);
 }
 
 void OctoCompiler::setProgressHandler(ProgressHandler handler)
@@ -338,6 +458,8 @@ void OctoCompiler::reset()
     if(_preprocessor)
         _preprocessor->reset();
     _compileResult.reset();
+    _assembledFile.clear();
+    _assembledSource.clear();
 }
 
 size_t OctoCompiler::numSourceLines() const

@@ -54,6 +54,7 @@ public:
     const Sha1::Digest& sha1() const;
     std::pair<uint32_t, uint32_t> addrForLine(uint32_t line) const;
     uint32_t lineForAddr(uint32_t addr) const;
+    bool hasMainJump() const;
     std::string_view breakpointForAddr(uint32_t addr) const;
     void forEachMonitor(const std::function<void(std::string_view name, const Monitor& monitor)>& visitor) const;
     void forEachSymbol(const std::function<void(std::string_view name, double value)>& visitor) const;

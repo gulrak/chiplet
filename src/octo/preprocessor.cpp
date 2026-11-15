@@ -186,6 +186,8 @@ void Preprocessor::reset()
     _collect.str("");
     _collect.clear();
     _collectLocationStack.clear();
+    _collectAtLineStart = true;
+    _generatedLine = -1;
     _currentSegment = CODE;
     _compileResult.reset();
 }
@@ -292,11 +294,15 @@ const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::strin
             while (true) {
                 if (token == SourceToken::Type::END_OF_FILE) {
                     writePrefix();
+                    // Octopus splits a file into lines at each '\n', so the final one leaves an empty line
+                    if (end > source && *(end - 1) == '\n')
+                        writeOctopusLineEnd();
                     break;
                 }
                 if (token == SourceToken::Type::PREPROCESSOR) {
                     writePrefix();
                     if (lex.expect(":include")) {
+                        const auto includeLine = lex.token().line + 1;
                         auto next = lex.nextToken();
                         if (next != SourceToken::Type::STRING)
                             error("Expected string after ':include'.");
@@ -304,12 +310,17 @@ const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::strin
                         noteIncludedFile(newFile.string());
                         auto extension = ::toLower(newFile.extension().string());
                         if (isImage(extension)) {
+                            _generatedLine = includeLine;
                             token = includeImage(newFile.string());
+                            writeOctopusLineEnd();
                         }
                         else if (extension == ".bin" || extension == ".ch8") {
+                            _generatedLine = includeLine;
                             token = includeBinary(newFile.string());
+                            writeOctopusLineEnd();
                         }
                         else if (extension == ".wav") {
+                            _generatedLine = includeLine;
                             token = includeWav(newFile.string());
                         }
                         else {
@@ -496,7 +507,7 @@ const Preprocessor::CompileResult& Preprocessor::preprocessFiles(const std::vect
     return _compileResult;
 }
 
-void Preprocessor::doWrite(const std::string_view& text, int line)
+void Preprocessor::doWrite(const std::string_view& text, int line, bool generated)
 {
     auto& lex = lexer();
     if(_generateLineInfos && line >= 0 && (_collectLocationStack.empty() || _collectLocationStack.back().first != line || lex.filename() != _collectLocationStack.back().second)) {
@@ -510,18 +521,22 @@ void Preprocessor::doWrite(const std::string_view& text, int line)
         }
         if (_emitCode.empty() || _emitCode.top() == ACTIVE) {
             auto depth = iterNew - locationStack.begin();
-            _collect << "\n";
+            if (!generated || !_collectAtLineStart)
+                _collect << "\n";
             while (iterNew != locationStack.end()) {
                 _collect << fmt::format("#@line[{},{},{}]\n", ++depth, iterNew->first, iterNew->second);
                 iterNew++;
             }
+            _collectAtLineStart = true;
         }
         std::swap(_collectLocationStack, locationStack);
     }
     if(!_collectLocationStack.empty())
         _collectLocationStack.back().first += std::count(text.begin(), text.end(), '\n');
-    if (_emitCode.empty() || _emitCode.top() == ACTIVE)
+    if ((_emitCode.empty() || _emitCode.top() == ACTIVE) && !text.empty()) {
         _collect << text;
+        _collectAtLineStart = text.back() == '\n';
+    }
 }
 
 void Preprocessor::writePrefix()
@@ -540,9 +555,21 @@ void Preprocessor::write(const std::string_view& text)
 
 void Preprocessor::writeGenerated(const std::string_view& text)
 {
-    if(!text.empty()) {
-        doWrite(text, -1);
+    auto rest = text;
+    while (!rest.empty()) {
+        const auto newline = rest.find('\n');
+        const auto row = rest.substr(0, newline == std::string_view::npos ? rest.size() : newline + 1);
+        doWrite(row, _generatedLine, true);
+        rest.remove_prefix(row.size());
     }
+}
+
+void Preprocessor::writeOctopusLineEnd()
+{
+    // Octopus adds the text of an :include as one more line to its list of lines, the '\n' that ends that text
+    // becomes an empty line when the lines are split again
+    if (_octopusWhitespace)
+        doWrite("\n", -1);
 }
 
 void Preprocessor::writeLineMarker()
@@ -559,6 +586,7 @@ void Preprocessor::flushSegment()
     _collect.str("");
     _collect.clear();
     _collectLocationStack.clear();
+    _collectAtLineStart = true;
 }
 
 bool Preprocessor::isImage(const std::string& extension)
@@ -843,6 +871,25 @@ Preprocessor::SourceToken::Type Preprocessor::includeWav(std::string filename)
 
 void Preprocessor::dumpSegments(std::ostream& output)
 {
+    if (_octopusWhitespace) {
+        auto joinLines = [](const std::vector<std::string>& segments) {
+            std::string text;
+            for (const auto& segment : segments) {
+                text += segment;
+                if (!segment.empty() && segment.back() != '\n')
+                    text += '\n';
+            }
+            if (!text.empty())
+                text.pop_back();
+            return text;
+        };
+        auto code = joinLines(_codeSegments);
+        const auto data = joinLines(_dataSegments);
+        if (!code.empty() && !data.empty() && code.back() != '\n' && data.front() != '\n')
+            code += '\n';
+        output << code << data;
+        return;
+    }
     int endingWSLines = 2;
     for(auto& segment : _codeSegments) {
         if(!segment.empty()) {

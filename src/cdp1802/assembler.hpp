@@ -84,6 +84,7 @@ public:
     uint16_t startAddress() const { return _startAddress; }
     uint32_t embeddedSize() const { return _pc - _options.origin; }
     const std::vector<int>& byteSourceLines() const { return _byteSourceLines; }
+    static const std::unordered_map<std::string_view, Instruction>& instructions();
 
 private:
     enum class Pass { SYMBOLS, EMIT };
@@ -130,7 +131,6 @@ private:
     void expect(TokenType type, std::string_view what);
     void fail(const Token& token, std::string message);
 
-    static const std::unordered_map<std::string_view, Instruction>& instructions();
     static bool isInstruction(std::string_view text);
     static bool isDirective(std::string_view text);
 

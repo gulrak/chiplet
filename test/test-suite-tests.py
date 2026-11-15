@@ -15,6 +15,7 @@ class CheckSpec:
     actual_suffix: str
     extra_args: tuple[str, ...]
     kind: str  # "text" or "binary"
+    exact: bool = False  # compare text unnormalized even with --normalize
 
 
 def run_command(
@@ -188,7 +189,8 @@ def run_check(
             f"cwd: {work_dir}"
         )
 
-    diff = format_diff(expected_file, actual_file, check.kind, normalize)
+    diff = format_diff(expected_file, actual_file, check.kind,
+                       normalize and not check.exact)
     if diff is not None:
         return (
             f"[{check.name}] output mismatch for {source_file.name}\n"
@@ -225,6 +227,16 @@ def main() -> int:
             actual_suffix=".pp.8o",
             extra_args=("-P","--no-line-info","-q"),
             kind="text",
+        ),
+        # The empty lines like Octopus makes them: byte identical to the
+        # checked in preprocessed files of the test suite.
+        CheckSpec(
+            name="preprocess-octopus",
+            expected_suffix=".8o",
+            actual_suffix=".octopus.8o",
+            extra_args=("-P", "--octopus-whitespace", "-q"),
+            kind="text",
+            exact=True,
         ),
         CheckSpec(
             name="assemble",

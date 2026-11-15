@@ -73,6 +73,7 @@ public:
     PreprocessScanResult scan(std::string_view source) const;
     void reset();
     void generateLineInfos(bool value) { _generateLineInfos = value; }
+    void octopusWhitespace(bool value) { _octopusWhitespace = value; }
     void setIncludePaths(const std::vector<std::string>& paths);
     void setProgressHandler(ProgressHandler handler) { _progress = std::move(handler); }
     void define(std::string name, Value val = 1, SymbolType type = emu::OctoCompiler::eCONST);
@@ -106,8 +107,9 @@ private:
     void write(const std::string_view& text);
     void writeGenerated(const std::string_view& text);
     void writePrefix();
-    void doWrite(const std::string_view& text, int line);
+    void doWrite(const std::string_view& text, int line, bool generated = false);
     void writeLineMarker();
+    void writeOctopusLineEnd();
     void error(std::string msg);
     void warning(std::string msg);
     void info(std::string msg);
@@ -117,6 +119,8 @@ private:
 
     std::ostringstream _collect;
     std::vector<std::pair<int,std::string>> _collectLocationStack;
+    bool _collectAtLineStart{true};  // the collected text is empty or ends with a newline
+    int _generatedLine{-1};          // the line of the :include whose text is generated, for its line markers
     SegmentType _currentSegment{CODE};
     std::stack<Lexer> _lexerStack;
     std::vector<std::string> _codeSegments;
@@ -126,6 +130,7 @@ private:
     std::vector<ghc::filesystem::path> _includePaths;
     ProgressHandler _progress;
     bool _generateLineInfos{true};
+    bool _octopusWhitespace{false};
     CompileResult _compileResult;
 };
 
