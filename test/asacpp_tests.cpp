@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -87,5 +88,18 @@ TEST_SUITE("AsaCpp")
         CHECK(result.locations.back().line == 2);
         CHECK(result.locations.back().file.ends_with("lib.asap"));
         CHECK(result.errorMessage.find("lib.asap:2:") != std::string::npos);
+    }
+
+    TEST_CASE("An error location keeps the drive letter of a Windows path")
+    {
+        emu::AsaCpp assembler;
+        const std::string source = "        move.a  @d0,a\n        frobnicate.a c\n";
+        const auto& result = assembler.compile("C:\\project\\prog.asap", std::span<const char>(source.data(), source.size()));
+        CHECK(assembler.isError());
+        REQUIRE(result.locations.size() == 1);
+        // the separators are the platform's business, the drive letter must not be lost
+        CHECK(result.locations.front().file.starts_with("C:"));
+        CHECK(result.locations.front().file.ends_with("prog.asap"));
+        CHECK(result.locations.front().line == 2);
     }
 }

@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `AsaCpp` lost the drive letter of Windows paths in error locations (`C:\dir\lib.asap:2:` became
+  `\dir\lib.asap`)
 - The Octo assembler mapped the bytes of a statement to the line of the token after it (the
   lookahead), so `lineForAddr`/`addrForLine` could be a line off, more after an `:include`; the bytes
   of a macro or string mode now map to the line using it

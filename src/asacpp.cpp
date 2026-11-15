@@ -1954,7 +1954,7 @@ void setError(CompileResult& result, const fs::path& rootFile, const std::string
     result.resultType = CompileResult::eERROR;
     result.errorMessage = message;
 
-    const std::regex locationRegex(R"(([^:\n]+):([0-9]+): )");
+    const std::regex locationRegex(R"(((?:[A-Za-z]:)?[^:\n]+):([0-9]+): )");
     std::size_t index = 0;
     for (auto it = std::sregex_iterator(message.begin(), message.end(), locationRegex);
          it != std::sregex_iterator();
