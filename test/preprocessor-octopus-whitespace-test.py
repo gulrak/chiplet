@@ -56,27 +56,34 @@ def main():
     failures = []
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
-        for name, (files, expected) in CASES.items():
-            case = directory / name
-            for file_name, text in files.items():
-                (case / file_name).parent.mkdir(parents=True, exist_ok=True)
-                (case / file_name).write_text(text)
-            main_file = next(iter(files))
-            result = subprocess.run(
-                [str(chiplet), '-P', '--octopus-whitespace', '-q', main_file,
-                 '-o', 'out.8o'],
-                cwd=case, capture_output=True, text=True, timeout=30,
-            )
-            actual = (case / 'out.8o').read_text() \
-                if (case / 'out.8o').exists() else None
-            if result.returncode != 0 or actual != expected:
-                failures.append(f'{name}: rc={result.returncode}\n'
-                                f'expected {expected!r}\nactual   {actual!r}\n'
-                                f'{result.stderr}')
+        for ending_name, ending in (('lf', '\n'), ('crlf', '\r\n')):
+            for name, (files, expected) in CASES.items():
+                case = directory / ending_name / name
+                for file_name, text in files.items():
+                    (case / file_name).parent.mkdir(parents=True, exist_ok=True)
+                    (case / file_name).write_bytes(
+                        text.replace('\n', ending).encode('utf-8'))
+                main_file = next(iter(files))
+                result = subprocess.run(
+                    [str(chiplet), '-P', '--octopus-whitespace', '-q', main_file,
+                     '-o', 'out.8o'],
+                    cwd=case, capture_output=True, text=True, timeout=30,
+                )
+                # Accept either platform's line endings, but expose stray CRs
+                # and CRCRLF rather than hiding them with universal newlines.
+                output_file = case / 'out.8o'
+                actual = None
+                if output_file.exists():
+                    actual = output_file.read_bytes().decode('utf-8')
+                    actual = actual.replace('\r\n', '\n')
+                if result.returncode != 0 or actual != expected:
+                    failures.append(f'{ending_name}/{name}: rc={result.returncode}\n'
+                                    f'expected {expected!r}\nactual   {actual!r}\n'
+                                    f'{result.stderr}')
     if failures:
         print('\n'.join(failures), file=sys.stderr)
         return 1
-    print(f'All {len(CASES)} Octopus whitespace checks passed.')
+    print(f'All {2 * len(CASES)} Octopus whitespace checks passed.')
     return 0
 
 

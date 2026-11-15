@@ -279,6 +279,19 @@ void Preprocessor::info(std::string msg)
 
 const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::string& inputFile, const char* source, const char* end)
 {
+    // Keep one logical line ending internally, including for in-memory sources
+    // and includes. Windows text streams expand LF to CRLF when writing output.
+    std::string normalizedSource;
+    if (std::string_view(source, static_cast<size_t>(end - source)).find("\r\n") != std::string_view::npos) {
+        normalizedSource.reserve(static_cast<size_t>(end - source));
+        for (auto current = source; current != end; ++current) {
+            if (*current == '\r' && current + 1 != end && current[1] == '\n')
+                continue;
+            normalizedSource += *current;
+        }
+        source = normalizedSource.data();
+        end = source + normalizedSource.size();
+    }
     if(end - source >= 3 && *source == (char)0xef && *(source+1) == (char)0xbb && *(source+2) == (char)0xbf)
         source += 3;
 
