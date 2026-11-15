@@ -3,6 +3,7 @@
 #include <chiplet/cdp1802assembler.hpp>
 #include <chiplet/sha1.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>

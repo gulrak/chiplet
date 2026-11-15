@@ -5,6 +5,7 @@
 
 #include "../src/cdp1802/assembler.hpp"
 
+#include <ostream>
 #include <string>
 
 using emu::SourceLanguage;
