@@ -189,6 +189,7 @@ void Preprocessor::reset()
     _collectAtLineStart = true;
     _generatedLine = -1;
     _currentSegment = CODE;
+    _vorgSegment.reset();
     _compileResult.reset();
 }
 
@@ -337,9 +338,11 @@ const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::strin
                             token = includeWav(newFile.string());
                         }
                         else {
+                            checkVirtualOriginSegment(CODE);
                             flushSegment();
                             auto oldSeg = _currentSegment;
                             preprocessFile(newFile.string());
+                            checkVirtualOriginSegment(oldSeg);
                             _currentSegment = oldSeg;
                             token = lex.nextToken(true);
                         }
@@ -348,6 +351,7 @@ const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::strin
                         auto next = lex.nextToken();
                         if (next != SourceToken::Type::IDENTIFIER || (lex.token().rawValue != "data" && lex.token().rawValue != "code"))
                             error("Expected 'data' or 'code' after ':segment'.");
+                        checkVirtualOriginSegment(lex.token().rawValue == "code" ? CODE : DATA);
                         flushSegment();
                         _currentSegment = (lex.token().rawValue == "code" ? CODE : DATA);
                         token = lex.nextToken(true);
@@ -436,6 +440,16 @@ const Preprocessor::CompileResult& Preprocessor::preprocessFile(const std::strin
                     if (value == SourceToken::Type::NUMBER) {
                         define(std::string(constName), lex.token().numValue);
                     }
+                    token = lex.nextToken();
+                }
+                else if (token == SourceToken::Type::DIRECTIVE && (lex.expect(":vorg") || lex.expect(":vend")) && (_emitCode.empty() || _emitCode.top() == ACTIVE)) {
+                    // only tracked, the assembler checks the pairing
+                    if (lex.token().rawValue == ":vorg")
+                        _vorgSegment = _currentSegment;
+                    else
+                        _vorgSegment.reset();
+                    writePrefix();
+                    write(lex.token().rawValue);
                     token = lex.nextToken();
                 }
                 else {
@@ -588,6 +602,12 @@ void Preprocessor::writeOctopusLineEnd()
 void Preprocessor::writeLineMarker()
 {
     return;
+}
+
+void Preprocessor::checkVirtualOriginSegment(SegmentType segment)
+{
+    if (_vorgSegment && *_vorgSegment != segment)
+        error("A ':vorg' block can't change the segment before its ':vend'.");
 }
 
 void Preprocessor::flushSegment()

@@ -60,8 +60,12 @@ public:
         SymbolType type;
         Value value;
     };
-    // A `:monitor` directive, see the Octo manual. Fields of a format are consecutive bytes
-    // starting at the base, an index past the registers or memory reads as 0.
+    struct VirtualBlockInfo
+    {
+        uint32_t physicalAddress{};
+        uint32_t logicalAddress{};
+        uint32_t size{};
+    };
     struct MonitorInfo
     {
         enum Source { eMEMORY, eREGISTER };
@@ -114,12 +118,13 @@ public:
     uint32_t lineForAddr(uint32_t addr) const;
     std::string_view breakpointForAddr(uint32_t addr) const;
     std::vector<MonitorInfo> monitors() const;  // in order of definition, empty after an error
+    std::vector<VirtualBlockInfo> virtualBlocks() const;  // in source order, empty after an error
     // Labels and constants with an integer value, empty after an error
     std::vector<std::pair<std::string, int64_t>> symbolValues() const;
     // A listing of the last compile: every line of the assembled (preprocessed) source with its address, its bytes (up to
     // 8 a row, more in rows below) and its line in the original file, "; file" where the file changes (included files
-    // relative to the folder of the main file); the bytes of a macro or string mode are on the line using it; empty
-    // after an error
+    // relative to the folder of the main file); the bytes of a macro or string mode are on the line using it, the bytes
+    // of a :vorg block are shown at their logical address; empty after an error
     std::string listing() const;
 
 private:

@@ -476,7 +476,7 @@ int Assembler::value12bit()
         return valueRange(label->second, 0xFFF);
     if (!check_name(n, "label"))
         return 0;
-    addProtoRef(n, proto_line, proto_pos, here, 12);
+    addProtoRef(n, proto_line, proto_pos, _emitPos, 12);
     return 0;
 }
 
@@ -504,7 +504,7 @@ int Assembler::value16bit(int can_forward_ref, int offset)
         _isError = 1, _error = fmt::format("The reference to '{}' may not be forward-declared.", n);
         return 0;
     }
-    addProtoRef(n, proto_line, proto_pos, here + offset, 16);
+    addProtoRef(n, proto_line, proto_pos, _emitPos + offset, 16);
     return 0;
 }
 
@@ -532,7 +532,7 @@ int Assembler::value24bit(int can_forward_ref, int offset)
         _isError = 1, _error = fmt::format("The reference to '{}' may not be forward-declared.", n);
         return 0;
     }
-    addProtoRef(n, proto_line, proto_pos, here + offset, 24);
+    addProtoRef(n, proto_line, proto_pos, _emitPos + offset, 24);
     return 0;
 }
 
@@ -612,7 +612,7 @@ double Assembler::calcTerminal(std::string_view name)
     if (match("E"))
         return 2.718281828459045;
     if (match("HERE"))
-        return here;
+        return logicalHere();
     if (peekIsRegister())
         return registerOrAlias();
     auto t = next();
@@ -741,12 +741,12 @@ void Assembler::append(uint8_t byte)
 {
     if (_isError)
         return;
-    if (here < 0 || here >= RAM_MAX) {
+    if (_emitPos < 0 || _emitPos >= RAM_MAX) {
         _isError = 1;
         _error = "Supported ROM space is full (16MB).";
         return;
     }
-    while (here >= rom.size()) {
+    while (_emitPos >= rom.size()) {
         if (rom.size() < 1024 * 1024) {
             rom.resize(1024 * 1024, 0);
             used.resize(1024 * 1024, 0);
@@ -763,15 +763,15 @@ void Assembler::append(uint8_t byte)
             romLineMap.resize(RAM_MAX, 0xFFFFFFFF);
         }
     }
-    if (here > startAddress && used[here]) {
+    if (_emitPos > startAddress && used[_emitPos]) {
         _isError = 1;
-        _error = fmt::format("Data overlap. Address 0x{:0X} has already been defined.", here);
+        _error = fmt::format("Data overlap. Address 0x{:0X} has already been defined.", _emitPos);
         return;
     }
-    romLineMap[here] = _statementLine;
-    rom[here] = byte, used[here] = 1, here++;
-    if (here > length)
-        length = here;
+    romLineMap[_emitPos] = _statementLine;
+    rom[_emitPos] = byte, used[_emitPos] = 1, _emitPos++;
+    if (_emitPos > length)
+        length = _emitPos;
 }
 
 void Assembler::instruction(uint8_t a, uint8_t b)
@@ -854,10 +854,14 @@ void Assembler::conditional(int negated)
 
 void Assembler::resolveLabel(int offset)
 {
-    int target = (here) + offset;
+    int target = logicalHere() + offset;
     auto n = identifier("label");
     if (_isError)
         return;
+    if (_openVorg && n == "main") {
+        _isError = 1, _error = "The label 'main' can't be inside a :vorg block, that code only runs after it was copied.";
+        return;
+    }
     if (_programLabels.count(n)) {
         _isError = 1, _error = fmt::format("The name '{}' has already been defined.", n);
         return;
@@ -867,7 +871,7 @@ void Assembler::resolveLabel(int offset)
         return;
     }
     if ((target == startAddress + 2 || target == startAddress) && (n == "main")) {
-        has_main = 0, here = target = startAddress;
+        has_main = 0, _emitPos = target = startAddress;
         rom[startAddress] = 0, used[startAddress] = 0;
         rom[startAddress + 1] = 0, used[startAddress + 1] = 0;
     }
@@ -915,6 +919,90 @@ void Assembler::resolveLabel(int offset)
         }
     }
     protos.erase(n);
+}
+
+int Assembler::originArgument(std::string_view directive)
+{
+    if (peek_match("{", 0)) {
+        const auto valuePos = _sourcePos;
+        const auto value = calculated("ANONYMOUS");
+        if (_isError)
+            return 0;
+        _errorPos = valuePos;
+        if (value < 0) {
+            _isError = 1;
+            _error = fmt::format("Argument to {} is negative.", directive);
+            return 0;
+        }
+        return checkedAddress(value, 24);
+    }
+    return checkedAddress(valueConstant().value, 24);
+}
+
+const char* Assembler::outsideVorgNote(bool branch) const
+{
+    if (!_openVorg || (branch ? _openVorg->branches.empty() : _openVorg->loops.empty()))
+        return "";
+    return " inside its ':vorg' block";
+}
+
+bool Assembler::checkClosedFlowControl(const char* where)
+{
+    if (!loops.empty()) {
+        _isError = 1;
+        _error = fmt::format("This 'loop' does not have a matching 'again'{}.", where);
+        _errorLine = loops.top().line, _errorPos = loops.top().pos;
+        return false;
+    }
+    if (!branches.empty()) {
+        _isError = 1;
+        _error = fmt::format("This '{}' does not have a matching 'end'{}.", branches.top().type, where);
+        _errorLine = branches.top().line, _errorPos = branches.top().pos;
+        return false;
+    }
+    return true;
+}
+
+void Assembler::beginVirtualOrigin()
+{
+    const int line = _errorLine, pos = _errorPos;
+    if (_openVorg) {
+        _isError = 1;
+        _error = "A ':vorg' block can't be nested in another one.";
+        return;
+    }
+    const int logicalAddress = originArgument(":vorg");
+    if (_isError)
+        return;
+    _openVorg = OpenVirtualOrigin{line, pos, _emitPos, {}, {}, {}};
+    std::swap(_openVorg->loops, loops);
+    std::swap(_openVorg->branches, branches);
+    std::swap(_openVorg->whiles, whiles);
+    _vorgDelta = logicalAddress - _emitPos;
+}
+
+void Assembler::endVirtualOrigin()
+{
+    if (!_openVorg) {
+        _isError = 1;
+        _error = "This ':vend' does not have a matching ':vorg'.";
+        return;
+    }
+    if (!checkClosedFlowControl(" inside its ':vorg' block"))
+        return;
+    const int size = _emitPos - _openVorg->physicalAddress;
+    const int logicalAddress = _openVorg->physicalAddress + _vorgDelta;
+    if (logicalAddress + size > RAM_MAX) {
+        _isError = 1;
+        _error = "The ':vorg' block ends beyond the 24-bit address space.";
+        return;
+    }
+    _virtualBlocks.push_back({_openVorg->physicalAddress, logicalAddress, size});
+    loops = std::move(_openVorg->loops);
+    branches = std::move(_openVorg->branches);
+    whiles = std::move(_openVorg->whiles);
+    _openVorg.reset();
+    _vorgDelta = 0;
 }
 
 #if 0
@@ -1543,7 +1631,7 @@ void Assembler::compileStatement()
             }
             case TokenId::BREAKPOINT:
                 eat();
-                breakpoints[here] = string();
+                breakpoints[logicalHere()] = string();
                 break;
             case TokenId::MONITOR: {
                 eat();
@@ -1636,32 +1724,29 @@ void Assembler::compileStatement()
             }
             case TokenId::ORG: {
                 eat();
-                int newAddress;
-                if (peek_match("{", 0)) {
-                    const auto valuePos = _sourcePos;
-                    const auto value = calculated("ANONYMOUS");
-                    if (_isError)
-                        return;
-                    _errorPos = valuePos;
-                    if (value < 0) {
-                        _isError = 1;
-                        _error = "Argument to :org is negative.";
-                        return;
-                    }
-                    newAddress = checkedAddress(value, 24);
+                if (_openVorg) {
+                    _isError = 1;
+                    _error = "':org' is not allowed inside a ':vorg' block.";
+                    return;
                 }
-                else {
-                    newAddress = checkedAddress(valueConstant().value, 24);
-                }
+                const int newAddress = originArgument(":org");
                 if (_isError)
                     return;
-                if (newAddress < here && newAddress < used.size() && used[newAddress] && newAddress != 0x200) {
+                if (newAddress < _emitPos && newAddress < used.size() && used[newAddress] && newAddress != 0x200) {
                     _isError = 1;
-                    _error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", here - newAddress, here);
+                    _error = fmt::format("Data overlap by {} bytes. Address 0x{:0X} has already been defined.", _emitPos - newAddress, _emitPos);
                 }
-                here = newAddress;
+                _emitPos = newAddress;
                 break;
             }
+            case TokenId::VORG:
+                eat();
+                beginVirtualOrigin();
+                break;
+            case TokenId::VEND:
+                eat();
+                endVirtualOrigin();
+                break;
             case TokenId::CALL: {
                 eat();
                 if (peek_match("{", 0)) {
@@ -1816,7 +1901,7 @@ void Assembler::compileStatement()
                 }
                 else if (peek_match("begin", index)) {
                     conditional(1), expect("begin");
-                    branches.push({here, _sourceLine, _sourcePos, "begin"});
+                    branches.push({_emitPos, _sourceLine, _sourcePos, "begin"});
                     instruction(0x00, 0x00);
                 }
                 else {
@@ -1832,7 +1917,7 @@ void Assembler::compileStatement()
                 eat();
                 if (branches.empty()) {
                     _isError = 1;
-                    _error = "This 'else' does not have a matching 'begin'.";
+                    _error = fmt::format("This 'else' does not have a matching 'begin'{}.", outsideVorgNote(true));
                     return;
                 }
                 if (std::string_view{branches.top().type} == "else") {
@@ -1840,9 +1925,9 @@ void Assembler::compileStatement()
                     _error = "This 'if' already has an 'else' branch.";
                     return;
                 }
-                jump(branches.top().addr, here + 2);
+                jump(branches.top().addr, logicalHere() + 2);
                 branches.pop();
-                branches.push({here, peek_line, peek_pos, "else"});
+                branches.push({_emitPos, peek_line, peek_pos, "else"});
                 instruction(0x00, 0x00);
                 break;
             }
@@ -1850,16 +1935,16 @@ void Assembler::compileStatement()
                 eat();
                 if (branches.empty()) {
                     _isError = 1;
-                    _error = "This 'end' does not have a matching 'begin'.";
+                    _error = fmt::format("This 'end' does not have a matching 'begin'{}.", outsideVorgNote(true));
                     return;
                 }
-                jump(branches.top().addr, here);
+                jump(branches.top().addr, logicalHere());
                 branches.pop();
                 break;
             }
             case TokenId::LOOP: {
                 eat();
-                loops.push({here, peek_line, peek_pos, "loop"});
+                loops.push({logicalHere(), peek_line, peek_pos, "loop"});  // a jump target
                 whiles.push({-1, peek_line, peek_pos, "loop"});
                 break;
             }
@@ -1867,11 +1952,11 @@ void Assembler::compileStatement()
                 eat();
                 if (loops.empty()) {
                     _isError = 1;
-                    _error = "This 'while' is not within a loop.";
+                    _error = fmt::format("This 'while' is not within a loop{}.", outsideVorgNote(false));
                     return;
                 }
                 conditional(1);
-                whiles.push({here, peek_line, peek_pos, "while"});
+                whiles.push({_emitPos, peek_line, peek_pos, "while"});  // a jump to patch
                 immediate(0x10, 0);  // forward jump
                 break;
             }
@@ -1879,7 +1964,7 @@ void Assembler::compileStatement()
                 eat();
                 if (loops.empty()) {
                     _isError = 1;
-                    _error = "This 'again' does not have a matching 'loop'.";
+                    _error = fmt::format("This 'again' does not have a matching 'loop'{}.", outsideVorgNote(false));
                     return;
                 }
                 immediate(0x10, loops.top().addr);
@@ -1890,7 +1975,7 @@ void Assembler::compileStatement()
                     whiles.pop();
                     if (a == -1)
                         break;
-                    jump(a, here);
+                    jump(a, logicalHere());
                 }
                 break;
             }
@@ -1989,12 +2074,12 @@ void Assembler::compileNativeBlock(Token token)
         _error = fmt::format("Unsupported :asm CPU '{}'; only cdp1802 is supported.", token.nativeCpu);
         return;
     }
-    if (here < 0 || here > 0xFFFF) {
+    if (logicalHere() < 0 || logicalHere() > 0xFFFF) {
         _isError = 1;
         _error = ":asm cdp1802 requires a 16-bit origin.";
         return;
     }
-    NativeBlock block{std::move(token), here};
+    NativeBlock block{std::move(token), logicalHere(), _emitPos};
     for (const auto& [name, value] : constants)
         block.values.emplace(name, value.value);
     cdp1802::Assembler assembler{block.token.strValue, nativeOptions(block, true)};
@@ -2025,8 +2110,8 @@ bool Assembler::finishNativeBlocks()
             return false;
         }
         for (uint32_t byte = 0; byte < block.size; ++byte) {
-            rom[block.address + byte] = assembler.contiguousData()[byte];
-            romLineMap[block.address + byte] = block.token.nativeLine + assembler.byteSourceLines()[byte] - 1;
+            rom[block.physicalAddress + byte] = assembler.contiguousData()[byte];
+            romLineMap[block.physicalAddress + byte] = block.token.nativeLine + assembler.byteSourceLines()[byte] - 1;
         }
     }
     return true;
@@ -2036,7 +2121,7 @@ Assembler::Assembler(std::string_view text, int startAddress)
 : Lexer(text)
 {
     has_main = 1;
-    here = startAddress;
+    _emitPos = startAddress;
     this->startAddress = startAddress;
     length = 0;
     rom.resize(65536, 0);
@@ -2067,6 +2152,12 @@ bool Assembler::compile()
         return false;
     while (length > startAddress && !used[length - 1])
         length--;
+    if (_openVorg) {
+        _isError = 1;
+        _error = "This ':vorg' does not have a matching ':vend'.";
+        _errorLine = _openVorg->line, _errorPos = _openVorg->pos;
+        return false;
+    }
     _errorLine = _sourceLine, _errorPos = _sourcePos;
 
     if (has_main) {
@@ -2085,18 +2176,8 @@ bool Assembler::compile()
         _error = fmt::format("Undefined forward reference: {}", protos.begin()->first);
         return false;
     }
-    if (!loops.empty()) {
-        _isError = 1;
-        _error = "This 'loop' does not have a matching 'again'.";
-        _errorLine = loops.top().line, _errorPos = loops.top().pos;
+    if (!checkClosedFlowControl(""))
         return false;
-    }
-    if (!branches.empty()) {
-        _isError = 1;
-        _error = fmt::format("This '{}' does not have a matching 'end'.", branches.top().type);
-        _errorLine = branches.top().line, _errorPos = branches.top().pos;
-        return false;
-    }
     return true;  // success!
 }
 

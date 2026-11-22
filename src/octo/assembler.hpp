@@ -66,6 +66,7 @@
 #include <array>
 #include <deque>
 #include <functional>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <stack>
@@ -131,6 +132,13 @@ struct Monitor
     std::vector<MonitorField> format;
 };
 
+struct VirtualBlock
+{
+    int physicalAddress;
+    int logicalAddress;
+    int size;
+};
+
 class Assembler : protected Lexer
 {
 public:
@@ -166,6 +174,9 @@ public:
     }
     // Monitor names in the order of their first definition, like Octo lists them.
     const std::vector<std::string_view>& monitorNames() const { return monitorOrder; }
+    // The :vorg blocks in source order, the debugger needs them to map a PC inside a logical
+    // window back to a source line (romLineMap is indexed by the physical address).
+    const std::vector<VirtualBlock>& virtualBlocks() const { return _virtualBlocks; }
     // Program labels and constants (`:const`, `:calc` with their final value), a constant wins
     // over a label of the same name like in value lookups.
     void forEachSymbol(const std::function<void(std::string_view name, double value)>& visitor) const
@@ -203,6 +214,7 @@ private:
     int registerOrAlias();
     int valueRange(double n, int mask);
     int checkedAddress(double value, int bits);
+    int originArgument(std::string_view directive);
     void valueFail(const std::string_view& w, const std::string_view& n, bool undef);
     int value4bit();
     int value8bit();
@@ -222,13 +234,19 @@ private:
     void pseudoConditional(int reg, int sub, int comp);
     void conditional(int negated);
     void resolveLabel(int offset);
+    void beginVirtualOrigin();
+    void endVirtualOrigin();
+    bool checkClosedFlowControl(const char* where);
+    const char* outsideVorgNote(bool branch) const;
+    int logicalHere() const { return _emitPos + _vorgDelta; }
     void compileStatement();
     bool expandMacroOrStringMode();
     void compileNativeBlock(Token token);
     bool finishNativeBlocks();
     struct NativeBlock {
         Token token;
-        int address{};
+        int address{};          // the origin the native code is assembled for (logical)
+        int physicalAddress{};  // where its bytes are stored
         uint32_t size{};
         std::unordered_map<std::string, double> values;
     };
@@ -252,7 +270,8 @@ private:
     // compiler
     char has_main{};  // do we need a trampoline for 'main'?
     int startAddress{};
-    int here{};
+    int _emitPos{};    // where the next byte is stored in the ROM image (physical)
+    int _vorgDelta{};  // logical minus physical address inside a :vorg block, else 0
     int length{};
     std::vector<uint8_t> rom{};
     std::vector<char> used{};
@@ -265,6 +284,16 @@ private:
     std::stack<FlowControl> loops{};
     std::stack<FlowControl> branches{};
     std::stack<FlowControl> whiles{}; // value=-1 indicates a marker
+    // An open :vorg block keeps the flow control of the code around it, so no 'if', 'loop' or
+    // 'while' can cross the block boundary and the address delta stays fixed for each of them.
+    struct OpenVirtualOrigin
+    {
+        int line, pos;
+        int physicalAddress;
+        std::stack<FlowControl> loops, branches, whiles;
+    };
+    std::optional<OpenVirtualOrigin> _openVorg;
+    std::vector<VirtualBlock> _virtualBlocks;
     Token stringToken{0,0};
 
     // debugging

@@ -35,6 +35,7 @@
 namespace octo {
 
 struct Monitor;
+struct VirtualBlock;
 
 class AssemblySession
 {
@@ -58,9 +59,11 @@ public:
     std::string_view breakpointForAddr(uint32_t addr) const;
     void forEachMonitor(const std::function<void(std::string_view name, const Monitor& monitor)>& visitor) const;
     void forEachSymbol(const std::function<void(std::string_view name, double value)>& visitor) const;
+    void forEachVirtualBlock(const std::function<void(const VirtualBlock& block)>& visitor) const;
 
 private:
     void updateHash();
+    uint32_t lastBreakpointAddress() const;
     void updateLineCoverage();
     class Private;
     std::unique_ptr<Private> _impl;

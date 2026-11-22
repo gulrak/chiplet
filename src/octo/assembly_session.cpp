@@ -2,6 +2,7 @@
 //#include <emulation/utility.hpp>
 
 #include <chiplet/sha1.hpp>
+#include <algorithm>
 #include <iostream>
 #include <vector>
 
@@ -117,7 +118,7 @@ uint32_t AssemblySession::lineForAddr(uint32_t addr) const
 
 std::string_view AssemblySession::breakpointForAddr(uint32_t addr) const
 {
-    if(addr <= _impl->_assembler->lastAddressUsed() && !_impl->_assembler->breakpointInfo(addr).empty()) {
+    if(addr <= lastBreakpointAddress() && !_impl->_assembler->breakpointInfo(addr).empty()) {
         return _impl->_assembler->breakpointInfo(addr);
     }
     return "";
@@ -139,13 +140,31 @@ void AssemblySession::forEachSymbol(const std::function<void(std::string_view na
         _impl->_assembler->forEachSymbol(visitor);
 }
 
+void AssemblySession::forEachVirtualBlock(const std::function<void(const VirtualBlock& block)>& visitor) const
+{
+    if (!_impl->_assembler || isError())
+        return;
+    for (const auto& block : _impl->_assembler->virtualBlocks())
+        visitor(block);
+}
+
+uint32_t AssemblySession::lastBreakpointAddress() const
+{
+    auto last = static_cast<uint32_t>(_impl->_assembler->lastAddressUsed());
+    for (const auto& block : _impl->_assembler->virtualBlocks()) {
+        if (block.size)
+            last = std::max(last, static_cast<uint32_t>(block.logicalAddress + block.size - 1));
+    }
+    return last;
+}
+
 void AssemblySession::updateHash()
 {
     char hex[SHA1_HEX_SIZE];
     char bpName[1024];
     Sha1 sum;
     sum.add(code(), codeSize());
-    for(uint32_t addr = 0; addr <= _impl->_assembler->lastAddressUsed(); ++addr) {
+    for(uint32_t addr = 0; addr <= lastBreakpointAddress(); ++addr) {
         if(!_impl->_assembler->breakpointInfo(addr).empty()) {
             auto l = fmt::format_to_n(bpName, 1023, "{:04x}:{}", addr, _impl->_assembler->breakpointInfo(addr)).size;
             sum.add(bpName, l);
