@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `:vorg <address>` ... `:vend` for code overlays: the block is stored at the current position
+  but assembled for the address it is copied to before it runs, labels in it resolve to that
+  address from everywhere; `OctoCompiler::virtualBlocks()` lists the blocks for debuggers
 - The compile result lists the files read through `:include` (sources, images, binaries and
   sounds) in `includedFiles`, with absolute paths, so editors know which files belong to a program
 - Source language detection in `chiplet/sourcelanguage.hpp`: `.8o` is Octo, `.asap` Saturn

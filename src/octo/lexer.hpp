@@ -103,6 +103,8 @@ namespace octo {
     decl(ALIAS, ":alias", DIRECTIVE) \
     decl(CONST_DIRECTIVE, ":const", DIRECTIVE) \
     decl(ORG, ":org", DIRECTIVE) \
+    decl(VORG, ":vorg", DIRECTIVE) \
+    decl(VEND, ":vend", DIRECTIVE) \
     decl(SEMICOLON, ";", OPERATOR) \
     decl(AGAIN, "again", KEYWORD) \
     decl(AUDIO, "audio", KEYWORD) \

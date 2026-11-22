@@ -146,6 +146,18 @@ std::string OctoCompiler::listing() const
         if (const auto line = lineForAddr(start + offset); line != 0xFFFFFFFF)
             addressesOfLine[line].push_back(start + offset);
     }
+    // the bytes of a :vorg block are shown at the address they run at, each block starts a row with a note
+    const auto blocks = virtualBlocks();
+    auto shownAddress = [&](uint32_t address) {
+        for (const auto& block : blocks) {
+            if (address >= block.physicalAddress && address < block.physicalAddress + block.size)
+                return address - block.physicalAddress + block.logicalAddress;
+        }
+        return address;
+    };
+    auto blockStartingAt = [&](uint32_t address) {
+        return std::ranges::find_if(blocks, [address](const VirtualBlockInfo& block) { return block.size && block.physicalAddress == address; });
+    };
     // the lines of the assembled text with their file and line, without the preprocessor's markers
     struct SourceLine
     {
@@ -212,32 +224,42 @@ std::string OctoCompiler::listing() const
     for (const auto& line : lines) {
         showFile(line.file);
         // rows of up to 8 bytes in a row of addresses, the first one with the line
-        std::vector<std::pair<uint32_t, std::string>> rows;
+        struct Row
+        {
+            uint32_t shown;     // the address of the first byte as shown
+            uint32_t physical;  // and where it is stored
+            std::string bytes;
+        };
+        std::vector<Row> rows;
         if (const auto found = addressesOfLine.find(line.index); found != addressesOfLine.end()) {
-            uint32_t rowStart = 0, previous = 0;
+            uint32_t rowStart = 0, rowPhysical = 0, previous = 0;
             std::string bytes;
             int count = 0;
             for (const auto address : found->second) {
-                if (count && (count == 8 || address != previous + 1)) {
-                    rows.emplace_back(rowStart, bytes);
+                const auto shown = shownAddress(address);
+                if (count && (count == 8 || shown != previous + 1 || blockStartingAt(address) != blocks.end())) {
+                    rows.push_back({rowStart, rowPhysical, bytes});
                     bytes.clear();
                     count = 0;
                 }
                 if (!count)
-                    rowStart = address;
+                    rowStart = shown, rowPhysical = address;
                 bytes += fmt::format("{}{:02X}", count ? " " : "", code()[address - start]);
-                previous = address;
+                previous = shown;
                 ++count;
             }
-            rows.emplace_back(rowStart, bytes);
+            rows.push_back({rowStart, rowPhysical, bytes});
         }
         if (rows.empty())
             out << fmt::format("{:4}  {:23}  {:5}  {}\n", "", "", line.line, line.text);
         for (size_t row = 0; row < rows.size(); ++row) {
+            if (const auto block = blockStartingAt(rows[row].physical); block != blocks.end())
+                out << fmt::format("; :vorg {:04X}-{:04X} stored at {:04X}-{:04X}\n", block->logicalAddress, block->logicalAddress + block->size - 1,
+                                   block->physicalAddress, block->physicalAddress + block->size - 1);
             if (!row)
-                out << fmt::format("{:04X}  {:23}  {:5}  {}\n", rows[row].first, rows[row].second, line.line, line.text);
+                out << fmt::format("{:04X}  {:23}  {:5}  {}\n", rows[row].shown, rows[row].bytes, line.line, line.text);
             else
-                out << fmt::format("{:04X}  {}\n", rows[row].first, rows[row].second);
+                out << fmt::format("{:04X}  {}\n", rows[row].shown, rows[row].bytes);
         }
     }
     return out.str();
@@ -379,6 +401,17 @@ std::vector<OctoCompiler::MonitorInfo> OctoCompiler::monitors() const
             info.format.push_back({.kind = kind, .text = std::string(field.text), .length = kind == MonitorInfo::Field::eTEXT ? 0 : field.length});
         }
         result.push_back(std::move(info));
+    });
+    return result;
+}
+
+std::vector<OctoCompiler::VirtualBlockInfo> OctoCompiler::virtualBlocks() const
+{
+    std::vector<VirtualBlockInfo> result;
+    if (!_assemblySession || isError())
+        return result;
+    _assemblySession->forEachVirtualBlock([&](const octo::VirtualBlock& block) {
+        result.push_back({static_cast<uint32_t>(block.physicalAddress), static_cast<uint32_t>(block.logicalAddress), static_cast<uint32_t>(block.size)});
     });
     return result;
 }

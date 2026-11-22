@@ -436,6 +436,88 @@ end
      0x31, 2, 0x12, 0x10, 0, 0xe0, 0x12, 0x12, 0, 0xe0});
     }
 
+    TEST_CASE(":vorg blocks are stored in place but assembled for their logical address")
+    {
+        const std::string source = R"(
+: main
+    i := long src
+    sub
+: src
+:vorg 0xA00
+: sub
+    loop
+        v0 += 1
+        while v0 != 3
+    again
+    :breakpoint inside
+    :byte { HERE }
+    :pointer sub
+:vend
+    sub
+)";
+        octo::Assembler assembler{source};
+        INFO(assembler.errorMessage());
+        REQUIRE(assembler.compile());
+        const Data expected{0xf0, 0x00, 0x02, 0x06, 0x2a, 0x00,
+                            0x70, 0x01, 0x40, 0x03, 0x1a, 0x08, 0x1a, 0x00, 0x08, 0x0a, 0x00,
+                            0x2a, 0x00};
+        CHECK_EQ(Data(assembler.data(), assembler.data() + assembler.codeSize()), expected);
+        REQUIRE(assembler.virtualBlocks().size() == 1);
+        const auto& block = assembler.virtualBlocks().front();
+        CHECK(block.physicalAddress == 0x206);
+        CHECK(block.logicalAddress == 0xa00);
+        CHECK(block.size == 11);
+        CHECK(assembler.breakpointInfo(0xa08) == "inside");
+        // the line map stays physical: the 'v0 += 1' line is stored at 0x206
+        CHECK(assembler.lineForAddress(0x206) == 8);
+    }
+
+    TEST_CASE(":vorg blocks check their boundaries")
+    {
+        const std::vector<std::pair<std::string, std::string>> cases{
+            {": main :vorg 0x300 :vorg 0x400 :vend :vend", "A ':vorg' block can't be nested in another one."},
+            {": main :vorg 0x300 :org 0x400 :vend", "':org' is not allowed inside a ':vorg' block."},
+            {": main :vend", "This ':vend' does not have a matching ':vorg'."},
+            {": main :vorg 0x300 v0 := 1", "This ':vorg' does not have a matching ':vend'."},
+            {":vorg 0x300 : main :vend", "The label 'main' can't be inside a :vorg block, that code only runs after it was copied."},
+            {": main :vorg { 0 - 1 } :vend", "Argument to :vorg is negative."},
+            {": main loop :vorg 0x300 again :vend", "This 'again' does not have a matching 'loop' inside its ':vorg' block."},
+            {": main :vorg 0x300 loop :vend again", "This 'loop' does not have a matching 'again' inside its ':vorg' block."},
+            {": main if v0 == 1 begin :vorg 0x300 end :vend", "This 'end' does not have a matching 'begin' inside its ':vorg' block."},
+            {": main jump far :vorg 0x1000 : far :vend", "Value 0x1000 for label 'far' does not fit in 12 bits."},
+        };
+        for (const auto& [source, message] : cases) {
+            octo::Assembler assembler{source};
+            INFO(source);
+            CHECK_FALSE(assembler.compile());
+            CHECK(assembler.errorMessage() == message);
+        }
+    }
+
+    TEST_CASE("OctoCompiler exports :vorg blocks and lists them at their logical address")
+    {
+        const std::string source = ": main\n    sub\n:vorg 0xA00\n: sub\n    :breakpoint inside\n    return\n:vend\n";
+        emu::OctoCompiler compiler;
+        compiler.compile("vorg.8o", std::span<const char>{source.data(), source.size()});
+        INFO(compiler.compileResult().errorMessage);
+        REQUIRE_FALSE(compiler.isError());
+        const auto blocks = compiler.virtualBlocks();
+        REQUIRE(blocks.size() == 1);
+        CHECK(blocks[0].physicalAddress == 0x202);
+        CHECK(blocks[0].logicalAddress == 0xa00);
+        CHECK(blocks[0].size == 2);
+        // the window is beyond the last stored byte, its breakpoint is found anyway
+        CHECK(compiler.breakpointForAddr(0xa00) == "inside");
+        const auto listing = compiler.listing();
+        INFO(listing);
+        CHECK(listing.find("; :vorg 0A00-0A01 stored at 0202-0203\n0A00  00 EE") != std::string::npos);
+
+        const std::string split = ": main\n:vorg 0xA00\n: sub\n:segment data\n    return\n:segment code\n:vend\n";
+        compiler.compile("split.8o", std::span<const char>{split.data(), split.size()});
+        CHECK(compiler.isError());
+        CHECK(compiler.compileResult().errorMessage == "A ':vorg' block can't change the segment before its ':vend'.");
+    }
+
     TEST_CASE("tiny")
     {
         compileTest(R"(

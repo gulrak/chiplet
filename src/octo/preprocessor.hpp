@@ -114,6 +114,7 @@ private:
     void warning(std::string msg);
     void info(std::string msg);
     void flushSegment();
+    void checkVirtualOriginSegment(SegmentType segment);
     std::string resolveFile(const ghc::filesystem::path& file);
     void noteIncludedFile(const std::string& file);
 
@@ -122,6 +123,7 @@ private:
     bool _collectAtLineStart{true};  // the collected text is empty or ends with a newline
     int _generatedLine{-1};          // the line of the :include whose text is generated, for its line markers
     SegmentType _currentSegment{CODE};
+    std::optional<SegmentType> _vorgSegment;  // the segment of an open :vorg block, it must not leave it
     std::stack<Lexer> _lexerStack;
     std::vector<std::string> _codeSegments;
     std::vector<std::string> _dataSegments;

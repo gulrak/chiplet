@@ -434,6 +434,50 @@ memory area, while the lookup_table data will be automatically
 moved to the extended memory region, maintaining proper program
 functionality while adhering to XO-CHIP's architectural constraints.
 
+### Code Overlays with `:vorg` and `:vend`
+
+When there is more code than fits in the lower memory, a program can
+keep parts of it anywhere in memory and copy them into a window in the
+lower memory before it runs them. The assembler directive pair
+`:vorg <address>` ... `:vend` supports this: the bytes of the block are
+stored at the current position, but the block is assembled as if it
+were at `<address>` (its "virtual origin"). Labels inside the block,
+`HERE`, jumps, calls and `:pointer`s, and every reference to these labels
+from outside the block, use the address the code runs at. Labels outside
+the block keep their real address, so a label right before `:vorg` names
+the bytes to copy:
+
+```
+:const WINDOW 0xE00
+
+: main
+    i := long overlay1          # where the block is stored
+    load v0 - vf
+    i := WINDOW
+    save v0 - vf                # copy the first 16 bytes, repeat as needed
+    ov1-start                   # calls 0xE00
+
+:segment data
+: overlay1
+:vorg WINDOW
+: ov1-start
+    loop
+        # ... jumps and calls in here resolve to the window
+    again
+:vend
+: overlay1-end
+:assert "overlay1 is too big" { overlay1-end - overlay1 <= 0x100 }
+```
+
+Several blocks may use the same address, that is how overlays share
+one window. The argument is a constant or a `{ ... }` expression like
+for `:org`. Blocks can't be nested, can't contain `:org` or the `main`
+label, and can't change the segment. An `if ... begin`, `loop` or
+`while` must be closed in the block it was opened in. The listing shows
+the bytes of a block at the address they run at, with a note where the
+block is stored. A `:breakpoint` inside a block is set at its run
+address.
+
 ### Inclusion of Files
 
 To organize a complex project it is often useful to split the
